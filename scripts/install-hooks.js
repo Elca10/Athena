@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-// One-time setup, run from the repo root (or automatically by `npm install`
-// at the repo root — see package.json's "postinstall"): points git at
-// .githooks/ so the pre-commit privacy guard actually runs. Without this,
-// `.githooks/pre-commit` is just an inert file — git only runs hooks from
-// `.git/hooks/` or wherever `core.hooksPath` points, and `core.hooksPath`
-// is a per-clone local config, not something a repo can ship pre-set.
+// One-time setup, run manually from the repo root: `node scripts/install-hooks.js`.
+// TODO(installer): wire this into the one-command installer (SPEC.md
+// section 2/13 step 1) so it runs automatically on install, e.g. via a
+// root package.json "postinstall" — no root package.json exists yet, so
+// nothing currently runs this for a contributor automatically.
+// Points git at .githooks/ so the pre-commit privacy guard actually runs.
+// Without this, `.githooks/pre-commit` is just an inert file — git only
+// runs hooks from `.git/hooks/` or wherever `core.hooksPath` points, and
+// `core.hooksPath` is a per-clone local config, not something a repo can
+// ship pre-set.
 //
 // Cross-platform: `git config` itself handles the path separator
 // correctly for whatever OS it's running on, so this just needs to call it

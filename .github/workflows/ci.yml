@@ -7,7 +7,11 @@ name: CI
 # (scripts/check-privacy.js) against the full tracked tree as the "CI
 # check" half of SPEC.md section 3's belt-and-braces guard — the other
 # half is the local pre-commit hook (.githooks/pre-commit), which this
-# catches if it was ever skipped or never installed.
+# catches if it was ever skipped or never installed. scripts/__tests__/
+# covers the guard and the hook/installer end to end against disposable
+# fixture repos, on every OS in the matrix, so a change that quietly
+# breaks either doesn't have to be caught by the full-tree run finding
+# real leaked data after the fact.
 
 on:
   push:
@@ -33,6 +37,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+
+      - name: Run privacy-guard and git-hook tests
+        run: node --test "scripts/__tests__/*.test.js"
 
       - name: Install server dependencies
         run: npm install
