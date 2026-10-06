@@ -44,6 +44,9 @@ jobs:
       - name: Run installer (bootstrap.mjs) tests
         run: node --test "installers/__tests__/bootstrap.test.js"
 
+      - name: Run auto-update rollback (rollback.mjs) tests
+        run: node --test "installers/__tests__/rollback.test.js"
+
       # installers/macos.sh is bash and only meaningful on an OS that
       # actually runs it; the Windows runner's default shell has no `bash`
       # guaranteed on PATH for the test harness to shell out to. The

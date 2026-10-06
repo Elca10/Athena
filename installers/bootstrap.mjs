@@ -18,6 +18,8 @@ import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getAppDataDir } from "../server/src/dataDir.js";
+import { getCurrentCommit, recordGoodCommit, rollbackToLastGoodCommit } from "./rollback.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, "..");
@@ -133,28 +135,103 @@ export function openBrowser(url, { platform = process.platform, spawnFn = spawn 
   }
 }
 
-async function main() {
-  console.log("==> Installing git hooks (privacy guard)...");
-  await run("node", [path.join(REPO_ROOT, "scripts", "install-hooks.js")], { cwd: REPO_ROOT });
-
+/**
+ * Installs dependencies, (re)builds the web UI if present, starts the
+ * server, and waits for it to report healthy. Throws if anything in that
+ * sequence fails; if the server did start but never became healthy, kills
+ * it first so a retry (e.g. after a rollback) doesn't collide on the port.
+ */
+export async function installAndStart({ cwd, env, healthUrl }) {
   console.log("==> Installing server dependencies...");
-  await run("npm", ["install"], { cwd: path.join(REPO_ROOT, "server") });
+  await run("npm", ["install"], { cwd: path.join(cwd, "server") });
 
-  const webPackageJson = path.join(REPO_ROOT, "web", "package.json");
+  const webPackageJson = path.join(cwd, "web", "package.json");
   if (existsSync(webPackageJson)) {
     console.log("==> Installing and building the web UI...");
-    await run("npm", ["install"], { cwd: path.join(REPO_ROOT, "web") });
-    await run("npm", ["run", "build"], { cwd: path.join(REPO_ROOT, "web") });
+    await run("npm", ["install"], { cwd: path.join(cwd, "web") });
+    await run("npm", ["run", "build"], { cwd: path.join(cwd, "web") });
   } else {
     console.log("==> web/ has no UI build yet (still under construction) — skipping.");
   }
 
   console.log("==> Starting the Athena-Studying server...");
-  startServerDetached({ cwd: REPO_ROOT, env: process.env });
+  const child = startServerDetached({ cwd, env });
+  try {
+    await waitForHealth(healthUrl);
+  } catch (err) {
+    child.kill();
+    throw err;
+  }
+  return child;
+}
+
+/**
+ * Auto-update + rollback (SPEC.md section 2): tries `install` (real default:
+ * `installAndStart` above) on whatever commit the checkout is currently on.
+ * If that fails and a previous launch ever recorded a known-good commit,
+ * rolls the checkout back to it (rollback.mjs) and tries once more before
+ * giving up. On success, records the commit that just started cleanly as
+ * the new fallback for next time. Every dependency is injectable so tests
+ * can simulate success/failure without a real npm install or git repo.
+ */
+export async function updateAndStart({
+  cwd,
+  env,
+  healthUrl,
+  appDataDir,
+  install = installAndStart,
+  getCommit = getCurrentCommit,
+  rollback = rollbackToLastGoodCommit,
+  recordGood = recordGoodCommit,
+  log = console.log,
+  warn = console.warn,
+  error = console.error,
+} = {}) {
+  let currentCommit = null;
+  try {
+    currentCommit = await getCommit(cwd);
+  } catch {
+    // Not a git checkout (e.g. a test fixture) — no update/rollback tracking possible.
+  }
+
+  try {
+    const child = await install({ cwd, env, healthUrl });
+    if (currentCommit) await recordGood(currentCommit, appDataDir);
+    return { child, rolledBackTo: null };
+  } catch (err) {
+    if (!currentCommit) throw err;
+    error(`==> Startup failed on ${currentCommit.slice(0, 8)}: ${err.message}`);
+
+    const lastGood = await rollback({ cwd, appDataDir });
+    if (!lastGood) {
+      error("==> No previously-known-good version recorded — can't roll back.");
+      throw err;
+    }
+
+    log(`==> Rolling back to last known-good version ${lastGood.slice(0, 8)}...`);
+    let child;
+    try {
+      child = await install({ cwd, env, healthUrl });
+    } catch (rollbackErr) {
+      error(`==> Rollback to ${lastGood.slice(0, 8)} also failed to start: ${rollbackErr.message}`);
+      throw rollbackErr;
+    }
+    warn(
+      `==> Athena-Studying is running on the last known-good version (${lastGood.slice(0, 8)}) because the ` +
+        `update to ${currentCommit.slice(0, 8)} failed to start. It will try to update again next launch.`,
+    );
+    return { child, rolledBackTo: lastGood };
+  }
+}
+
+async function main() {
+  console.log("==> Installing git hooks (privacy guard)...");
+  await run("node", [path.join(REPO_ROOT, "scripts", "install-hooks.js")], { cwd: REPO_ROOT });
 
   const port = process.env.ATHENA_PORT || 4417;
   const healthUrl = `http://127.0.0.1:${port}/api/health`;
-  await waitForHealth(healthUrl);
+
+  await updateAndStart({ cwd: REPO_ROOT, env: process.env, healthUrl, appDataDir: getAppDataDir() });
 
   const appUrl = `http://127.0.0.1:${port}/`;
   console.log(`\nAthena-Studying is running: ${appUrl}`);

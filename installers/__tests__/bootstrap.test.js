@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { resolveExecutable, waitForHealth, openBrowser } from "../bootstrap.mjs";
+import { resolveExecutable, waitForHealth, openBrowser, updateAndStart } from "../bootstrap.mjs";
 
 test("resolveExecutable: appends .cmd for npm/npx on win32 only", () => {
   assert.equal(resolveExecutable("npm", "win32"), "npm.cmd");
@@ -77,4 +77,113 @@ test("openBrowser swallows a spawn failure instead of throwing (headless/no-brow
     throw new Error("no display");
   };
   assert.doesNotThrow(() => openBrowser("http://127.0.0.1:4417/", { platform: "linux", spawnFn }));
+});
+
+// updateAndStart (SPEC.md section 2, auto-update + rollback) — every
+// dependency is injected, so these never touch a real git repo, npm
+// install, or server process. rollback.mjs's own real-git plumbing is
+// covered separately in rollback.test.js.
+
+test("updateAndStart: records the commit as good after a clean install, does not roll back", async () => {
+  const recorded = [];
+  const result = await updateAndStart({
+    cwd: "/repo",
+    getCommit: async () => "commit-a",
+    install: async () => "fake-child",
+    recordGood: async (commit, appDataDir) => recorded.push({ commit, appDataDir }),
+    rollback: async () => {
+      throw new Error("should not be called");
+    },
+    log: () => {},
+    warn: () => {},
+    error: () => {},
+  });
+  assert.equal(result.child, "fake-child");
+  assert.equal(result.rolledBackTo, null);
+  assert.deepEqual(recorded, [{ commit: "commit-a", appDataDir: undefined }]);
+});
+
+test("updateAndStart: install failure with no git commit (e.g. a test fixture) just throws", async () => {
+  await assert.rejects(
+    updateAndStart({
+      cwd: "/repo",
+      getCommit: async () => {
+        throw new Error("not a git repository");
+      },
+      install: async () => {
+        throw new Error("npm install failed");
+      },
+      rollback: async () => {
+        throw new Error("should not be called");
+      },
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    }),
+    /npm install failed/,
+  );
+});
+
+test("updateAndStart: install failure with no recorded good commit rethrows the original error", async () => {
+  await assert.rejects(
+    updateAndStart({
+      cwd: "/repo",
+      getCommit: async () => "commit-bad",
+      install: async () => {
+        throw new Error("health check timed out");
+      },
+      rollback: async () => null,
+      recordGood: async () => {
+        throw new Error("should not be called");
+      },
+      log: () => {},
+      warn: () => {},
+      error: () => {},
+    }),
+    /health check timed out/,
+  );
+});
+
+test("updateAndStart: rolls back and retries once when install fails and a good commit is recorded", async () => {
+  let installAttempts = 0;
+  const warnings = [];
+  const result = await updateAndStart({
+    cwd: "/repo",
+    getCommit: async () => "commit-bad",
+    install: async () => {
+      installAttempts += 1;
+      if (installAttempts === 1) throw new Error("health check timed out");
+      return "rolled-back-child";
+    },
+    rollback: async () => "commit-good",
+    recordGood: async () => {
+      throw new Error("should not record anything after a rollback retry");
+    },
+    log: () => {},
+    warn: (msg) => warnings.push(msg),
+    error: () => {},
+  });
+  assert.equal(installAttempts, 2);
+  assert.equal(result.child, "rolled-back-child");
+  assert.equal(result.rolledBackTo, "commit-good");
+  assert.match(warnings[0], /last known-good version \(commit-g\)/);
+});
+
+test("updateAndStart: throws if the rollback attempt also fails to start", async () => {
+  const errors = [];
+  await assert.rejects(
+    updateAndStart({
+      cwd: "/repo",
+      getCommit: async () => "commit-bad",
+      install: async () => {
+        throw new Error("still broken");
+      },
+      rollback: async () => "commit-good",
+      log: () => {},
+      warn: () => {},
+      error: (msg) => errors.push(msg),
+    }),
+    /still broken/,
+  );
+  assert.ok(errors.some((msg) => /also failed to start/.test(msg)));
 });
