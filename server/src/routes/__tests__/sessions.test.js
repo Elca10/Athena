@@ -6,6 +6,7 @@ import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
 import { createSession, endSession } from "../../sessions.js";
+import { addPlannedTopics } from "../../topics.js";
 import { makeSessionsRouter } from "../sessions.js";
 
 async function startApp() {
@@ -41,6 +42,42 @@ test("POST /api/sessions creates a session for a real subject", async () => {
     assert.deepEqual(session.subjectIds, [subject.id]);
     assert.equal(session.status, "active");
     assert.deepEqual(await (await fetch(base)).json(), [session]);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions auto-builds topicIds from the subject's due topics when none are given", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Biology" });
+    const added = await addPlannedTopics(dir, subject.id, ["Mitosis", "Meiosis"]);
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "live" }),
+    });
+    assert.equal(res.status, 201);
+    const session = await res.json();
+    assert.deepEqual(session.topicIds.sort(), added.map((t) => t.id).sort());
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions keeps an explicitly-given topicIds instead of auto-building", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Geology" });
+    await addPlannedTopics(dir, subject.id, ["Plate tectonics", "Rock cycle"]);
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "live", topicIds: ["explicit-topic"] }),
+    });
+    assert.equal(res.status, 201);
+    const session = await res.json();
+    assert.deepEqual(session.topicIds, ["explicit-topic"]);
   } finally {
     server.close();
   }

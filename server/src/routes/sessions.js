@@ -10,6 +10,7 @@ import {
   restoreSession,
   STATUSES,
 } from "../sessions.js";
+import { buildSessionTopicIds } from "../sessionBuilder.js";
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
@@ -30,10 +31,16 @@ export function makeSessionsRouter(appDataDir) {
       }
     }
     try {
+      // A caller can still hand us an explicit topicIds (e.g. a
+      // not-yet-built "pick specific topics" flow); only auto-build from
+      // each subject's due topics (section 6's interleaving) when none
+      // was given.
+      const requestedTopicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds : [];
+      const topicIds = requestedTopicIds.length ? requestedTopicIds : await buildSessionTopicIds(appDataDir, subjectIds);
       const session = await createSession(appDataDir, {
         subjectIds,
         mode: req.body?.mode,
-        topicIds: req.body?.topicIds,
+        topicIds,
       });
       res.status(201).json(session);
     } catch (err) {
