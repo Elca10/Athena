@@ -45,7 +45,7 @@ const ALLOWED_PATH_PATTERNS = [
   /^\.github\/.+/,
   /^\.githooks\/.+/,
   /^scripts\/.+\.(js|mjs|sh|ps1)$/,
-  /^installers\/[^/]+\.(sh|ps1|js)$/,
+  /^installers\/.+\.(sh|ps1|js|mjs)$/,
   /^server\/package(-lock)?\.json$/,
   /^server\/src\/.+\.js$/,
   /^server\/scripts\/[^/]+\.js$/,

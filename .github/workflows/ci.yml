@@ -41,6 +41,18 @@ jobs:
       - name: Run privacy-guard and git-hook tests
         run: node --test "scripts/__tests__/*.test.js"
 
+      - name: Run installer (bootstrap.mjs) tests
+        run: node --test "installers/__tests__/bootstrap.test.js"
+
+      # installers/macos.sh is bash and only meaningful on an OS that
+      # actually runs it; the Windows runner's default shell has no `bash`
+      # guaranteed on PATH for the test harness to shell out to. The
+      # Windows installer (installers/*.ps1) and its own tests are a
+      # separate, later step (see ~/athena-build/progress.md).
+      - name: Run macOS installer (macos.sh) tests
+        if: runner.os != 'Windows'
+        run: node --test "installers/__tests__/macos-sh.test.js"
+
       - name: Install server dependencies
         run: npm install
         working-directory: server
