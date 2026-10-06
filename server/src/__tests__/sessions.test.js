@@ -9,6 +9,7 @@ import {
   createSession,
   setSessionStatus,
   setCurrentQuestion,
+  recordAnswer,
   endSession,
   archiveSession,
   restoreSession,
@@ -36,6 +37,7 @@ test("createSession assigns an id and starts active, unended, unarchived", async
   assert.equal(session.endedAt, null);
   assert.equal(session.archived, false);
   assert.equal(session.currentQuestion, null);
+  assert.deepEqual(session.history, []);
   assert.deepEqual(await listSessions(dir), [session]);
 });
 
@@ -122,6 +124,49 @@ test("setCurrentQuestion refuses to reopen a completed session", async () => {
   const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
   await endSession(dir, session.id);
   await assert.rejects(() => setCurrentQuestion(dir, session.id, { prompt: "x" }), /already completed/);
+});
+
+test("recordAnswer appends to history, clears currentQuestion, and moves the session back to active", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  const question = { topicId: "topic-1", subjectId: "subject-1", prompt: "What is X?", type: "free_recall", difficulty: "intro" };
+  await setCurrentQuestion(dir, session.id, question);
+  const entry = { ...question, answerText: "X is a thing", confidence: 3, rating: "good", feedback: "Close enough." };
+  const updated = await recordAnswer(dir, session.id, entry);
+  assert.deepEqual(updated.history, [entry]);
+  assert.equal(updated.currentQuestion, null);
+  assert.equal(updated.status, "active");
+  assert.deepEqual(await getSession(dir, session.id), updated);
+});
+
+test("recordAnswer appends a second entry onto an existing history", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await setCurrentQuestion(dir, session.id, { prompt: "Q1" });
+  const first = await recordAnswer(dir, session.id, { prompt: "Q1", answerText: "A1" });
+  assert.equal(first.history.length, 1);
+  await setCurrentQuestion(dir, session.id, { prompt: "Q2" });
+  const second = await recordAnswer(dir, session.id, { prompt: "Q2", answerText: "A2" });
+  assert.deepEqual(second.history, [{ prompt: "Q1", answerText: "A1" }, { prompt: "Q2", answerText: "A2" }]);
+});
+
+test("recordAnswer rejects a session with no current question", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await assert.rejects(() => recordAnswer(dir, session.id, { prompt: "x" }), /no current question to answer/);
+});
+
+test("recordAnswer rejects an unknown session id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => recordAnswer(dir, "no-such-id", { prompt: "x" }), /Session not found/);
+});
+
+test("recordAnswer refuses to record against a completed session", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await setCurrentQuestion(dir, session.id, { prompt: "x" });
+  await endSession(dir, session.id);
+  await assert.rejects(() => recordAnswer(dir, session.id, { prompt: "x" }), /already completed/);
 });
 
 test("endSession marks a session completed and stamps endedAt", async () => {

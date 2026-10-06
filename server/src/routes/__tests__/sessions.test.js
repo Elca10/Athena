@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
-import { createSession, endSession } from "../../sessions.js";
+import { createSession, endSession, setCurrentQuestion } from "../../sessions.js";
 import { addPlannedTopics } from "../../topics.js";
 import { makeSessionsRouter } from "../sessions.js";
 
@@ -288,6 +288,80 @@ test("POST /api/sessions/:id/live/question on a live session with no topics retu
     const res = await fetch(`${base}/${session.id}/live/question`, { method: "POST" });
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /no topics to ask about/);
+  } finally {
+    server.close();
+  }
+});
+
+// submitLiveAnswer's happy path also always shells out to the real
+// `claude` CLI — same scope decision as /live/question above, so only
+// its validation-error paths are covered here; the orchestration itself
+// (with an injected runTurn) is covered in liveSession.test.js.
+
+test("POST /api/sessions/:id/live/answer for an unknown session returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/no-such-id/live/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerText: "x", confidence: 3 }),
+    });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/live/answer on a ready-mode session returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["The French Revolution"]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+    const res = await fetch(`${base}/${session.id}/live/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerText: "x", confidence: 3 }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /only applies to live-mode sessions/);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/live/answer on a live session with no current question returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["The French Revolution"]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live", topicIds: [topic.id] });
+    const res = await fetch(`${base}/${session.id}/live/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerText: "x", confidence: 3 }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /no current question to answer/);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/live/answer with a missing confidence returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["The French Revolution"]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live", topicIds: [topic.id] });
+    await setCurrentQuestion(dir, session.id, { topicId: topic.id, subjectId: subject.id, prompt: "x", type: "free_recall", difficulty: "intro" });
+    const res = await fetch(`${base}/${session.id}/live/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerText: "x" }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /confidence must be an integer from 1 to 5/);
   } finally {
     server.close();
   }

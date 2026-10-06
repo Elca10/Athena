@@ -1,9 +1,10 @@
 // Study sessions (SPEC.md section 4's "Active / Waiting / Completed" right
 // panel; section 5's Live vs Ready modes). This is the session data model —
 // which subject(s) and topics a session covers, its mode, its current
-// question (`liveSession.js` is the only writer of that field so far), and
-// its Active->Waiting->Completed lifecycle. Grading isn't wired in yet,
-// landing in a later build step.
+// question, its answered-question `history`, and its
+// Active->Waiting->Completed lifecycle. `liveSession.js` is the only
+// writer of `currentQuestion`/`history` so far (Ready mode's local
+// self-grading will likely reuse `recordAnswer` once it exists).
 //
 // A session can span multiple subjects (section 4: sessions "mix topics
 // ... and subjects, when the user picks multiple"), so it's its own
@@ -52,6 +53,7 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
     endedAt: null,
     archived: false,
     currentQuestion: null,
+    history: [],
   };
   await storeFor(appDataDir).update((current) => [...current, session]);
   return session;
@@ -105,6 +107,32 @@ export function setCurrentQuestion(appDataDir, id, question) {
       throw new Error(`Session already completed: ${id}`);
     }
     return { ...session, currentQuestion: question, status: "waiting" };
+  });
+}
+
+/**
+ * Appends a finished question+answer to a session's `history` and clears
+ * `currentQuestion`, moving status back to "active" — ready for whatever
+ * generates the next question. A session with no current question can't
+ * record an answer (there's nothing to answer), and a "completed" session
+ * is terminal same as `setCurrentQuestion`; both throw rather than
+ * silently no-opping, since either means the caller is out of sync with
+ * the session's real state.
+ */
+export function recordAnswer(appDataDir, id, entry) {
+  return mutate(appDataDir, id, (session) => {
+    if (session.status === "completed") {
+      throw new Error(`Session already completed: ${id}`);
+    }
+    if (!session.currentQuestion) {
+      throw new Error(`Session has no current question to answer: ${id}`);
+    }
+    return {
+      ...session,
+      history: [...(session.history ?? []), entry],
+      currentQuestion: null,
+      status: "active",
+    };
   });
 }
 

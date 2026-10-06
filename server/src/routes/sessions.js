@@ -11,7 +11,7 @@ import {
   STATUSES,
 } from "../sessions.js";
 import { buildSessionTopicIds } from "../sessionBuilder.js";
-import { generateFirstLiveQuestion } from "../liveSession.js";
+import { generateFirstLiveQuestion, submitLiveAnswer } from "../liveSession.js";
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
@@ -73,6 +73,31 @@ export function makeSessionsRouter(appDataDir) {
     }
     try {
       res.json(await generateFirstLiveQuestion(appDataDir, req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Grades the user's answer to the session's current question (SPEC.md
+  // section 5) and applies the result to FSRS scheduling. Same
+  // synchronous-round-trip and 400-vs-{ok:false} split as
+  // /live/question above: a bad request (unknown session, wrong mode, no
+  // current question, malformed answerText/confidence) is a caller
+  // mistake and 400; a model-call failure or unparseable/invalid-rating
+  // reply is a recoverable "try again" outcome, so it comes back as 200
+  // with `{ok: false, ...}` and the session/topic left unchanged.
+  router.post("/:id/live/answer", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(
+        await submitLiveAnswer(appDataDir, req.params.id, {
+          answerText: req.body?.answerText,
+          confidence: req.body?.confidence,
+        }),
+      );
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
