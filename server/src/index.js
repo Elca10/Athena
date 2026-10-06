@@ -12,6 +12,7 @@ import { PORT, HOST } from "./config.js";
 import { getAppDataDir, ensureAppDataDir } from "./dataDir.js";
 import { healthRouter } from "./routes/health.js";
 import { makeSetupRouter } from "./routes/setup.js";
+import { makeSubjectsRouter } from "./routes/subjects.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +34,7 @@ export async function createApp() {
 
   app.use("/api/health", healthRouter(appDataDir));
   app.use("/api/setup", makeSetupRouter(appDataDir));
+  app.use("/api/subjects", makeSubjectsRouter(appDataDir));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));
