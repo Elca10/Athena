@@ -1,12 +1,12 @@
-// Live mode's first question (SPEC.md section 5: "Athena generates custom
+// Live mode's questions (SPEC.md section 5: "Athena generates custom
 // questions ... in real time in a Claude Code session"). One `claude -p`
-// turn, same one-shot shape as topicExtraction.js — not a persistent
-// interactive CLI session: later turns (follow-ups, grading escalation,
-// not yet built) will each be their own one-shot call, replaying whatever
-// the session record has stored so far as context, so the server — not a
-// long-lived child process — owns conversation state. This keeps every
-// model call scriptable and testable in isolation, the same reasoning
-// that shaped topicExtraction.js's turn.
+// turn per question, same one-shot shape as topicExtraction.js — not a
+// persistent interactive CLI session: each question (and each grading
+// turn) is its own one-shot call, replaying whatever the session record
+// has stored so far as context, so the server — not a long-lived child
+// process — owns conversation state. This keeps every model call
+// scriptable and testable in isolation, the same reasoning that shaped
+// topicExtraction.js's turn.
 //
 // This module also grades a Live answer once the user submits one
 // (`submitLiveAnswer`, below): SPEC.md section 5's "Grading without a
@@ -22,16 +22,20 @@
 // here — Ready mode's bank-backed self-grading is where that finer
 // breakdown belongs.
 //
-// Scope of this module: only the very first question a Live session shows,
-// generated from a topic's name/notes alone (no file reads — grounding a
-// question in the user's own uploaded material is the question-bank
-// generation path, Ready mode's job, not yet built), plus grading the
-// user's answer to it. Security posture mirrors topicExtraction.js: a hard
+// Scope of this module: walking a Live session through its `topicIds` one
+// at a time — each question generated from a topic's name/notes alone (no
+// file reads — grounding a question in the user's own uploaded material is
+// the question-bank generation path, Ready mode's job, not yet built) —
+// plus grading the user's answer to each one. A session's `history`
+// (sessions.js) is the record of which topics have already been asked;
+// once every `topicIds` entry has a matching history entry, the session is
+// naturally finished and this module ends it rather than generating
+// another question. Security posture mirrors topicExtraction.js: a hard
 // `--disallowedTools` deny list rather than a prompt-level request, even
 // though neither turn ever needed file access in the first place.
 
 import { runCommand } from "./processUtil.js";
-import { getSession, setCurrentQuestion, recordAnswer } from "./sessions.js";
+import { getSession, setCurrentQuestion, recordAnswer, endSession } from "./sessions.js";
 import { getSubject } from "./subjects.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { RATINGS } from "./scheduler.js";
@@ -66,7 +70,19 @@ const TAGGED_FEEDBACK_FENCE_RE = /```json\s+athena-live-feedback\s*\n([\s\S]*?)`
 const PLAIN_FENCE_RE = /```(?:json)?\s*\n([\s\S]*?)```/g;
 
 /**
- * The prompt for one first question. Pure, exported for its own test.
+ * Picks the next topic a Live session should ask about: the first entry
+ * in `topicIds` with no matching `history` entry yet, preserving
+ * `sessionBuilder.js`'s interleaving order. Returns `null` once every
+ * topic has been asked — the caller's signal to end the session rather
+ * than generate another question. Pure, exported for its own test.
+ */
+export function pickNextTopicId(topicIds, history) {
+  const asked = new Set((history ?? []).map((entry) => entry.topicId));
+  return topicIds.find((id) => !asked.has(id)) ?? null;
+}
+
+/**
+ * The prompt for one question. Pure, exported for its own test.
  * `isNewTopic` drives section 6's Generation principle: a topic the user
  * has never reviewed gets an attempt-first framing ("what do you think
  * X is / how would you approach it") rather than assuming prior
@@ -168,24 +184,36 @@ export async function runFirstQuestionTurn(prompt, { env } = {}) {
 }
 
 /**
- * Generates a Live session's first question and stores it, moving the
- * session to "waiting" (SPEC.md section 4). Validation errors (bad
- * session id, wrong mode, a question already generated, no topics to ask
- * about) throw — these are caller mistakes, not a recoverable model-call
+ * Generates a Live session's next question and stores it, moving the
+ * session to "waiting" (SPEC.md section 4) — the first call for a fresh
+ * session and every subsequent call after an answer's been recorded both
+ * go through here, `pickNextTopicId` deciding which topic (if any) is
+ * next. Once every `topicIds` entry already has a `history` entry, there
+ * is nothing left to ask: rather than erroring, the session is ended
+ * (SPEC.md section 4's "Completed" — a Live session finishes on its own
+ * once it's worked through its topics, the same way a Ready session isn't
+ * expected to need an explicit end for running out of due topics either)
+ * and returned as `{ok: true, done: true, session}`. Validation errors
+ * (bad session id, wrong mode, a question already generated, no topics at
+ * all) throw — these are caller mistakes, not a recoverable model-call
  * outcome. A model-call failure or an unparseable reply is NOT thrown:
  * it's returned as `{ok: false, reason}` and the session is left
  * untouched (still "active", no question) so a retry can be attempted
  * later without the session having silently moved on — same reasoning as
  * `scanSubjectForTopics` leaving a failed batch's files unprocessed.
  */
-export async function generateFirstLiveQuestion(appDataDir, sessionId, { runTurn = runFirstQuestionTurn } = {}) {
+export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn = runFirstQuestionTurn } = {}) {
   const session = await getSession(appDataDir, sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
-  if (session.mode !== "live") throw new Error(`generateFirstLiveQuestion only applies to live-mode sessions: ${sessionId}`);
+  if (session.mode !== "live") throw new Error(`generateNextLiveQuestion only applies to live-mode sessions: ${sessionId}`);
   if (session.currentQuestion) throw new Error(`Session already has a current question: ${sessionId}`);
   if (!session.topicIds.length) throw new Error(`Session has no topics to ask about: ${sessionId}`);
 
-  const topicId = session.topicIds[0];
+  const topicId = pickNextTopicId(session.topicIds, session.history);
+  if (topicId === null) {
+    const ended = await endSession(appDataDir, sessionId);
+    return { ok: true, done: true, session: ended };
+  }
   const topic = await getTopicById(appDataDir, topicId);
   if (!topic) throw new Error(`Topic not found: ${topicId}`);
 
@@ -314,7 +342,7 @@ export async function runGradingTurn(prompt, { env } = {}) {
  * answer/confidence) throw — caller mistakes, not a recoverable model-call
  * outcome. A model-call failure or unparseable/invalid-rating reply comes
  * back as `{ok: false, reason}` with the session and topic left untouched,
- * same posture as `generateFirstLiveQuestion`.
+ * same posture as `generateNextLiveQuestion`.
  */
 export async function submitLiveAnswer(appDataDir, sessionId, { answerText, confidence }, { runTurn = runGradingTurn } = {}) {
   const session = await getSession(appDataDir, sessionId);

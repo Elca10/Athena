@@ -5,11 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, recordTopicReview } from "../topics.js";
-import { createSession, getSession, setCurrentQuestion } from "../sessions.js";
+import { createSession, getSession, setCurrentQuestion, recordAnswer } from "../sessions.js";
 import {
+  pickNextTopicId,
   buildFirstQuestionPrompt,
   parseFirstQuestionReply,
-  generateFirstLiveQuestion,
+  generateNextLiveQuestion,
   runFirstQuestionTurn,
   buildGradingPrompt,
   parseGradingReply,
@@ -39,6 +40,41 @@ async function seedSession(dir, { reviewed = false } = {}) {
   });
   return { subject, topic: topics[0], session };
 }
+
+// Seeds a session with two topics so advancing past the first one has
+// somewhere real to advance to.
+async function seedTwoTopicSession(dir) {
+  const subject = await createSubject(dir, { name: "Organic Chemistry" });
+  const [t1, t2] = await addPlannedTopics(dir, subject.id, [{ name: "SN1 vs SN2" }, { name: "E1 vs E2" }]);
+  const session = await createSession(dir, {
+    subjectIds: [subject.id],
+    mode: "live",
+    topicIds: [t1.id, t2.id],
+  });
+  return { subject, topic1: t1, topic2: t2, session };
+}
+
+// --- pickNextTopicId ---------------------------------------------------
+
+test("pickNextTopicId returns the first topic when history is empty", () => {
+  assert.equal(pickNextTopicId(["a", "b", "c"], []), "a");
+});
+
+test("pickNextTopicId skips topics already present in history", () => {
+  assert.equal(pickNextTopicId(["a", "b", "c"], [{ topicId: "a" }]), "b");
+});
+
+test("pickNextTopicId preserves topicIds order, not history order", () => {
+  assert.equal(pickNextTopicId(["a", "b", "c"], [{ topicId: "b" }]), "a");
+});
+
+test("pickNextTopicId returns null once every topic has a history entry", () => {
+  assert.equal(pickNextTopicId(["a", "b"], [{ topicId: "a" }, { topicId: "b" }]), null);
+});
+
+test("pickNextTopicId treats a missing history as having nothing asked yet", () => {
+  assert.equal(pickNextTopicId(["a"], undefined), "a");
+});
 
 // --- buildFirstQuestionPrompt -----------------------------------------------
 
@@ -153,9 +189,9 @@ test("runFirstQuestionTurn rejects with a clear error when the claude CLI can't 
   );
 });
 
-// --- generateFirstLiveQuestion (the orchestration) --------------------------
+// --- generateNextLiveQuestion (the orchestration) --------------------------
 
-test("generateFirstLiveQuestion stores the question and moves the session to waiting", async () => {
+test("generateNextLiveQuestion stores the question and moves the session to waiting", async () => {
   const dir = await scratchDir();
   const { session, topic, subject } = await seedSession(dir);
   const runTurn = async (prompt) => {
@@ -163,7 +199,7 @@ test("generateFirstLiveQuestion stores the question and moves the session to wai
     return fence({ prompt: "What do you think SN1 means?", type: "free_recall", difficulty: "intro" });
   };
 
-  const result = await generateFirstLiveQuestion(dir, session.id, { runTurn });
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
   assert.equal(result.ok, true);
   assert.equal(result.session.status, "waiting");
   assert.deepEqual(result.session.currentQuestion, {
@@ -180,7 +216,7 @@ test("generateFirstLiveQuestion stores the question and moves the session to wai
   assert.deepEqual(stored, result.session);
 });
 
-test("generateFirstLiveQuestion frames a reviewed topic differently from a brand-new one", async () => {
+test("generateNextLiveQuestion frames a reviewed topic differently from a brand-new one", async () => {
   const dir = await scratchDir();
   const { session } = await seedSession(dir, { reviewed: true });
   let seenPrompt = "";
@@ -188,17 +224,17 @@ test("generateFirstLiveQuestion frames a reviewed topic differently from a brand
     seenPrompt = prompt;
     return fence({ prompt: "Explain why SN1 is favored here.", type: "explain_why", difficulty: "medium" });
   };
-  await generateFirstLiveQuestion(dir, session.id, { runTurn });
+  await generateNextLiveQuestion(dir, session.id, { runTurn });
   assert.match(seenPrompt, /reviewed this topic before/);
 });
 
-test("generateFirstLiveQuestion leaves the session untouched when the model call fails", async () => {
+test("generateNextLiveQuestion leaves the session untouched when the model call fails", async () => {
   const dir = await scratchDir();
   const { session } = await seedSession(dir);
   const runTurn = async () => {
     throw new Error("claude exited with code 1: boom");
   };
-  const result = await generateFirstLiveQuestion(dir, session.id, { runTurn });
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
   assert.equal(result.ok, false);
   assert.match(result.reason, /boom/);
 
@@ -207,11 +243,11 @@ test("generateFirstLiveQuestion leaves the session untouched when the model call
   assert.equal(stored.currentQuestion, null);
 });
 
-test("generateFirstLiveQuestion leaves the session untouched when the reply doesn't parse", async () => {
+test("generateNextLiveQuestion leaves the session untouched when the reply doesn't parse", async () => {
   const dir = await scratchDir();
   const { session } = await seedSession(dir);
   const runTurn = async () => "no JSON here at all";
-  const result = await generateFirstLiveQuestion(dir, session.id, { runTurn });
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
   assert.equal(result.ok, false);
   assert.match(result.reason, /no readable question/);
 
@@ -220,32 +256,69 @@ test("generateFirstLiveQuestion leaves the session untouched when the reply does
   assert.equal(stored.currentQuestion, null);
 });
 
-test("generateFirstLiveQuestion rejects an unknown session id", async () => {
+test("generateNextLiveQuestion rejects an unknown session id", async () => {
   const dir = await scratchDir();
-  await assert.rejects(() => generateFirstLiveQuestion(dir, "no-such-id"), /Session not found/);
+  await assert.rejects(() => generateNextLiveQuestion(dir, "no-such-id"), /Session not found/);
 });
 
-test("generateFirstLiveQuestion rejects a ready-mode session", async () => {
+test("generateNextLiveQuestion rejects a ready-mode session", async () => {
   const dir = await scratchDir();
   const subject = await createSubject(dir, { name: "History" });
   const [topic] = await addPlannedTopics(dir, subject.id, ["The French Revolution"]);
   const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
-  await assert.rejects(() => generateFirstLiveQuestion(dir, session.id), /only applies to live-mode sessions/);
+  await assert.rejects(() => generateNextLiveQuestion(dir, session.id), /only applies to live-mode sessions/);
 });
 
-test("generateFirstLiveQuestion rejects a session with no topics", async () => {
+test("generateNextLiveQuestion rejects a session with no topics", async () => {
   const dir = await scratchDir();
   const subject = await createSubject(dir, { name: "History" });
   const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
-  await assert.rejects(() => generateFirstLiveQuestion(dir, session.id), /no topics to ask about/);
+  await assert.rejects(() => generateNextLiveQuestion(dir, session.id), /no topics to ask about/);
 });
 
-test("generateFirstLiveQuestion refuses to overwrite an existing current question", async () => {
+test("generateNextLiveQuestion refuses to overwrite an existing current question", async () => {
   const dir = await scratchDir();
   const { session } = await seedSession(dir);
   const runTurn = async () => fence({ prompt: "First one", type: "free_recall", difficulty: "intro" });
-  await generateFirstLiveQuestion(dir, session.id, { runTurn });
-  await assert.rejects(() => generateFirstLiveQuestion(dir, session.id, { runTurn }), /already has a current question/);
+  await generateNextLiveQuestion(dir, session.id, { runTurn });
+  await assert.rejects(() => generateNextLiveQuestion(dir, session.id, { runTurn }), /already has a current question/);
+});
+
+test("generateNextLiveQuestion asks about the next unasked topic once the first has history", async () => {
+  const dir = await scratchDir();
+  const { session, topic1, topic2 } = await seedTwoTopicSession(dir);
+
+  // Simulate the first topic already asked-and-answered: a history entry
+  // naming topic1, no current question, status back to "active" — the
+  // same state submitLiveAnswer leaves a session in.
+  await setCurrentQuestion(dir, session.id, { topicId: topic1.id, prompt: "Q1" });
+  await recordAnswer(dir, session.id, { topicId: topic1.id, prompt: "Q1", answerText: "a1" });
+
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return fence({ prompt: "What about E1 vs E2?", type: "free_recall", difficulty: "intro" });
+  };
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
+  assert.equal(result.ok, true);
+  assert.equal(result.session.currentQuestion.topicId, topic2.id);
+  assert.match(seenPrompt, /E1 vs E2/);
+});
+
+test("generateNextLiveQuestion ends the session once every topic has been asked, rather than generating another question", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedSession(dir);
+  await setCurrentQuestion(dir, session.id, { topicId: session.topicIds[0], prompt: "Q1" });
+  await recordAnswer(dir, session.id, { topicId: session.topicIds[0], prompt: "Q1", answerText: "a1" });
+
+  const runTurn = async () => assert.fail("should not call the model once every topic is already asked");
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
+  assert.deepEqual(result, { ok: true, done: true, session: result.session });
+  assert.equal(result.session.status, "completed");
+  assert.notEqual(result.session.endedAt, null);
+
+  const stored = await getSession(dir, session.id);
+  assert.equal(stored.status, "completed");
 });
 
 // --- buildGradingPrompt -------------------------------------------------
