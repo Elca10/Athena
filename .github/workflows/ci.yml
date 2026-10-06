@@ -1,0 +1,61 @@
+name: CI
+
+# Exercises the cross-platform claim this project makes in SPEC.md (macOS
+# AND Windows are both first-class) on every push/PR, since the only
+# machine actually building this day to day is Linux-only and can't test
+# either target platform directly. Also runs the privacy guard
+# (scripts/check-privacy.js) against the full tracked tree as the "CI
+# check" half of SPEC.md section 3's belt-and-braces guard — the other
+# half is the local pre-commit hook (.githooks/pre-commit), which this
+# catches if it was ever skipped or never installed.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # check-privacy.js's --staged-less (full-tree) mode shells out to
+          # `git show :<path>` for the *index*, which is populated from a
+          # normal checkout — a shallow clone is fine for that. Depth 0
+          # isn't needed here, unlike a job that diffs against a base ref.
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install server dependencies
+        run: npm install
+        working-directory: server
+
+      - name: Run server tests
+        run: npm test
+        working-directory: server
+
+      - name: Install web dependencies
+        if: hashFiles('web/package.json') != ''
+        run: npm install
+        working-directory: web
+
+      - name: Run web tests
+        if: hashFiles('web/package.json') != ''
+        run: npm test
+        working-directory: web
+
+      - name: Build web frontend
+        if: hashFiles('web/package.json') != ''
+        run: npm run build
+        working-directory: web
+
+      - name: Privacy guard (full tree)
+        run: node scripts/check-privacy.js

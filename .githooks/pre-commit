@@ -1,0 +1,19 @@
+#!/bin/sh
+# Runs the shared privacy guard (scripts/check-privacy.js) against whatever
+# is staged, before it can become a commit. This is the "pre-commit hook"
+# half of SPEC.md section 3's belt-and-braces privacy guard — the CI check
+# (.github/workflows/ci.yml) runs the same script against the whole tree on
+# every push as the second half, in case this hook was ever skipped
+# (`git commit --no-verify`) or never installed (run
+# `node scripts/install-hooks.js` once per clone to install it — this file
+# only runs at all once `core.hooksPath` points at `.githooks`).
+#
+# Git for Windows invokes hooks through its own bundled `sh.exe`, so this
+# POSIX shebang works unmodified there too — no separate Windows variant
+# needed (unverified live on an actual Windows machine; this is the
+# standard, widely-relied-on behavior every shebang-based git hook
+# ecosystem, e.g. Husky, depends on).
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+node "$REPO_ROOT/scripts/check-privacy.js" --staged
