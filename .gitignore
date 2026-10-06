@@ -1,0 +1,31 @@
+# Dependencies and build output — never source, always regenerated.
+node_modules/
+web/dist/
+server/dist/
+
+# Secrets — the only files that should ever hold credentials.
+.env
+.env.*
+
+# OS cruft.
+.DS_Store
+Thumbs.db
+
+# Logs — never committed, even in a local dev run.
+*.log
+logs/
+
+# Belt and braces (SPEC.md section 3): this repo is PUBLIC and user data
+# must never be committed, even by accident. All real user data lives
+# outside the checkout entirely (server/src/dataDir.js) — nothing under
+# these names is ever supposed to exist inside the repo in the first
+# place, but every one of these patterns is blocked anyway, defense in
+# depth alongside the pre-commit hook and CI check (scripts/check-privacy.js).
+*.sqlite
+*.sqlite3
+/data/
+/app-data/
+**/content/
+**/uploads/
+**/transcripts/
+setup-complete.json

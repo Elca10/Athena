@@ -1,0 +1,17 @@
+{
+  "name": "athena-studying-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local backend for Athena-Studying. Shells out to the user's own `claude` CLI (subscription/OAuth login, human-initiated) — never a metered Anthropic API key. See ../SPEC.md.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "express": "^4.19.2"
+  }
+}
