@@ -11,6 +11,7 @@ import {
   STATUSES,
 } from "../sessions.js";
 import { buildSessionTopicIds } from "../sessionBuilder.js";
+import { generateFirstLiveQuestion } from "../liveSession.js";
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
@@ -55,6 +56,26 @@ export function makeSessionsRouter(appDataDir) {
       return;
     }
     res.json(session);
+  });
+
+  // Triggers Live mode's first model-generated question (SPEC.md section
+  // 5). Runs synchronously and returns once the turn finishes — same
+  // "no progress-tracking UI to report into yet" reasoning as
+  // routes/topics.js's /scan route. Validation failures (wrong mode,
+  // already has a question, no topics) are caller mistakes and 400; a
+  // model-call failure is a real, recoverable "try again later" outcome,
+  // not a request error, so it comes back as 200 with `{ok: false, ...}`
+  // and the session left unchanged, same as /scan's result shape.
+  router.post("/:id/live/question", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(await generateFirstLiveQuestion(appDataDir, req.params.id));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   // Two distinct failure modes (bad status value vs. unknown session), so

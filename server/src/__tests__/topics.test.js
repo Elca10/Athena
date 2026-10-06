@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listTopics, addPlannedTopics, normalizeTopicName, listDueTopics, recordTopicReview } from "../topics.js";
+import { listTopics, getTopicById, addPlannedTopics, normalizeTopicName, listDueTopics, recordTopicReview } from "../topics.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-topics-"));
@@ -12,6 +12,17 @@ async function scratchDir() {
 test("listTopics starts empty for any subject id", async () => {
   const dir = await scratchDir();
   assert.deepEqual(await listTopics(dir, "subject-1"), []);
+});
+
+test("getTopicById finds a topic regardless of which subject it belongs to", async () => {
+  const dir = await scratchDir();
+  const [topic] = await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  assert.deepEqual(await getTopicById(dir, topic.id), topic);
+});
+
+test("getTopicById returns null for an unknown id", async () => {
+  const dir = await scratchDir();
+  assert.equal(await getTopicById(dir, "no-such-topic"), null);
 });
 
 test("addPlannedTopics stores new topics with ids and names trimmed", async () => {

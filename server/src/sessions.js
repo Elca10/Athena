@@ -1,8 +1,9 @@
 // Study sessions (SPEC.md section 4's "Active / Waiting / Completed" right
-// panel; section 5's Live vs Ready modes). This is only the session data
-// model — which subject(s) and topics a session covers, its mode, and its
-// Active->Waiting->Completed lifecycle — not yet wired to any question
-// generation or grading, which land in later build steps.
+// panel; section 5's Live vs Ready modes). This is the session data model —
+// which subject(s) and topics a session covers, its mode, its current
+// question (`liveSession.js` is the only writer of that field so far), and
+// its Active->Waiting->Completed lifecycle. Grading isn't wired in yet,
+// landing in a later build step.
 //
 // A session can span multiple subjects (section 4: sessions "mix topics
 // ... and subjects, when the user picks multiple"), so it's its own
@@ -50,6 +51,7 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
     startedAt: new Date().toISOString(),
     endedAt: null,
     archived: false,
+    currentQuestion: null,
   };
   await storeFor(appDataDir).update((current) => [...current, session]);
   return session;
@@ -88,6 +90,22 @@ export function endSession(appDataDir, id) {
     status: "completed",
     endedAt: new Date().toISOString(),
   }));
+}
+
+/**
+ * Stores a session's current question (SPEC.md section 5's Live mode:
+ * "a question is up") and moves it straight to "waiting" in the same
+ * store update, so a crash between the two can never leave a question
+ * recorded against a still-"active" session or vice versa. A "completed"
+ * session is terminal, same as `setSessionStatus`.
+ */
+export function setCurrentQuestion(appDataDir, id, question) {
+  return mutate(appDataDir, id, (session) => {
+    if (session.status === "completed") {
+      throw new Error(`Session already completed: ${id}`);
+    }
+    return { ...session, currentQuestion: question, status: "waiting" };
+  });
 }
 
 export function archiveSession(appDataDir, id) {

@@ -248,3 +248,47 @@ test("POST /api/sessions/:id/archive for an unknown session returns 404", async 
     server.close();
   }
 });
+
+// generateFirstLiveQuestion's happy path always shells out to the real
+// `claude` CLI (no DI seam threaded through the router — same scope
+// decision routes/topics.js's own /scan route test made for
+// scanSubjectForTopics), so only its validation-error paths are covered
+// here; the orchestration itself (with an injected runTurn) is covered in
+// liveSession.test.js.
+
+test("POST /api/sessions/:id/live/question for an unknown session returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/no-such-id/live/question`, { method: "POST" });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/live/question on a ready-mode session returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["The French Revolution"]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+    const res = await fetch(`${base}/${session.id}/live/question`, { method: "POST" });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /only applies to live-mode sessions/);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/live/question on a live session with no topics returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
+    const res = await fetch(`${base}/${session.id}/live/question`, { method: "POST" });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /no topics to ask about/);
+  } finally {
+    server.close();
+  }
+});

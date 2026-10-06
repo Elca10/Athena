@@ -8,6 +8,7 @@ import {
   getSession,
   createSession,
   setSessionStatus,
+  setCurrentQuestion,
   endSession,
   archiveSession,
   restoreSession,
@@ -34,6 +35,7 @@ test("createSession assigns an id and starts active, unended, unarchived", async
   assert.equal(typeof session.startedAt, "string");
   assert.equal(session.endedAt, null);
   assert.equal(session.archived, false);
+  assert.equal(session.currentQuestion, null);
   assert.deepEqual(await listSessions(dir), [session]);
 });
 
@@ -98,6 +100,28 @@ test("setSessionStatus refuses to reopen a completed session", async () => {
   const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
   await endSession(dir, session.id);
   await assert.rejects(() => setSessionStatus(dir, session.id, "active"), /already completed/);
+});
+
+test("setCurrentQuestion stores the question and moves the session to waiting", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  const question = { topicId: "topic-1", subjectId: "subject-1", prompt: "What is X?", type: "free_recall", difficulty: "intro" };
+  const updated = await setCurrentQuestion(dir, session.id, question);
+  assert.deepEqual(updated.currentQuestion, question);
+  assert.equal(updated.status, "waiting");
+  assert.deepEqual(await getSession(dir, session.id), updated);
+});
+
+test("setCurrentQuestion rejects an unknown session id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => setCurrentQuestion(dir, "no-such-id", { prompt: "x" }), /Session not found/);
+});
+
+test("setCurrentQuestion refuses to reopen a completed session", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await endSession(dir, session.id);
+  await assert.rejects(() => setCurrentQuestion(dir, session.id, { prompt: "x" }), /already completed/);
 });
 
 test("endSession marks a session completed and stamps endedAt", async () => {

@@ -31,6 +31,18 @@ export async function listTopics(appDataDir, subjectId) {
 }
 
 /**
+ * Looks up a single topic by id regardless of which subject it belongs
+ * to — needed by anything working from a session's `topicIds` (a session
+ * can span multiple subjects, so the subject-scoped `listTopics` isn't
+ * enough on its own). Returns `null` rather than throwing, same as
+ * `getSession`/`getSubject`.
+ */
+export async function getTopicById(appDataDir, topicId) {
+  const all = await storeFor(appDataDir).read();
+  return all.find((t) => t.id === topicId) ?? null;
+}
+
+/**
  * Adds topics proposed for a subject, skipping any whose normalized name
  * already exists for that subject. `proposed` entries are either plain
  * strings or `{name, notes}` objects. Returns the topics actually added
