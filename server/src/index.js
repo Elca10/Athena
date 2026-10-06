@@ -14,6 +14,7 @@ import { healthRouter } from "./routes/health.js";
 import { makeSetupRouter } from "./routes/setup.js";
 import { makeSubjectsRouter } from "./routes/subjects.js";
 import { makeContentRouter } from "./routes/content.js";
+import { makeTopicsRouter } from "./routes/topics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -37,6 +38,7 @@ export async function createApp() {
   app.use("/api/setup", makeSetupRouter(appDataDir));
   app.use("/api/subjects", makeSubjectsRouter(appDataDir));
   app.use("/api/subjects/:id/content", makeContentRouter(appDataDir));
+  app.use("/api/subjects/:id/topics", makeTopicsRouter(appDataDir));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));

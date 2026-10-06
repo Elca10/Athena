@@ -5,10 +5,11 @@
 // decode), so raw and parsed end up as the same text, just filed under a
 // deterministic id-based name. PDF/PPTX support (which needs real
 // extraction plus the garbled-text detection a comparable parser
-// elsewhere already built) and topic extraction (the one background
-// model turn that reads newly parsed files) are their own later
-// build-13-step-2 sub-steps — this module only gets content onto disk
-// and recorded.
+// elsewhere already built) is its own later build-13-step-2 sub-step —
+// this module only gets content onto disk and recorded. Topic extraction
+// (the one background model turn that reads newly parsed files) is
+// topicExtraction.js, which reads a content item's `topicsExtractedAt`
+// field and `parsedFilePath` below.
 //
 // Raw/parsed files are named `<id><ext>`, never the user's own filename —
 // sidesteps path-traversal and odd-character handling by construction.
@@ -46,9 +47,17 @@ function storeFor(appDataDir) {
   return makeJsonFileStore(appDataSubdirs(appDataDir).db, FILE_NAME, []);
 }
 
-function contentDirsFor(appDataDir, subjectId) {
+export function contentDirsFor(appDataDir, subjectId) {
   const base = path.join(appDataSubdirs(appDataDir).content, subjectId);
   return { raw: path.join(base, "raw"), parsed: path.join(base, "parsed") };
+}
+
+/** Where a content item's extracted text lives on disk — parsed files are
+ * always named `<id>.md` regardless of the original extension (see
+ * `ingest` below), so topic extraction can find them without duplicating
+ * this naming rule. */
+export function parsedFilePath(appDataDir, contentItem) {
+  return path.join(contentDirsFor(appDataDir, contentItem.subjectId).parsed, `${contentItem.id}.md`);
 }
 
 function extensionOf(filename) {
@@ -106,6 +115,9 @@ async function ingest(appDataDir, subjectId, { filename, text, source }) {
     source,
     sizeBytes,
     addedAt: new Date().toISOString(),
+    // Set once topic extraction has looked at this item's parsed text
+    // (topicExtraction.js) — null means "still queued".
+    topicsExtractedAt: null,
   };
   await storeFor(appDataDir).update((current) => [...current, record]);
   return record;
@@ -118,4 +130,16 @@ export function addUploadedContent(appDataDir, subjectId, { filename, text }) {
 export function addPastedNotes(appDataDir, subjectId, { text }) {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return ingest(appDataDir, subjectId, { filename: `pasted-notes-${stamp}.md`, text, source: "paste" });
+}
+
+/** Marks the given content items as having had topics extracted
+ * (topicExtraction.js, after a successful batch). Ids not found are
+ * silently ignored — a content item deleted mid-scan (no delete endpoint
+ * exists yet, but nothing here should assume one never will) just leaves
+ * nothing to update. */
+export async function markTopicsExtracted(appDataDir, contentIds) {
+  if (!contentIds.length) return;
+  const idSet = new Set(contentIds);
+  const now = new Date().toISOString();
+  await storeFor(appDataDir).update((current) => current.map((c) => (idSet.has(c.id) ? { ...c, topicsExtractedAt: now } : c)));
 }
