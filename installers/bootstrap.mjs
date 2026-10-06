@@ -148,7 +148,15 @@ export async function installAndStart({ cwd, env, healthUrl }) {
   const webPackageJson = path.join(cwd, "web", "package.json");
   if (existsSync(webPackageJson)) {
     console.log("==> Installing and building the web UI...");
-    await run("npm", ["install"], { cwd: path.join(cwd, "web") });
+    // --legacy-peer-deps works around a real npm/arborist crash
+    // ("Cannot read properties of null (reading 'edgesOut')") reproduced
+    // on a plain `npm install` here: vitest declares several of its own
+    // *optional* peer deps (@vitest/browser-playwright, etc.), and walking
+    // one of those peers' own peer tree (which pulls in msw/canvas) is
+    // what crashes npm's ideal-tree builder — unrelated to anything in
+    // this app's own dependency choices, so skipping automatic peer
+    // resolution is the fix, not a version pin.
+    await run("npm", ["install", "--legacy-peer-deps"], { cwd: path.join(cwd, "web") });
     await run("npm", ["run", "build"], { cwd: path.join(cwd, "web") });
   } else {
     console.log("==> web/ has no UI build yet (still under construction) — skipping.");

@@ -1,0 +1,43 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 40rem;
+  margin: 3rem auto;
+  padding: 0 1rem;
+  color: #1a1a1a;
+}
+
+.setup-steps {
+  display: flex;
+  gap: 1rem;
+  list-style: none;
+  padding: 0;
+  font-size: 0.9rem;
+  color: #888;
+}
+
+.setup-steps .active {
+  color: #1a1a1a;
+  font-weight: 600;
+}
+
+.setup-steps .done {
+  color: #2a7a2a;
+}
+
+.setup-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.setup-ok {
+  color: #2a7a2a;
+}
+
+.setup-warning {
+  color: #9a6a00;
+}
+
+.setup-error {
+  color: #a32020;
+}

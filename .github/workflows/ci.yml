@@ -64,9 +64,12 @@ jobs:
         run: npm test
         working-directory: server
 
+      # --legacy-peer-deps: see installers/bootstrap.mjs's installAndStart
+      # comment — a plain `npm install` here reproducibly crashes npm's own
+      # ideal-tree builder on vitest's optional browser-mode peer deps.
       - name: Install web dependencies
         if: hashFiles('web/package.json') != ''
-        run: npm install
+        run: npm install --legacy-peer-deps
         working-directory: web
 
       - name: Run web tests
