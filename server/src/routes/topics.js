@@ -2,6 +2,8 @@ import express from "express";
 import { getSubject } from "../subjects.js";
 import { listTopics, listDueTopics, recordTopicReview } from "../topics.js";
 import { scanSubjectForTopics } from "../topicExtraction.js";
+import { scanSubjectForBankGeneration } from "../questionBankGeneration.js";
+import { listBankQuestions } from "../questionBank.js";
 import { RATINGS } from "../scheduler.js";
 
 // Mounted at /api/subjects/:id/topics — needs mergeParams so the :id from
@@ -28,6 +30,26 @@ export function makeTopicsRouter(appDataDir) {
   router.get("/due", async (req, res) => {
     if (!(await requireSubject(req, res))) return;
     res.json(await listDueTopics(appDataDir, req.params.id));
+  });
+
+  router.get("/:topicId/bank", async (req, res) => {
+    if (!(await requireSubject(req, res))) return;
+    const topics = await listTopics(appDataDir, req.params.id);
+    if (!topics.some((t) => t.id === req.params.topicId)) {
+      res.status(404).json({ error: `Topic not found: ${req.params.topicId}` });
+      return;
+    }
+    res.json(await listBankQuestions(appDataDir, req.params.topicId));
+  });
+
+  // Same synchronous-round-trip shape as "/scan" (topic extraction) —
+  // there's no progress-tracking UI to report into yet, so a plain
+  // request/response is the smallest correct shape for now.
+  router.post("/bank/scan", async (req, res) => {
+    const subject = await requireSubject(req, res);
+    if (!subject) return;
+    const result = await scanSubjectForBankGeneration(appDataDir, req.params.id, { subjectName: subject.name });
+    res.json(result);
   });
 
   router.post("/:topicId/review", async (req, res) => {

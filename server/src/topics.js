@@ -66,6 +66,12 @@ export async function addPlannedTopics(appDataDir, subjectId, proposed) {
         notes: typeof item === "object" && item ? String(item.notes ?? "").trim() : "",
         createdAt: new Date().toISOString(),
         fsrs: createNewCardState(),
+        // Set once questionBankGeneration.js has given this topic an
+        // initial bank — null means "still queued". Doesn't mean the bank
+        // can never grow further (a Ready session draining a topic's
+        // unused questions is meant to top it up per SPEC.md section 5),
+        // just that the one-time initial pass has run.
+        bankGeneratedAt: null,
       };
       next.push(topic);
       added.push(topic);
@@ -102,4 +108,24 @@ export async function recordTopicReview(appDataDir, topicId, ratingName, now = n
     return next;
   });
   return all.find((t) => t.id === topicId);
+}
+
+/**
+ * Lists a subject's topics that have never had an initial question bank
+ * generated (questionBankGeneration.js's job) — `bankGeneratedAt` is still
+ * null. Order matches `listTopics`/storage order (oldest-created first),
+ * not due-ness, since bank generation isn't a scheduling concern.
+ */
+export async function listTopicsNeedingBank(appDataDir, subjectId) {
+  return (await listTopics(appDataDir, subjectId)).filter((t) => !t.bankGeneratedAt);
+}
+
+/** Marks the given topics as having had an initial question bank generated
+ * (questionBankGeneration.js, after a successful batch). Ids not found are
+ * silently ignored, same posture as content.js's `markTopicsExtracted`. */
+export async function markBankGenerated(appDataDir, topicIds) {
+  if (!topicIds.length) return;
+  const idSet = new Set(topicIds);
+  const now = new Date().toISOString();
+  await storeFor(appDataDir).update((current) => current.map((t) => (idSet.has(t.id) ? { ...t, bankGeneratedAt: now } : t)));
 }

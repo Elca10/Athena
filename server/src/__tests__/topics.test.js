@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listTopics, getTopicById, addPlannedTopics, normalizeTopicName, listDueTopics, recordTopicReview } from "../topics.js";
+import {
+  listTopics,
+  getTopicById,
+  addPlannedTopics,
+  normalizeTopicName,
+  listDueTopics,
+  recordTopicReview,
+  listTopicsNeedingBank,
+  markBankGenerated,
+} from "../topics.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-topics-"));
@@ -119,4 +128,32 @@ test("a reviewed topic with a future due date drops out of listDueTopics until i
   const [topic] = await addPlannedTopics(dir, "subject-1", ["Recursion"]);
   await recordTopicReview(dir, topic.id, "good");
   assert.deepEqual(await listDueTopics(dir, "subject-1"), []);
+});
+
+test("a newly planned topic has no bank yet and shows up in listTopicsNeedingBank", async () => {
+  const dir = await scratchDir();
+  const [topic] = await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  assert.equal(topic.bankGeneratedAt, null);
+  const needing = await listTopicsNeedingBank(dir, "subject-1");
+  assert.deepEqual(needing.map((t) => t.id), [topic.id]);
+});
+
+test("markBankGenerated stamps the given topics and removes them from listTopicsNeedingBank, leaving others untouched", async () => {
+  const dir = await scratchDir();
+  const [marked, other] = await addPlannedTopics(dir, "subject-1", ["Recursion", "Iteration"]);
+  await markBankGenerated(dir, [marked.id]);
+
+  const stored = await listTopics(dir, "subject-1");
+  const storedMarked = stored.find((t) => t.id === marked.id);
+  assert.equal(typeof storedMarked.bankGeneratedAt, "string");
+  assert.equal(stored.find((t) => t.id === other.id).bankGeneratedAt, null);
+
+  const needing = await listTopicsNeedingBank(dir, "subject-1");
+  assert.deepEqual(needing.map((t) => t.id), [other.id]);
+});
+
+test("markBankGenerated silently ignores unknown ids", async () => {
+  const dir = await scratchDir();
+  await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  await assert.doesNotReject(() => markBankGenerated(dir, ["no-such-topic"]));
 });

@@ -6,6 +6,7 @@ import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
 import { addPlannedTopics } from "../../topics.js";
+import { addBankQuestions } from "../../questionBank.js";
 import { makeTopicsRouter } from "../topics.js";
 
 async function startApp() {
@@ -125,6 +126,67 @@ test("POST /:id/topics/:topicId/review for an unknown topic id returns 404", asy
       body: JSON.stringify({ rating: "good" }),
     });
     assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("GET /:id/topics/:topicId/bank for an unknown subject returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base("no-such-id")}/some-topic/bank`);
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("GET /:id/topics/:topicId/bank for an unknown topic id returns 404", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Art" });
+    const res = await fetch(`${base(subject.id)}/no-such-topic/bank`);
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("GET /:id/topics/:topicId/bank lists a topic's stored bank questions", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Art" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["Color theory"]);
+    await addBankQuestions(dir, topic.id, subject.id, [
+      { type: "short_answer", prompt: "What are complementary colors?", difficulty: "intro", modelAnswer: "Colors opposite each other on the color wheel.", rubric: ["opposite on wheel"] },
+    ]);
+    const res = await fetch(`${base(subject.id)}/${topic.id}/bank`);
+    assert.equal(res.status, 200);
+    const questions = await res.json();
+    assert.equal(questions.length, 1);
+    assert.equal(questions[0].prompt, "What are complementary colors?");
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /:id/topics/bank/scan for an unknown subject returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base("no-such-id")}/bank/scan`, { method: "POST" });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /:id/topics/bank/scan with no topics needing a bank does nothing", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Physics" });
+    const res = await fetch(`${base(subject.id)}/bank/scan`, { method: "POST" });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, errors: [] });
   } finally {
     server.close();
   }
