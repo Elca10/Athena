@@ -49,12 +49,20 @@ jobs:
 
       # installers/macos.sh is bash and only meaningful on an OS that
       # actually runs it; the Windows runner's default shell has no `bash`
-      # guaranteed on PATH for the test harness to shell out to. The
-      # Windows installer (installers/*.ps1) and its own tests are a
-      # separate, later step (see ~/athena-build/progress.md).
+      # guaranteed on PATH for the test harness to shell out to.
       - name: Run macOS installer (macos.sh) tests
         if: runner.os != 'Windows'
         run: node --test "installers/__tests__/macos-sh.test.js"
+
+      # installers/windows.ps1 only matters on the OS that actually runs
+      # it; conversely, ubuntu-latest/macos-latest don't ship `pwsh` or
+      # `powershell.exe` by default, so the test file itself skips there
+      # (see windows-ps1.test.js's findPwshPath) even without this gate —
+      # the `if` just avoids paying for a step that would only report
+      # skips on two of the three runners.
+      - name: Run Windows installer (windows.ps1) tests
+        if: runner.os == 'Windows'
+        run: node --test "installers/__tests__/windows-ps1.test.js"
 
       - name: Install server dependencies
         run: npm install
