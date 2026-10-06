@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { appDataSubdirs } from "./dataDir.js";
 import { makeJsonFileStore } from "./store/jsonFileStore.js";
+import { createNewCardState, reviewCard, listDueTopics as pickDueTopics } from "./scheduler.js";
 
 const FILE_NAME = "topics.json";
 
@@ -52,6 +53,7 @@ export async function addPlannedTopics(appDataDir, subjectId, proposed) {
         name: String(name).trim(),
         notes: typeof item === "object" && item ? String(item.notes ?? "").trim() : "",
         createdAt: new Date().toISOString(),
+        fsrs: createNewCardState(),
       };
       next.push(topic);
       added.push(topic);
@@ -59,4 +61,33 @@ export async function addPlannedTopics(appDataDir, subjectId, proposed) {
     return next;
   });
   return added;
+}
+
+/**
+ * Lists a subject's due topics (soonest-due first) per the FSRS card state
+ * stored on each topic — a brand-new, never-reviewed topic is always due.
+ */
+export async function listDueTopics(appDataDir, subjectId, now = new Date()) {
+  return pickDueTopics(await listTopics(appDataDir, subjectId), now);
+}
+
+/**
+ * Records a review outcome for one topic (SPEC.md section 6's calibration/
+ * spaced-repetition loop) and returns the updated topic. `ratingName` is
+ * one of scheduler.js's RATINGS ("again"/"hard"/"good"/"easy"); an unknown
+ * rating or topic id throws — routes/topics.js turns that into a 400/404.
+ */
+export async function recordTopicReview(appDataDir, topicId, ratingName, now = new Date()) {
+  const all = await storeFor(appDataDir).update((current) => {
+    const index = current.findIndex((t) => t.id === topicId);
+    if (index === -1) throw new Error(`Topic not found: ${topicId}`);
+    const next = current.slice();
+    next[index] = {
+      ...next[index],
+      fsrs: reviewCard(next[index].fsrs, ratingName, now),
+      lastReviewedAt: now.toISOString(),
+    };
+    return next;
+  });
+  return all.find((t) => t.id === topicId);
 }

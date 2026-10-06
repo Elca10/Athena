@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "cross-spawn": "^7.0.6",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "ts-fsrs": "^5.4.2"
   }
 }
