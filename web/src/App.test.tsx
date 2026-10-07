@@ -16,8 +16,8 @@ test("shows the setup wizard when setup isn't complete", async () => {
   expect(await screen.findByText("Set up Athena-Studying")).toBeInTheDocument();
 });
 
-test("shows the placeholder dashboard when setup is already complete", async () => {
+test("shows the dashboard when setup is already complete", async () => {
   vi.mocked(api.getHealth).mockResolvedValue({ ok: true, version: "0.1.0", setupComplete: true });
   render(<App />);
-  expect(await screen.findByText(/dashboard is under construction/)).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
 });

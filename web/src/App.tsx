@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getHealth } from "./setup/api";
 import { SetupWizard } from "./setup/SetupWizard";
+import { Dashboard } from "./dashboard/Dashboard";
 
 export default function App() {
   const [setupComplete, setSetupComplete] = useState<boolean | null>(null);
@@ -15,6 +16,5 @@ export default function App() {
     return <SetupWizard onComplete={() => setSetupComplete(true)} />;
   }
 
-  // The real dashboard (SPEC.md section 4) lands in later build steps.
-  return <p>Setup complete. The dashboard is under construction.</p>;
+  return <Dashboard />;
 }
