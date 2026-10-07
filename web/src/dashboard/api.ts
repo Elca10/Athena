@@ -20,6 +20,7 @@ export type Session = {
   mode: "live" | "ready";
   status: SessionStatus;
   endedAt: string | null;
+  archived: boolean;
   currentQuestion: { prompt: string } | null;
   history: unknown[];
 };
@@ -30,14 +31,28 @@ async function getJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
-export function listSubjects(): Promise<Subject[]> {
-  return getJson("/api/subjects");
+async function postJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { method: "POST" });
+  if (!res.ok) throw new Error(`POST ${url} responded ${res.status}`);
+  return res.json();
+}
+
+export function listSubjects({ includeArchived = false }: { includeArchived?: boolean } = {}): Promise<Subject[]> {
+  return getJson(`/api/subjects${includeArchived ? "?includeArchived=true" : ""}`);
 }
 
 export function getSubjectSummary(id: string): Promise<SubjectSummary> {
   return getJson(`/api/subjects/${id}/summary`);
 }
 
-export function listSessions(): Promise<Session[]> {
-  return getJson("/api/sessions");
+export function restoreSubject(id: string): Promise<Subject> {
+  return postJson(`/api/subjects/${id}/restore`);
+}
+
+export function listSessions({ includeArchived = false }: { includeArchived?: boolean } = {}): Promise<Session[]> {
+  return getJson(`/api/sessions${includeArchived ? "?includeArchived=true" : ""}`);
+}
+
+export function restoreSession(id: string): Promise<Session> {
+  return postJson(`/api/sessions/${id}/restore`);
 }

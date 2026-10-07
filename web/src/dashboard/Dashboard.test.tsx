@@ -1,4 +1,5 @@
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
 import * as api from "./api";
@@ -15,9 +16,10 @@ test("renders the top bar actions and the session columns' empty state", async (
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
-  for (const label of ["Report a bug", "Tune Athena", "Calendar", "Archive"]) {
+  for (const label of ["Report a bug", "Tune Athena", "Calendar"]) {
     expect(screen.getByRole("button", { name: label })).toBeDisabled();
   }
+  expect(screen.getByRole("button", { name: "Archive" })).toBeEnabled();
 
   for (const label of ["Active", "Waiting", "Completed"]) {
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
@@ -94,6 +96,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
       mode: "live",
       status: "active",
       endedAt: null,
+      archived: false,
       currentQuestion: null,
       history: [],
     },
@@ -103,6 +106,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
       mode: "ready",
       status: "waiting",
       endedAt: null,
+      archived: false,
       currentQuestion: { prompt: "What is the derivative of x^2?" },
       history: [],
     },
@@ -112,6 +116,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
       mode: "live",
       status: "completed",
       endedAt: "2026-01-03T00:00:00.000Z",
+      archived: false,
       currentQuestion: null,
       history: [{}, {}],
     },
@@ -153,6 +158,7 @@ test("truncates a long waiting-question prompt preview", async () => {
       mode: "live",
       status: "waiting",
       endedAt: null,
+      archived: false,
       currentQuestion: { prompt: longPrompt },
       history: [],
     },
@@ -161,4 +167,56 @@ test("truncates a long waiting-question prompt preview", async () => {
   render(<Dashboard />);
 
   expect(await screen.findByText(`${"x".repeat(80)}…`)).toBeInTheDocument();
+});
+
+test("Archive button switches to the Archive view, listing archived subjects and sessions with Restore actions", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockImplementation(async ({ includeArchived } = {}) =>
+    includeArchived
+      ? [
+          { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" },
+          { id: "s2", name: "Old Subject", archived: true, createdAt: "2026-01-02" },
+        ]
+      : [{ id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" }],
+  );
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockImplementation(async ({ includeArchived } = {}) =>
+    includeArchived
+      ? [
+          {
+            id: "done-1",
+            subjectIds: ["s1"],
+            mode: "live",
+            status: "completed",
+            endedAt: "2026-01-03T00:00:00.000Z",
+            archived: true,
+            currentQuestion: null,
+            history: [],
+          },
+        ]
+      : [],
+  );
+
+  render(<Dashboard />);
+  await screen.findByRole("heading", { name: "Biology" });
+
+  const header = screen.getByRole("banner");
+  await user.click(within(header).getByRole("button", { name: "Archive" }));
+
+  expect(await screen.findByRole("heading", { name: "Archive" })).toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Archived subjects" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Old Subject" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Biology" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Biology")).toBeInTheDocument(); // resolved subject name on the archived session row
+
+  const subjectCard = screen.getByRole("heading", { name: "Old Subject" }).closest("article") as HTMLElement;
+  await user.click(within(subjectCard).getByRole("button", { name: "Restore" }));
+  expect(api.restoreSubject).toHaveBeenCalledWith("s2");
+
+  await user.click(screen.getByRole("button", { name: "Back to dashboard" }));
+  expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
 });
