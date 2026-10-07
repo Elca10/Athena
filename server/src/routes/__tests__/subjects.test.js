@@ -98,3 +98,36 @@ test("POST /:id/archive for an unknown id returns 404", async () => {
     server.close();
   }
 });
+
+test("GET /:id/summary returns zeroed stats for a fresh subject with no topics", async () => {
+  const { base, server } = await startApp();
+  try {
+    const subject = await (
+      await fetch(base, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "Geology" }),
+      })
+    ).json();
+
+    const res = await fetch(`${base}/${subject.id}/summary`);
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), {
+      masteryCounts: { new: 0, learning: 0, mastered: 0 },
+      dueCount: 0,
+      bankSize: 0,
+    });
+  } finally {
+    server.close();
+  }
+});
+
+test("GET /:id/summary for an unknown id returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/no-such-id/summary`);
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});

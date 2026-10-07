@@ -93,3 +93,24 @@ body {
   color: #888;
   font-size: 0.9rem;
 }
+
+.subject-card {
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.subject-card-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: #666;
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.subject-card-actions {
+  display: flex;
+  gap: 0.5rem;
+}

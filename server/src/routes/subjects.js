@@ -1,5 +1,6 @@
 import express from "express";
 import { listSubjects, getSubject, createSubject, archiveSubject, restoreSubject } from "../subjects.js";
+import { getSubjectSummary } from "../subjectSummary.js";
 
 export function makeSubjectsRouter(appDataDir) {
   const router = express.Router();
@@ -25,6 +26,15 @@ export function makeSubjectsRouter(appDataDir) {
       return;
     }
     res.json(subject);
+  });
+
+  router.get("/:id/summary", async (req, res) => {
+    const subject = await getSubject(appDataDir, req.params.id);
+    if (!subject) {
+      res.status(404).json({ error: `Subject not found: ${req.params.id}` });
+      return;
+    }
+    res.json(await getSubjectSummary(appDataDir, req.params.id));
   });
 
   router.post("/:id/archive", async (req, res) => {
