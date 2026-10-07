@@ -6,6 +6,14 @@ import * as api from "./api";
 
 vi.mock("./api");
 
+const EMPTY_STATS = {
+  sessionsThisWeek: 0,
+  questionsThisWeek: 0,
+  streakDays: 0,
+  accuracy: { correct: 0, total: 0, rate: null },
+  calibration: { byConfidence: [1, 2, 3, 4, 5].map((confidence) => ({ confidence, total: 0, correctRate: null })) },
+};
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -13,6 +21,7 @@ afterEach(() => {
 test("renders the top bar actions and the session columns' empty state", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
@@ -25,11 +34,41 @@ test("renders the top bar actions and the session columns' empty state", async (
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
   }
   expect(await screen.findAllByText("Nothing here yet.")).toHaveLength(3);
+  expect(await screen.findByText(/no questions answered yet/)).toBeInTheDocument();
+  expect(screen.getByText(/Subscription usage — coming soon\./)).toBeInTheDocument();
+});
+
+test("renders real session stats, including the per-confidence calibration breakdown", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue({
+    sessionsThisWeek: 3,
+    questionsThisWeek: 12,
+    streakDays: 4,
+    accuracy: { correct: 9, total: 12, rate: 0.75 },
+    calibration: {
+      byConfidence: [
+        { confidence: 1, total: 0, correctRate: null },
+        { confidence: 2, total: 2, correctRate: 0.5 },
+        { confidence: 3, total: 0, correctRate: null },
+        { confidence: 4, total: 0, correctRate: null },
+        { confidence: 5, total: 10, correctRate: 0.8 },
+      ],
+    },
+  });
+  render(<Dashboard />);
+
+  expect(await screen.findByText(/3 sessions · 12 questions this week · 4-day streak/)).toBeInTheDocument();
+  expect(screen.getByText(/75% accuracy \(9\/12\)/)).toBeInTheDocument();
+  expect(screen.getByText(/confidence 2 → 50% \(2\)/)).toBeInTheDocument();
+  expect(screen.getByText(/confidence 5 → 80% \(10\)/)).toBeInTheDocument();
+  expect(screen.queryByText(/confidence 1 →/)).not.toBeInTheDocument();
 });
 
 test("shows the empty state once the subjects list resolves to none", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   expect(await screen.findByText("No subjects yet.")).toBeInTheDocument();
@@ -46,6 +85,7 @@ test("renders a real subject card with its mastery/due/bank-size stats once load
   });
   vi.mocked(api.listSessions).mockResolvedValue([]);
 
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   const heading = await screen.findByRole("heading", { name: "Organic Chemistry" });
@@ -71,6 +111,7 @@ test("renders one card per subject, each fetching its own summary", async () => 
   });
   vi.mocked(api.listSessions).mockResolvedValue([]);
 
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   expect(await screen.findByRole("heading", { name: "Biology" })).toBeInTheDocument();
@@ -122,6 +163,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
     },
   ]);
 
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   const activeHeading = await screen.findByRole("heading", { name: "Active" });
@@ -164,6 +206,7 @@ test("truncates a long waiting-question prompt preview", async () => {
     },
   ]);
 
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
 
   expect(await screen.findByText(`${"x".repeat(80)}…`)).toBeInTheDocument();
@@ -201,6 +244,7 @@ test("Archive button switches to the Archive view, listing archived subjects and
       : [],
   );
 
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   render(<Dashboard />);
   await screen.findByRole("heading", { name: "Biology" });
 

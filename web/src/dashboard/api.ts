@@ -56,3 +56,16 @@ export function listSessions({ includeArchived = false }: { includeArchived?: bo
 export function restoreSession(id: string): Promise<Session> {
   return postJson(`/api/sessions/${id}/restore`);
 }
+
+// Mirrors server/src/sessionStats.js's return shape exactly.
+export type SessionStats = {
+  sessionsThisWeek: number;
+  questionsThisWeek: number;
+  streakDays: number;
+  accuracy: { correct: number; total: number; rate: number | null };
+  calibration: { byConfidence: { confidence: number; total: number; correctRate: number | null }[] };
+};
+
+export function getSessionStats(): Promise<SessionStats> {
+  return getJson(`/api/stats/sessions`);
+}

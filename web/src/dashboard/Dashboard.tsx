@@ -1,22 +1,28 @@
 import { useEffect, useState } from "react";
 import {
+  getSessionStats,
   getSubjectSummary,
   listSessions,
   listSubjects,
   restoreSession,
   restoreSubject,
   type Session,
+  type SessionStats,
   type SessionStatus,
   type Subject,
   type SubjectSummary,
 } from "./api";
 
-// The real dashboard (SPEC.md section 4). This step adds the Archive view
-// (subjects' and sessions' own Archive actions still aren't wired — only
-// restoring an already-archived item is possible so far) alongside the
-// session data wired in the previous step — the remaining top bar actions
-// and every subject/session card's own action buttons still need their
-// flows built, so they stay disabled placeholders.
+// The real dashboard (SPEC.md section 4). This step wires the top bar's
+// session stats (sessions/questions this week, streak, accuracy,
+// calibration — server/src/sessionStats.js) in place of the old static
+// placeholder. Subscription usage (the other half of the top bar's
+// "Stats" line, SPEC.md section 4) is still a separate, bigger piece —
+// it needs its own `claude -p "/usage"` integration, not just local
+// aggregation — so that half stays "coming soon" for now. Subjects' and
+// sessions' own Archive actions still aren't wired, and the remaining top
+// bar action buttons (Report a bug, Tune Athena, Calendar) still need
+// their own flows built, so they stay disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -28,6 +34,7 @@ export function Dashboard() {
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [stats, setStats] = useState<SessionStats | null>(null);
 
   async function refresh() {
     const list = await listSubjects();
@@ -35,6 +42,7 @@ export function Dashboard() {
     const entries = await Promise.all(list.map(async (s) => [s.id, await getSubjectSummary(s.id)] as const));
     setSummaries(Object.fromEntries(entries));
     setSessions(await listSessions());
+    setStats(await getSessionStats());
   }
 
   useEffect(() => {
@@ -58,7 +66,10 @@ export function Dashboard() {
     <div className="dashboard">
       <header className="dashboard-header">
         <h1>Athena</h1>
-        <div className="dashboard-stats">Usage and session stats — coming soon.</div>
+        <div className="dashboard-stats">
+          <SessionStatsSummary stats={stats} />
+          <span className="dashboard-stats-usage"> · Subscription usage — coming soon.</span>
+        </div>
         <div className="dashboard-header-actions">
           <button type="button" disabled title="Coming soon">
             Report a bug
@@ -249,4 +260,40 @@ function SubjectCard({ subject, summary }: { subject: Subject; summary: SubjectS
       </div>
     </article>
   );
+}
+
+function formatPercent(rate: number | null): string {
+  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
+}
+
+// SPEC.md section 6's Calibration principle: "dashboard shows predicted vs
+// actual accuracy over time". Rendered as one segment per confidence level
+// that has at least one answered question — confidence IS the prediction,
+// so there's no separate "predicted" number to show per level, just how
+// often that confidence level turned out right. Empty when nothing has
+// been answered yet, same as accuracy going unshown below.
+function formatCalibration(stats: SessionStats): string {
+  const levelsWithData = stats.calibration.byConfidence.filter((b) => b.total > 0);
+  if (levelsWithData.length === 0) return "";
+  const segments = levelsWithData.map((b) => `confidence ${b.confidence} → ${formatPercent(b.correctRate)} (${b.total})`);
+  return ` · Calibration: ${segments.join(", ")}`;
+}
+
+// Built as one plain string, not nested elements, so the rendered stats
+// line is a single text node — easier to assert on in tests and avoids any
+// ambiguity between a parent and child both matching the same text query.
+function formatSessionStats(stats: SessionStats): string {
+  const sessionsLabel = `${stats.sessionsThisWeek} session${stats.sessionsThisWeek === 1 ? "" : "s"}`;
+  const questionsLabel = `${stats.questionsThisWeek} question${stats.questionsThisWeek === 1 ? "" : "s"} this week`;
+  const streakLabel = `${stats.streakDays}-day streak`;
+  const accuracyLabel =
+    stats.accuracy.total === 0
+      ? "no questions answered yet"
+      : `${formatPercent(stats.accuracy.rate)} accuracy (${stats.accuracy.correct}/${stats.accuracy.total})`;
+  const calibrationLabel = stats.accuracy.total > 0 ? formatCalibration(stats) : "";
+  return `${sessionsLabel} · ${questionsLabel} · ${streakLabel} · ${accuracyLabel}${calibrationLabel}`;
+}
+
+function SessionStatsSummary({ stats }: { stats: SessionStats | null }) {
+  return <span className="dashboard-stats-sessions">{stats ? formatSessionStats(stats) : "Loading stats…"}</span>;
 }
