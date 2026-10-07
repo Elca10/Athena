@@ -114,3 +114,28 @@ body {
   display: flex;
   gap: 0.5rem;
 }
+
+.session-row {
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.session-row-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.session-row-mode {
+  color: #666;
+  font-weight: 400;
+}
+
+.session-row-detail {
+  color: #666;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}

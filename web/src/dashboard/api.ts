@@ -10,6 +10,20 @@ export type SubjectSummary = {
   bankSize: number;
 };
 
+export type SessionStatus = "active" | "waiting" | "completed";
+
+// Mirrors server/src/sessions.js's record shape — only the fields the
+// dashboard's session columns actually display.
+export type Session = {
+  id: string;
+  subjectIds: string[];
+  mode: "live" | "ready";
+  status: SessionStatus;
+  endedAt: string | null;
+  currentQuestion: { prompt: string } | null;
+  history: unknown[];
+};
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
@@ -22,4 +36,8 @@ export function listSubjects(): Promise<Subject[]> {
 
 export function getSubjectSummary(id: string): Promise<SubjectSummary> {
   return getJson(`/api/subjects/${id}/summary`);
+}
+
+export function listSessions(): Promise<Session[]> {
+  return getJson("/api/sessions");
 }

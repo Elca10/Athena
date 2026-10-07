@@ -11,6 +11,7 @@ afterEach(() => {
 
 test("renders the top bar actions and the session columns' empty state", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
@@ -21,11 +22,12 @@ test("renders the top bar actions and the session columns' empty state", async (
   for (const label of ["Active", "Waiting", "Completed"]) {
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
   }
-  expect(screen.getAllByText("Nothing here yet.")).toHaveLength(3);
+  expect(await screen.findAllByText("Nothing here yet.")).toHaveLength(3);
 });
 
 test("shows the empty state once the subjects list resolves to none", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
   render(<Dashboard />);
 
   expect(await screen.findByText("No subjects yet.")).toBeInTheDocument();
@@ -40,6 +42,7 @@ test("renders a real subject card with its mastery/due/bank-size stats once load
     dueCount: 4,
     bankSize: 10,
   });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
 
   render(<Dashboard />);
 
@@ -64,6 +67,7 @@ test("renders one card per subject, each fetching its own summary", async () => 
     dueCount: 0,
     bankSize: 0,
   });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
 
   render(<Dashboard />);
 
@@ -71,4 +75,90 @@ test("renders one card per subject, each fetching its own summary", async () => 
   expect(await screen.findByRole("heading", { name: "Calculus" })).toBeInTheDocument();
   expect(api.getSubjectSummary).toHaveBeenCalledWith("s1");
   expect(api.getSubjectSummary).toHaveBeenCalledWith("s2");
+});
+
+test("sorts real sessions into their Active/Waiting/Completed columns with subject names resolved", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" },
+    { id: "s2", name: "Calculus", archived: false, createdAt: "2026-01-02" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "active-1",
+      subjectIds: ["s1"],
+      mode: "live",
+      status: "active",
+      endedAt: null,
+      currentQuestion: null,
+      history: [],
+    },
+    {
+      id: "waiting-1",
+      subjectIds: ["s2"],
+      mode: "ready",
+      status: "waiting",
+      endedAt: null,
+      currentQuestion: { prompt: "What is the derivative of x^2?" },
+      history: [],
+    },
+    {
+      id: "completed-1",
+      subjectIds: ["s1", "s2"],
+      mode: "live",
+      status: "completed",
+      endedAt: "2026-01-03T00:00:00.000Z",
+      currentQuestion: null,
+      history: [{}, {}],
+    },
+  ]);
+
+  render(<Dashboard />);
+
+  const activeHeading = await screen.findByRole("heading", { name: "Active" });
+  const activeColumn = activeHeading.closest(".dashboard-session-column") as HTMLElement;
+  expect(within(activeColumn).getByText("Biology")).toBeInTheDocument();
+  expect(within(activeColumn).getByText("Live")).toBeInTheDocument();
+  expect(within(activeColumn).getByText("Working…")).toBeInTheDocument();
+
+  const waitingHeading = screen.getByRole("heading", { name: "Waiting" });
+  const waitingColumn = waitingHeading.closest(".dashboard-session-column") as HTMLElement;
+  expect(within(waitingColumn).getByText("Calculus")).toBeInTheDocument();
+  expect(within(waitingColumn).getByText("What is the derivative of x^2?")).toBeInTheDocument();
+
+  const completedHeading = screen.getByRole("heading", { name: "Completed" });
+  const completedColumn = completedHeading.closest(".dashboard-session-column") as HTMLElement;
+  expect(within(completedColumn).getByText("Biology, Calculus")).toBeInTheDocument();
+  expect(within(completedColumn).getByText("2 questions answered")).toBeInTheDocument();
+});
+
+test("truncates a long waiting-question prompt preview", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  const longPrompt = "x".repeat(200);
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "waiting-1",
+      subjectIds: ["s1"],
+      mode: "live",
+      status: "waiting",
+      endedAt: null,
+      currentQuestion: { prompt: longPrompt },
+      history: [],
+    },
+  ]);
+
+  render(<Dashboard />);
+
+  expect(await screen.findByText(`${"x".repeat(80)}…`)).toBeInTheDocument();
 });

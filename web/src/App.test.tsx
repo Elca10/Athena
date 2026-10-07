@@ -21,6 +21,7 @@ test("shows the setup wizard when setup isn't complete", async () => {
 test("shows the dashboard when setup is already complete", async () => {
   vi.mocked(api.getHealth).mockResolvedValue({ ok: true, version: "0.1.0", setupComplete: true });
   vi.mocked(dashboardApi.listSubjects).mockResolvedValue([]);
+  vi.mocked(dashboardApi.listSessions).mockResolvedValue([]);
   render(<App />);
   expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
 });
