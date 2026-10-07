@@ -111,6 +111,32 @@ export function setCurrentQuestion(appDataDir, id, question) {
 }
 
 /**
+ * Stashes a Ready self-graded question's answer+confidence onto
+ * `currentQuestion` without finalizing it — status stays "waiting".
+ * SPEC.md section 5's self-grading flow needs to reveal the model answer
+ * and rubric between the user submitting an answer and submitting their
+ * self-grade (readySession.js), so the FSRS rating — and therefore the
+ * real `recordAnswer` finalize — can't happen in the same step. Throws if
+ * there's no current question, it already has a pending answer, or the
+ * session is completed — all caller-mistake conditions, same posture as
+ * `setCurrentQuestion`.
+ */
+export function recordPendingAnswer(appDataDir, id, pendingAnswer) {
+  return mutate(appDataDir, id, (session) => {
+    if (session.status === "completed") {
+      throw new Error(`Session already completed: ${id}`);
+    }
+    if (!session.currentQuestion) {
+      throw new Error(`Session has no current question to answer: ${id}`);
+    }
+    if (session.currentQuestion.pendingAnswer) {
+      throw new Error(`Session's current question already has a pending answer: ${id}`);
+    }
+    return { ...session, currentQuestion: { ...session.currentQuestion, pendingAnswer } };
+  });
+}
+
+/**
  * Appends a finished question+answer to a session's `history` and clears
  * `currentQuestion`, moving status back to "active" — ready for whatever
  * generates the next question. A session with no current question can't

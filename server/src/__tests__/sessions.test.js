@@ -9,6 +9,7 @@ import {
   createSession,
   setSessionStatus,
   setCurrentQuestion,
+  recordPendingAnswer,
   recordAnswer,
   endSession,
   archiveSession,
@@ -124,6 +125,44 @@ test("setCurrentQuestion refuses to reopen a completed session", async () => {
   const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
   await endSession(dir, session.id);
   await assert.rejects(() => setCurrentQuestion(dir, session.id, { prompt: "x" }), /already completed/);
+});
+
+test("recordPendingAnswer stashes an answer on currentQuestion and keeps the session waiting", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" });
+  const question = { topicId: "topic-1", subjectId: "subject-1", prompt: "Explain X.", type: "short_answer", rubric: ["a"] };
+  await setCurrentQuestion(dir, session.id, question);
+  const updated = await recordPendingAnswer(dir, session.id, { answerText: "X is a thing", confidence: 3 });
+  assert.deepEqual(updated.currentQuestion, { ...question, pendingAnswer: { answerText: "X is a thing", confidence: 3 } });
+  assert.equal(updated.status, "waiting");
+  assert.deepEqual(updated.history, []);
+});
+
+test("recordPendingAnswer rejects a session with no current question", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" });
+  await assert.rejects(() => recordPendingAnswer(dir, session.id, { answerText: "x" }), /no current question to answer/);
+});
+
+test("recordPendingAnswer rejects a question that already has a pending answer", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" });
+  await setCurrentQuestion(dir, session.id, { prompt: "x" });
+  await recordPendingAnswer(dir, session.id, { answerText: "first" });
+  await assert.rejects(() => recordPendingAnswer(dir, session.id, { answerText: "second" }), /already has a pending answer/);
+});
+
+test("recordPendingAnswer rejects an unknown session id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => recordPendingAnswer(dir, "no-such-id", { answerText: "x" }), /Session not found/);
+});
+
+test("recordPendingAnswer refuses to touch a completed session", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" });
+  await setCurrentQuestion(dir, session.id, { prompt: "x" });
+  await endSession(dir, session.id);
+  await assert.rejects(() => recordPendingAnswer(dir, session.id, { answerText: "x" }), /already completed/);
 });
 
 test("recordAnswer appends to history, clears currentQuestion, and moves the session back to active", async () => {

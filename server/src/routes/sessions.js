@@ -12,6 +12,7 @@ import {
 } from "../sessions.js";
 import { buildSessionTopicIds } from "../sessionBuilder.js";
 import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
+import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView } from "../readySession.js";
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
@@ -103,6 +104,73 @@ export function makeSessionsRouter(appDataDir) {
           confidence: req.body?.confidence,
         }),
       );
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Ready mode's counterpart to /live/question — same synchronous
+  // round-trip, but never shells out to a model (SPEC.md section 5's
+  // near-zero-model-usage goal). `generateNextReadyQuestion` already
+  // decides whether to serve a question, end a finished session, or
+  // report an empty bank; this route's only job is to scrub the served
+  // question's answer-key fields before they reach the client —
+  // `publicQuestionView` keeps `choices` (needed to answer) but drops
+  // `modelAnswer`/`rubric`/`misconceptions`/`correctIndex`/`clozeAnswer`.
+  // An empty-bank result (`noBank: true`) isn't a caller mistake either,
+  // so it's 200, same as a Live model-call failure.
+  router.post("/:id/ready/question", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      const result = await generateNextReadyQuestion(appDataDir, req.params.id);
+      if (result.ok && result.session?.currentQuestion) {
+        result.session = { ...result.session, currentQuestion: publicQuestionView(result.session.currentQuestion) };
+      }
+      res.json(result);
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Submits an answer to a Ready question. Multiple choice/cloze grade and
+  // finalize in this one call (`finalized: true`, same shape as
+  // /live/answer plus `isCorrect`); every other type instead reveals the
+  // model answer/rubric here (`finalized: false`) and waits for
+  // /ready/self-grade to finish the job (SPEC.md section 5's two-step
+  // self-grading flow). No model call either way, so every failure here
+  // is a caller mistake — 400, never the {ok:false} "try again" shape
+  // /live/answer uses for a real model-call failure.
+  router.post("/:id/ready/answer", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(
+        await submitReadyAnswer(appDataDir, req.params.id, {
+          answerText: req.body?.answerText,
+          selectedIndex: req.body?.selectedIndex,
+          confidence: req.body?.confidence,
+        }),
+      );
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Finishes a self-graded Ready question once /ready/answer has stashed a
+  // pending answer and revealed the rubric. Same all-400 posture as
+  // /ready/answer above — no model call to fail here either.
+  router.post("/:id/ready/self-grade", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(await submitReadySelfGrade(appDataDir, req.params.id, { selfGrades: req.body?.selfGrades }));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }

@@ -74,3 +74,31 @@ export async function addBankQuestions(appDataDir, topicId, subjectId, questions
   await storeFor(appDataDir).update((current) => [...current, ...rows]);
   return rows;
 }
+
+/**
+ * Looks up a single bank question by id, regardless of topic — needed once
+ * a session's `currentQuestion` only carries a `bankQuestionId` reference.
+ * Returns `null` rather than throwing, same as `getSession`/`getSubject`/
+ * `getTopicById`.
+ */
+export async function getBankQuestionById(appDataDir, id) {
+  const all = await storeFor(appDataDir).read();
+  return all.find((q) => q.id === id) ?? null;
+}
+
+/**
+ * Marks a bank question as shown (SPEC.md section 5: "the bank tracks
+ * which questions a user has seen") — `readySession.js`'s `pickBankQuestion`
+ * reads `seenCount`/`lastShownAt` back to avoid reusing the same question
+ * too soon. Throws on an unknown id, same posture as `recordTopicReview`.
+ */
+export async function markQuestionShown(appDataDir, id, now = new Date()) {
+  const all = await storeFor(appDataDir).update((current) => {
+    const index = current.findIndex((q) => q.id === id);
+    if (index === -1) throw new Error(`Bank question not found: ${id}`);
+    const next = current.slice();
+    next[index] = { ...next[index], seenCount: next[index].seenCount + 1, lastShownAt: now.toISOString() };
+    return next;
+  });
+  return all.find((q) => q.id === id);
+}

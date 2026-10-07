@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listBankQuestions, addBankQuestions } from "../questionBank.js";
+import { listBankQuestions, addBankQuestions, getBankQuestionById, markQuestionShown } from "../questionBank.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-question-bank-"));
@@ -79,6 +79,33 @@ test("addBankQuestions does nothing for an empty list", async () => {
   const dir = await scratchDir();
   assert.deepEqual(await addBankQuestions(dir, "topic-1", "subject-1", []), []);
   assert.deepEqual(await listBankQuestions(dir, "topic-1"), []);
+});
+
+test("getBankQuestionById finds a question regardless of topic and returns null for an unknown id", async () => {
+  const dir = await scratchDir();
+  const [added] = await addBankQuestions(dir, "topic-1", "subject-1", [
+    { type: "short_answer", prompt: "a", difficulty: "medium", modelAnswer: "a", rubric: ["x"] },
+  ]);
+  assert.deepEqual(await getBankQuestionById(dir, added.id), added);
+  assert.equal(await getBankQuestionById(dir, "no-such-id"), null);
+});
+
+test("markQuestionShown increments seenCount and stamps lastShownAt", async () => {
+  const dir = await scratchDir();
+  const [added] = await addBankQuestions(dir, "topic-1", "subject-1", [
+    { type: "short_answer", prompt: "a", difficulty: "medium", modelAnswer: "a", rubric: ["x"] },
+  ]);
+  const once = await markQuestionShown(dir, added.id, new Date("2026-01-01T00:00:00.000Z"));
+  assert.equal(once.seenCount, 1);
+  assert.equal(once.lastShownAt, "2026-01-01T00:00:00.000Z");
+  const twice = await markQuestionShown(dir, added.id, new Date("2026-02-01T00:00:00.000Z"));
+  assert.equal(twice.seenCount, 2);
+  assert.equal(twice.lastShownAt, "2026-02-01T00:00:00.000Z");
+});
+
+test("markQuestionShown rejects an unknown id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => markQuestionShown(dir, "no-such-id"), /Bank question not found/);
 });
 
 test("listBankQuestions only returns questions for the requested topic", async () => {
