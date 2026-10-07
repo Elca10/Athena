@@ -21,7 +21,7 @@ import { promises as fs } from "node:fs";
 import { runCommand } from "./processUtil.js";
 import { listContent, parsedFilePath } from "./content.js";
 import { batchFiles } from "./topicExtraction.js";
-import { listTopicsNeedingBank, markBankGenerated } from "./topics.js";
+import { listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
 import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.js";
 
 const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "WebFetch", "WebSearch", "mcp__*"];
@@ -33,8 +33,8 @@ export const MAX_TOPICS_PER_BATCH = 4;
 
 /** Questions requested per topic per generation pass — "several questions
  * of varied types and angles" (SPEC.md section 5), not meant to exhaust
- * every possible angle in one pass; a later top-up (triggered by a Ready
- * session draining a topic, not yet built) can add more. */
+ * every possible angle in one pass; `topUpTopicBank` (triggered by a Ready
+ * session draining a topic) adds more using this same batch size. */
 export const QUESTIONS_PER_TOPIC = 4;
 
 const MAX_PROMPT_CHARS = 1000;
@@ -237,6 +237,76 @@ export async function runBankGenerationTurn(prompt, { env } = {}) {
   return result.stdout;
 }
 
+/**
+ * The shared batch/prompt/parse/store pipeline behind both bank-generation
+ * entry points below: given a subject (for grounding files) and an
+ * explicit list of topics needing questions, runs one turn per bounded
+ * batch and stores whatever valid questions come back. Doesn't touch
+ * `bankGeneratedAt` — that's an "initial bank exists" marker the top-up
+ * path must never set again; callers decide whether/when to mark it. A
+ * topic the model skipped entirely, or returned with every question
+ * rejected, is simply absent from `generatedTopicIds` so the caller can
+ * leave it retryable, same "don't silently lose it" posture as
+ * `scanSubjectForTopics`.
+ */
+async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics, runTurn = runBankGenerationTurn }) {
+  const content = await listContent(appDataDir, subjectId);
+  const availableFiles = [];
+  for (const item of content) {
+    const absolutePath = parsedFilePath(appDataDir, item);
+    try {
+      await fs.access(absolutePath);
+    } catch {
+      continue; // nothing parsed on disk yet for this item — just skip it as grounding material
+    }
+    availableFiles.push({ ...item, absolutePath });
+  }
+  // See the module header: every batch in this scan shares the same
+  // first file batch as grounding, rather than per-topic provenance.
+  const groundingFiles = batchFiles(availableFiles)[0] ?? [];
+
+  const topicBatches = [];
+  for (let i = 0; i < topics.length; i += MAX_TOPICS_PER_BATCH) {
+    topicBatches.push(topics.slice(i, i + MAX_TOPICS_PER_BATCH));
+  }
+
+  const errors = [];
+  const generatedTopicIds = [];
+  let questionsAdded = 0;
+
+  for (const batch of topicBatches) {
+    const prompt = buildBankPrompt({ subjectName, topics: batch, files: groundingFiles });
+
+    let replyText;
+    try {
+      replyText = await runTurn(prompt);
+    } catch (err) {
+      errors.push(`${batch.length} topic(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
+      continue; // leave this batch's topics unmarked — retryable on the next scan
+    }
+
+    const parsed = parseBankReply(replyText);
+    if (!parsed.ok) {
+      errors.push(`${batch.length} topic(s) not processed: ${parsed.reason}`);
+      continue;
+    }
+
+    const byName = new Map(parsed.topics.map((t) => [t.topicName.trim().toLowerCase(), t]));
+    for (const topic of batch) {
+      const match = byName.get(topic.name.trim().toLowerCase());
+      if (!match || !match.questions.length) {
+        errors.push(`Topic "${topic.name}" not processed: the reply had no usable questions for it`);
+        continue;
+      }
+      const added = await addBankQuestions(appDataDir, topic.id, topic.subjectId, match.questions);
+      questionsAdded += added.length;
+      generatedTopicIds.push(topic.id);
+    }
+  }
+
+  return { generatedTopicIds, questionsAdded, errors };
+}
+
 // Same overlapping-trigger guard as topicExtraction.js's `inFlightSubjects`
 // — a subject already being scanned simply skips a second concurrent
 // call rather than racing it.
@@ -262,67 +332,56 @@ export async function scanSubjectForBankGeneration(appDataDir, subjectId, { subj
       return { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, errors: [] };
     }
 
-    const content = await listContent(appDataDir, subjectId);
-    const availableFiles = [];
-    for (const item of content) {
-      const absolutePath = parsedFilePath(appDataDir, item);
-      try {
-        await fs.access(absolutePath);
-      } catch {
-        continue; // nothing parsed on disk yet for this item — just skip it as grounding material
-      }
-      availableFiles.push({ ...item, absolutePath });
-    }
-    // See the module header: every batch in this scan shares the same
-    // first file batch as grounding, rather than per-topic provenance.
-    const groundingFiles = batchFiles(availableFiles)[0] ?? [];
-
-    const topicBatches = [];
-    for (let i = 0; i < needingBank.length; i += MAX_TOPICS_PER_BATCH) {
-      topicBatches.push(needingBank.slice(i, i + MAX_TOPICS_PER_BATCH));
+    const { generatedTopicIds, questionsAdded, errors } = await generateAndStoreBank(appDataDir, subjectId, {
+      subjectName,
+      topics: needingBank,
+      runTurn,
+    });
+    if (generatedTopicIds.length) {
+      await markBankGenerated(appDataDir, generatedTopicIds);
     }
 
-    const errors = [];
-    let topicsProcessed = 0;
-    let questionsAdded = 0;
-
-    for (const batch of topicBatches) {
-      const prompt = buildBankPrompt({ subjectName, topics: batch, files: groundingFiles });
-
-      let replyText;
-      try {
-        replyText = await runTurn(prompt);
-      } catch (err) {
-        errors.push(`${batch.length} topic(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
-        continue; // leave this batch's topics unmarked — retryable on the next scan
-      }
-
-      const parsed = parseBankReply(replyText);
-      if (!parsed.ok) {
-        errors.push(`${batch.length} topic(s) not processed: ${parsed.reason}`);
-        continue;
-      }
-
-      const byName = new Map(parsed.topics.map((t) => [t.topicName.trim().toLowerCase(), t]));
-      const generatedIds = [];
-      for (const topic of batch) {
-        const match = byName.get(topic.name.trim().toLowerCase());
-        if (!match || !match.questions.length) {
-          errors.push(`Topic "${topic.name}" not processed: the reply had no usable questions for it`);
-          continue;
-        }
-        const added = await addBankQuestions(appDataDir, topic.id, topic.subjectId, match.questions);
-        questionsAdded += added.length;
-        generatedIds.push(topic.id);
-      }
-      if (generatedIds.length) {
-        await markBankGenerated(appDataDir, generatedIds);
-        topicsProcessed += generatedIds.length;
-      }
-    }
-
-    return { ok: errors.length === 0, skipped: false, topicsProcessed, questionsAdded, errors };
+    return { ok: errors.length === 0, skipped: false, topicsProcessed: generatedTopicIds.length, questionsAdded, errors };
   } finally {
     inFlightSubjects.delete(subjectId);
+  }
+}
+
+// A separate per-topic guard from `inFlightSubjects` above: a top-up
+// targets one already-bank-having topic rather than a subject-wide sweep,
+// so two Ready sessions ending around the same time can't double-fire a
+// top-up for the same topic, but a subject-wide `/bank/scan` and a topic
+// top-up are independent concerns and don't need to block each other.
+const inFlightTopUpTopics = new Set();
+
+/**
+ * Tops up one topic's question bank (SPEC.md section 5: "topped up after a
+ * Ready session that drained a topic's unused questions"). Reuses the same
+ * batch/prompt/parse/store pipeline as `scanSubjectForBankGeneration`, but
+ * targets a single already-identified topic instead of scanning a whole
+ * subject for topics that have never had a bank — and, unlike that scan,
+ * never touches `bankGeneratedAt`, since a topic can only drain after its
+ * initial bank already exists. Throws on an unknown topic id (a caller
+ * mistake, not a recoverable outcome); a model-call failure or unparseable
+ * reply comes back as `{ok: false, ...}` instead, same posture as the
+ * subject-wide scan.
+ */
+export async function topUpTopicBank(appDataDir, topicId, { subjectName, runTurn = runBankGenerationTurn } = {}) {
+  if (inFlightTopUpTopics.has(topicId)) {
+    return { ok: true, skipped: true, questionsAdded: 0, errors: [] };
+  }
+  inFlightTopUpTopics.add(topicId);
+  try {
+    const topic = await getTopicById(appDataDir, topicId);
+    if (!topic) throw new Error(`Topic not found: ${topicId}`);
+
+    const { questionsAdded, errors } = await generateAndStoreBank(appDataDir, topic.subjectId, {
+      subjectName,
+      topics: [topic],
+      runTurn,
+    });
+    return { ok: errors.length === 0, skipped: false, questionsAdded, errors };
+  } finally {
+    inFlightTopUpTopics.delete(topicId);
   }
 }

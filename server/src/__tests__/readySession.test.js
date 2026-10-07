@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, getTopicById } from "../topics.js";
-import { addBankQuestions, listBankQuestions } from "../questionBank.js";
+import { addBankQuestions, listBankQuestions, markQuestionShown } from "../questionBank.js";
 import { createSession, getSession } from "../sessions.js";
 import {
   pickBankQuestion,
@@ -16,11 +16,19 @@ import {
   generateNextReadyQuestion,
   submitReadyAnswer,
   submitReadySelfGrade,
+  topUpDrainedTopics,
 } from "../readySession.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-ready-session-"));
 }
+
+// A session reaching its natural end always re-checks its topics for a
+// drained bank (readySession.js's topUpDrainedTopics) — tests that aren't
+// specifically about that behavior inject this no-op instead of the real
+// `topUpTopicBank`, which would otherwise shell out to the actual `claude`
+// CLI the moment a single-question bank gets used up.
+const noOpTopUp = async () => ({ ok: true, skipped: false, questionsAdded: 0, errors: [] });
 
 function shortAnswerQuestion(overrides = {}) {
   return {
@@ -154,10 +162,77 @@ test("generateNextReadyQuestion ends the session once every topic has a history 
   await submitReadyAnswer(dir, session.id, { answerText: "it calls itself with a base case", confidence: 3 });
   await submitReadySelfGrade(dir, session.id, { selfGrades: [{ status: "got_it" }, { status: "got_it" }] });
 
-  const result = await generateNextReadyQuestion(dir, session.id);
+  const result = await generateNextReadyQuestion(dir, session.id, { topUp: noOpTopUp });
   assert.equal(result.ok, true);
   assert.equal(result.done, true);
   assert.equal(result.session.status, "completed");
+});
+
+// --- topUpDrainedTopics ----------------------------------------------------
+
+test("topUpDrainedTopics tops up a topic whose single question has been shown", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  const [question] = await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  await markQuestionShown(dir, question.id);
+
+  const calls = [];
+  const topUp = async (appDataDir, topicId, options) => {
+    calls.push({ topicId, options });
+    return { ok: true, skipped: false, questionsAdded: 2, errors: [] };
+  };
+  const results = await topUpDrainedTopics(dir, [topic.id], { topUp });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].topicId, topic.id);
+  assert.equal(calls[0].options.subjectName, "Algorithms");
+  assert.deepEqual(results, [{ topicId: topic.id, ok: true, skipped: false, questionsAdded: 2, errors: [] }]);
+});
+
+test("topUpDrainedTopics skips a topic that still has an unseen question", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  const [shown] = await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion(), shortAnswerQuestion()]);
+  await markQuestionShown(dir, shown.id);
+
+  let called = false;
+  const topUp = async () => {
+    called = true;
+    return { ok: true, skipped: false, questionsAdded: 0, errors: [] };
+  };
+  const results = await topUpDrainedTopics(dir, [topic.id], { topUp });
+  assert.equal(called, false);
+  assert.deepEqual(results, []);
+});
+
+test("topUpDrainedTopics skips a topic with no bank at all (not generated yet, not drained)", async () => {
+  const dir = await scratchDir();
+  const { topic } = await seedSubjectWithTopic(dir);
+
+  let called = false;
+  const topUp = async () => {
+    called = true;
+    return { ok: true, skipped: false, questionsAdded: 0, errors: [] };
+  };
+  await topUpDrainedTopics(dir, [topic.id], { topUp });
+  assert.equal(called, false);
+});
+
+test("generateNextReadyQuestion's done result includes bankTopUps for a session that drained a topic", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+
+  await generateNextReadyQuestion(dir, session.id);
+  await submitReadyAnswer(dir, session.id, { answerText: "it calls itself with a base case", confidence: 3 });
+  await submitReadySelfGrade(dir, session.id, { selfGrades: [{ status: "got_it" }, { status: "got_it" }] });
+
+  const topUp = async (appDataDir, topicId) => ({ ok: true, skipped: false, questionsAdded: 3, errors: [], toppedUpTopicId: topicId });
+  const result = await generateNextReadyQuestion(dir, session.id, { topUp });
+  assert.equal(result.done, true);
+  assert.equal(result.bankTopUps.length, 1);
+  assert.equal(result.bankTopUps[0].topicId, topic.id);
+  assert.equal(result.bankTopUps[0].questionsAdded, 3);
 });
 
 test("generateNextReadyQuestion rejects a live-mode session", async () => {
@@ -402,7 +477,7 @@ test("full ready-mode round trip across two topics ends the session naturally", 
   const a2 = await submitReadyAnswer(dir, session.id, { selectedIndex: 1, confidence: 5 });
   assert.equal(a2.isCorrect, true);
 
-  const done = await generateNextReadyQuestion(dir, session.id);
+  const done = await generateNextReadyQuestion(dir, session.id, { topUp: noOpTopUp });
   assert.equal(done.done, true);
   assert.equal(done.session.status, "completed");
   assert.equal(done.session.history.length, 2);

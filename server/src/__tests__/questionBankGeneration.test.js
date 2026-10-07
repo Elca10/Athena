@@ -4,12 +4,13 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { addUploadedContent } from "../content.js";
-import { addPlannedTopics, listTopics } from "../topics.js";
-import { listBankQuestions } from "../questionBank.js";
+import { addPlannedTopics, listTopics, markBankGenerated } from "../topics.js";
+import { listBankQuestions, addBankQuestions } from "../questionBank.js";
 import {
   buildBankPrompt,
   parseBankReply,
   scanSubjectForBankGeneration,
+  topUpTopicBank,
   runBankGenerationTurn,
   MAX_TOPICS_PER_BATCH,
   QUESTIONS_PER_TOPIC,
@@ -329,4 +330,44 @@ test("scanSubjectForBankGeneration falls back to 'no material available' framing
 
 test("QUESTIONS_PER_TOPIC is a small positive number", () => {
   assert.ok(Number.isInteger(QUESTIONS_PER_TOPIC) && QUESTIONS_PER_TOPIC > 0 && QUESTIONS_PER_TOPIC <= 10);
+});
+
+// --- topUpTopicBank -----------------------------------------------------
+
+test("topUpTopicBank adds more questions to an already-generated topic without touching bankGeneratedAt", async () => {
+  const dir = await scratchDir();
+  const [topic] = await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  await addBankQuestions(dir, topic.id, "subject-1", [validQuestion()]); // simulates an already-generated bank
+  await markBankGenerated(dir, [topic.id]);
+  const [{ bankGeneratedAt }] = await listTopics(dir, "subject-1");
+
+  const fakeTurn = async (prompt) => {
+    assert.match(prompt, /Recursion/);
+    return bankReply([{ topicName: "Recursion", questions: [validQuestion({ prompt: "a fresh angle" })] }]);
+  };
+  const result = await topUpTopicBank(dir, topic.id, { subjectName: "CS 101", runTurn: fakeTurn });
+  assert.equal(result.ok, true);
+  assert.equal(result.questionsAdded, 1);
+
+  const stored = await listBankQuestions(dir, topic.id);
+  assert.equal(stored.length, 2);
+  const [afterTopUp] = await listTopics(dir, "subject-1");
+  assert.equal(afterTopUp.bankGeneratedAt, bankGeneratedAt);
+});
+
+test("topUpTopicBank rejects an unknown topic id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => topUpTopicBank(dir, "no-such-id", { subjectName: "S" }), /Topic not found/);
+});
+
+test("topUpTopicBank reports a turn failure without throwing", async () => {
+  const dir = await scratchDir();
+  const [topic] = await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  const failingTurn = async () => {
+    throw new Error("claude CLI not found");
+  };
+  const result = await topUpTopicBank(dir, topic.id, { subjectName: "S", runTurn: failingTurn });
+  assert.equal(result.ok, false);
+  assert.equal(result.questionsAdded, 0);
+  assert.match(result.errors[0], /claude CLI not found/);
 });

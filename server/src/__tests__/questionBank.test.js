@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listBankQuestions, addBankQuestions, getBankQuestionById, markQuestionShown } from "../questionBank.js";
+import { listBankQuestions, addBankQuestions, getBankQuestionById, markQuestionShown, isBankDrained } from "../questionBank.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-question-bank-"));
@@ -106,6 +106,20 @@ test("markQuestionShown increments seenCount and stamps lastShownAt", async () =
 test("markQuestionShown rejects an unknown id", async () => {
   const dir = await scratchDir();
   await assert.rejects(() => markQuestionShown(dir, "no-such-id"), /Bank question not found/);
+});
+
+// --- isBankDrained ----------------------------------------------------
+
+test("isBankDrained is false for an empty bank (not-yet-generated, not drained)", () => {
+  assert.equal(isBankDrained([]), false);
+});
+
+test("isBankDrained is false when at least one question has never been shown", () => {
+  assert.equal(isBankDrained([{ seenCount: 3 }, { seenCount: 0 }]), false);
+});
+
+test("isBankDrained is true once every question has seenCount >= 1", () => {
+  assert.equal(isBankDrained([{ seenCount: 1 }, { seenCount: 4 }]), true);
 });
 
 test("listBankQuestions only returns questions for the requested topic", async () => {

@@ -87,6 +87,19 @@ export async function getBankQuestionById(appDataDir, id) {
 }
 
 /**
+ * Whether every question in a topic's bank has been shown at least once —
+ * SPEC.md section 5's "topped up after a Ready session that drained a
+ * topic's unused questions". A bank that's still empty (never generated)
+ * is not "drained" in this sense — that's the separate "empty or thin
+ * bank" case `readySession.js`'s `pickBankQuestion`/`noBank` already
+ * handle — so an empty list is `false`, not `true`. Pure, exported for its
+ * own test.
+ */
+export function isBankDrained(questions) {
+  return questions.length > 0 && questions.every((q) => q.seenCount > 0);
+}
+
+/**
  * Marks a bank question as shown (SPEC.md section 5: "the bank tracks
  * which questions a user has seen") — `readySession.js`'s `pickBankQuestion`
  * reads `seenCount`/`lastShownAt` back to avoid reusing the same question

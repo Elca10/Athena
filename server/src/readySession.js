@@ -39,7 +39,9 @@
 
 import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, endSession } from "./sessions.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
-import { listBankQuestions, markQuestionShown } from "./questionBank.js";
+import { listBankQuestions, markQuestionShown, isBankDrained } from "./questionBank.js";
+import { getSubject } from "./subjects.js";
+import { topUpTopicBank } from "./questionBankGeneration.js";
 import { pickNextTopicId } from "./liveSession.js";
 
 /** The two bank question types with a real local answer key — SPEC.md
@@ -124,21 +126,58 @@ export function mapSelfGradeToRating(selfGrades) {
 }
 
 /**
+ * After a Ready session ends naturally, checks each topic it covered for a
+ * drained bank — SPEC.md section 5: "topped up after a Ready session that
+ * drained a topic's unused questions, triggered by that session ending" —
+ * and tops up any that are. `isBankDrained` only looks at a topic's own
+ * bank, independent of which topic just ended the session, so this checks
+ * every topic the session touched, not just the last one asked. Runs
+ * sequentially and is never fatal to the session having ended — a failed
+ * top-up (model-call failure, unparseable reply) is reported in the
+ * returned array alongside a successful one rather than thrown, same
+ * "real, recoverable outcome" posture a single failed turn already gets
+ * elsewhere in this module. Exported for its own test; `topUp` is a test
+ * seam for `topUpTopicBank`.
+ */
+export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTopicBank } = {}) {
+  const results = [];
+  const subjectNames = new Map();
+  for (const topicId of topicIds) {
+    const questions = await listBankQuestions(appDataDir, topicId);
+    if (!isBankDrained(questions)) continue;
+
+    const topic = await getTopicById(appDataDir, topicId);
+    if (!topic) continue; // a session's own topicIds were already resolved when it was built
+
+    if (!subjectNames.has(topic.subjectId)) {
+      const subject = await getSubject(appDataDir, topic.subjectId);
+      subjectNames.set(topic.subjectId, subject?.name ?? "");
+    }
+
+    const result = await topUp(appDataDir, topicId, { subjectName: subjectNames.get(topic.subjectId) });
+    results.push({ topicId, ...result });
+  }
+  return results;
+}
+
+/**
  * Serves a Ready session's next question: `pickNextTopicId` decides which
  * due topic (if any) is next, same interleaving-order logic Live mode
  * uses; `pickBankQuestion` picks the least-recently-shown bank question for
- * it. Once every topic's been asked, the session ends itself, mirroring
+ * it. Once every topic's been asked, the session ends itself and tops up
+ * any topic it drained (`topUpDrainedTopics`), mirroring
  * `generateNextLiveQuestion`'s `{ok: true, done: true, session}` shape
- * exactly. An empty/not-yet-generated bank for the next topic (SPEC.md
- * section 5's "empty or thin bank") is a real, recoverable outcome, not a
- * caller mistake — it comes back as `{ok: false, noBank: true, topicId,
- * reason}` with the session untouched, same posture `generateNextLiveQuestion`
+ * with an added `bankTopUps` array (empty when nothing needed topping up).
+ * An empty/not-yet-generated bank for the next topic (SPEC.md section 5's
+ * "empty or thin bank") is a real, recoverable outcome, not a caller
+ * mistake — it comes back as `{ok: false, noBank: true, topicId, reason}`
+ * with the session untouched, same posture `generateNextLiveQuestion`
  * gives a model-call failure, so a retry after generating a bank (or the
  * caller choosing Live instead, per the spec) doesn't need any cleanup.
  * Validation errors (bad session id, wrong mode, a question already
  * served, no topics at all) throw, same as Live.
  */
-export async function generateNextReadyQuestion(appDataDir, sessionId) {
+export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp = topUpTopicBank } = {}) {
   const session = await getSession(appDataDir, sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   if (session.mode !== "ready") throw new Error(`generateNextReadyQuestion only applies to ready-mode sessions: ${sessionId}`);
@@ -148,7 +187,8 @@ export async function generateNextReadyQuestion(appDataDir, sessionId) {
   const topicId = pickNextTopicId(session.topicIds, session.history);
   if (topicId === null) {
     const ended = await endSession(appDataDir, sessionId);
-    return { ok: true, done: true, session: ended };
+    const bankTopUps = await topUpDrainedTopics(appDataDir, session.topicIds, { topUp });
+    return { ok: true, done: true, session: ended, bankTopUps };
   }
   const topic = await getTopicById(appDataDir, topicId);
   if (!topic) throw new Error(`Topic not found: ${topicId}`);
