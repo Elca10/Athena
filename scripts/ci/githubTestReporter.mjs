@@ -20,8 +20,20 @@ function escapeProperty(value) {
   return escapeData(value).replace(/:/g, "%3A").replace(/,/g, "%2C");
 }
 
-function firstLine(message) {
-  return String(message ?? "failed").split("\n")[0];
+// GitHub renders an escaped %0A in an annotation message as a real line
+// break, so there's no need to collapse a message to its first line -
+// earlier builds did that and it threw away exactly the actual-vs-expected
+// detail (assert.match's "Input:" value, assert.equal's diff) needed to
+// diagnose a failure from the public annotations API alone, with no
+// job-log auth to fall back on. Capped instead of unbounded, so one huge
+// diff can't blow past GitHub's per-command size limit.
+const MAX_MESSAGE_LENGTH = 2000;
+
+function fullMessage(message) {
+  const text = String(message ?? "failed");
+  return text.length > MAX_MESSAGE_LENGTH
+    ? `${text.slice(0, MAX_MESSAGE_LENGTH)}\n...[truncated]`
+    : text;
 }
 
 export default async function* githubTestReporter(source) {
@@ -29,7 +41,7 @@ export default async function* githubTestReporter(source) {
     if (event.type !== "test:fail") continue;
     const { name, file, line, details } = event.data;
     const error = details?.error;
-    const message = firstLine(error?.cause?.message ?? error?.message ?? error);
+    const message = fullMessage(error?.cause?.message ?? error?.message ?? error);
 
     const props = [];
     if (file) props.push(`file=${escapeProperty(file)}`);

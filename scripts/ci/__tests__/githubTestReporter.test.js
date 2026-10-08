@@ -55,14 +55,22 @@ test("falls back to error.message when there is no cause", async () => {
   assert.match(lines[0], /::boom\n$/);
 });
 
-test("takes only the first line of a multi-line message", async () => {
+test("keeps a multi-line message in full, with newlines escaped as %0A", async () => {
   const lines = await collect([
     failEvent({
       name: "t",
       details: { error: { cause: { message: "line one\n\nline two" } } },
     }),
   ]);
-  assert.match(lines[0], /::line one\n$/);
+  assert.match(lines[0], /::line one%0A%0Aline two\n$/);
+});
+
+test("truncates a message past the length cap instead of growing unbounded", async () => {
+  const huge = "x".repeat(5000);
+  const lines = await collect([
+    failEvent({ name: "t", details: { error: { cause: { message: huge } } } }),
+  ]);
+  assert.match(lines[0], /^::error title=t::x{2000}%0A\.\.\.\[truncated\]\n$/);
 });
 
 test("escapes %, CR, and LF in the message, and additionally : and , in properties", async () => {

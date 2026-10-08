@@ -46,6 +46,12 @@ jobs:
       - name: Run privacy-guard and git-hook tests
         run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "scripts/__tests__/*.test.js"
 
+      # A separate step/glob because scripts/__tests__/*.test.js doesn't
+      # reach this nested directory - these tests were silently never run
+      # in real CI (only ever invoked manually) until this step was added.
+      - name: Run CI annotation reporter tests
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "scripts/ci/__tests__/*.test.js"
+
       - name: Run installer (bootstrap.mjs) tests
         run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/bootstrap.test.js"
 
