@@ -94,9 +94,10 @@ function runInstaller(env) {
       // Windows, pwsh/powershell.exe/git.exe/node.exe need ambient variables
       // like SystemRoot/windir/TEMP just to start at all (a POSIX shell
       // tolerates a near-empty env fine, which is why this looked harmless on
-      // Linux/macOS). PATH (and any other key in `env`) still override below,
-      // so the test's intent of hiding/exposing specific commands is unaffected.
-      env: { ...process.env, HOME: env.HOME ?? tmpdir(), ...env },
+      // Linux/macOS). Merged case-insensitively so overriding PATH actually
+      // replaces Windows' natively-cased `Path` instead of sitting next to it
+      // as an unrelated key that the real one wins over.
+      env: mergeEnvCaseInsensitive(process.env, { HOME: env.HOME ?? tmpdir(), ...env }),
     });
     return { code: 0, stdout, stderr: "" };
   } catch (err) {
@@ -111,6 +112,41 @@ function runInstaller(env) {
 function cleanup(...dirs) {
   for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
 }
+
+/** Merge `overrides` on top of `base` so that an override replaces a
+ * same-named key regardless of case. Needed because `process.env` on
+ * Windows exposes variables like `Path`/`ComSpec` under their own native
+ * casing, while plain object spread (`{ ...process.env, PATH: fakeBin }`)
+ * treats "Path" and "PATH" as two unrelated keys — both end up in the env
+ * block handed to the child process, and the real one wins over the
+ * override instead of being replaced by it. */
+export function mergeEnvCaseInsensitive(base, overrides) {
+  const overrideKeysLower = new Set(Object.keys(overrides).map((key) => key.toLowerCase()));
+  const result = {};
+  for (const [key, value] of Object.entries(base)) {
+    if (!overrideKeysLower.has(key.toLowerCase())) result[key] = value;
+  }
+  return { ...result, ...overrides };
+}
+
+// This repo's real git/node run on this (Linux) box, so the Windows
+// Path/PATH collision itself can't be reproduced end to end here — these
+// tests exercise the merge logic directly against a simulated Windows-shaped
+// base env instead, which is what actually proves the fix.
+test("mergeEnvCaseInsensitive: override replaces a differently-cased base key", () => {
+  const merged = mergeEnvCaseInsensitive({ Path: "C:\\real" }, { PATH: "C:\\fake" });
+  assert.deepEqual(merged, { PATH: "C:\\fake" });
+});
+
+test("mergeEnvCaseInsensitive: non-conflicting base keys survive untouched", () => {
+  const merged = mergeEnvCaseInsensitive({ SystemRoot: "C:\\Windows", Path: "C:\\real" }, { PATH: "C:\\fake" });
+  assert.deepEqual(merged, { SystemRoot: "C:\\Windows", PATH: "C:\\fake" });
+});
+
+test("mergeEnvCaseInsensitive: same-case override still replaces (POSIX case)", () => {
+  const merged = mergeEnvCaseInsensitive({ PATH: "/real" }, { PATH: "/fake" });
+  assert.deepEqual(merged, { PATH: "/fake" });
+});
 
 test("fails with install instructions when git is missing and there's no winget", { skip: !PWSH_PATH && "no PowerShell host found on PATH" }, () => {
   // No PATH entries at all -> `Get-Command git` (and winget) both miss.
