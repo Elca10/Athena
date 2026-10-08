@@ -23,6 +23,8 @@ import { listContent, parsedFilePath } from "./content.js";
 import { batchFiles } from "./topicExtraction.js";
 import { listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
 import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.js";
+import { listPreferences } from "./preferences.js";
+import { formatPreferencesBlock } from "./preferencesPrompt.js";
 
 const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "WebFetch", "WebSearch", "mcp__*"];
 
@@ -65,7 +67,7 @@ const PLAIN_FENCE_RE = /```(?:json)?\s*\n([\s\S]*?)```/g;
  * gets a bank, just from the model's own knowledge of the topic name).
  * Pure, exported for its own test.
  */
-export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic = QUESTIONS_PER_TOPIC }) {
+export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic = QUESTIONS_PER_TOPIC, preferences }) {
   const filesBlock = files.length
     ? `Ground your questions in this material — read these exact paths, and nothing else, using the Read tool:\n${files
         .map((f) => `- ${f.absolutePath}`)
@@ -118,7 +120,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
   ],
   "summary": "<one sentence on what was generated>"
 }
-\`\`\``;
+\`\`\`${formatPreferencesBlock(preferences)}`;
 }
 
 function cappedStringArray(value, { maxCount, maxChars }) {
@@ -264,6 +266,7 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
   // See the module header: every batch in this scan shares the same
   // first file batch as grounding, rather than per-topic provenance.
   const groundingFiles = batchFiles(availableFiles)[0] ?? [];
+  const preferences = await listPreferences(appDataDir);
 
   const topicBatches = [];
   for (let i = 0; i < topics.length; i += MAX_TOPICS_PER_BATCH) {
@@ -275,7 +278,7 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
   let questionsAdded = 0;
 
   for (const batch of topicBatches) {
-    const prompt = buildBankPrompt({ subjectName, topics: batch, files: groundingFiles });
+    const prompt = buildBankPrompt({ subjectName, topics: batch, files: groundingFiles, preferences });
 
     let replyText;
     try {

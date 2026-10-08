@@ -6,6 +6,7 @@ import path from "node:path";
 import { addUploadedContent } from "../content.js";
 import { addPlannedTopics, listTopics, markBankGenerated } from "../topics.js";
 import { listBankQuestions, addBankQuestions } from "../questionBank.js";
+import { addPreference } from "../preferences.js";
 import {
   buildBankPrompt,
   parseBankReply,
@@ -65,6 +66,17 @@ test("buildBankPrompt says no material is available when there are no files", ()
 test("buildBankPrompt mentions the requested question count", () => {
   const prompt = buildBankPrompt({ subjectName: "Biology", topics: [{ name: "Osmosis" }], files: [], questionsPerTopic: 3 });
   assert.match(prompt, /exactly 3 questions/);
+});
+
+test("buildBankPrompt appends stored preferences when given any", () => {
+  const prompt = buildBankPrompt({
+    subjectName: "Biology",
+    topics: [{ name: "Osmosis" }],
+    files: [],
+    preferences: [{ text: "harder questions on proofs" }],
+  });
+  assert.match(prompt, /standing study preferences/);
+  assert.match(prompt, /harder questions on proofs/);
 });
 
 // --- parseBankReply ----------------------------------------------------------
@@ -242,6 +254,20 @@ test("scanSubjectForBankGeneration generates a bank per topic, grounded in the s
 
   assert.equal((await listBankQuestions(dir, topic1.id)).length, 1);
   assert.equal((await listBankQuestions(dir, topic2.id)).length, 1);
+});
+
+test("scanSubjectForBankGeneration includes stored preferences in the prompt sent to the model", async () => {
+  const dir = await scratchDir();
+  await addPlannedTopics(dir, "subject-1", ["Recursion"]);
+  await addPreference(dir, { text: "harder questions on proofs" });
+
+  let seenPrompt = null;
+  const fakeTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return bankReply([{ topicName: "Recursion", questions: [validQuestion()] }]);
+  };
+  await scanSubjectForBankGeneration(dir, "subject-1", { subjectName: "S", runTurn: fakeTurn });
+  assert.match(seenPrompt, /harder questions on proofs/);
 });
 
 test("scanSubjectForBankGeneration batches topics past MAX_TOPICS_PER_BATCH into separate turns", async () => {

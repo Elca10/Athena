@@ -39,6 +39,8 @@ import { getSession, setCurrentQuestion, recordAnswer, endSession } from "./sess
 import { getSubject } from "./subjects.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { RATINGS } from "./scheduler.js";
+import { listPreferences } from "./preferences.js";
+import { formatPreferencesBlock } from "./preferencesPrompt.js";
 
 /** This turn needs no tools at all — it answers from the topic name/notes
  * given in the prompt, so every tool is denied rather than just the
@@ -89,7 +91,7 @@ export function pickNextTopicId(topicIds, history) {
  * explanation; a topic that's been reviewed before can ask a harder,
  * more specific angle (recall, apply, compare).
  */
-export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic }) {
+export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
   const framingLine = isNewTopic
@@ -113,7 +115,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
   "type": "<one of: ${QUESTION_TYPES.join(", ")}>",
   "difficulty": "<intro|medium|hard>"
 }
-\`\`\``;
+\`\`\`${formatPreferencesBlock(preferences)}`;
 }
 
 /**
@@ -224,7 +226,8 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
   }
 
   const isNewTopic = (topic.fsrs?.reps ?? 0) === 0;
-  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic });
+  const preferences = await listPreferences(appDataDir);
+  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences });
 
   let replyText;
   try {
@@ -251,7 +254,7 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
  * test. Asks the model to pick an FSRS rating directly (see the module
  * comment above for why) rather than a finer key-points breakdown.
  */
-export function buildGradingPrompt({ subjectNames, topic, question, answerText }) {
+export function buildGradingPrompt({ subjectNames, topic, question, answerText, preferences }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
 
@@ -277,7 +280,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
   "feedback": "<your specific feedback on this answer, a sentence or two to a short paragraph>",
   "rating": "<one of: again, hard, good, easy>"
 }
-\`\`\``;
+\`\`\`${formatPreferencesBlock(preferences)}`;
 }
 
 /**
@@ -366,11 +369,13 @@ export async function submitLiveAnswer(appDataDir, sessionId, { answerText, conf
     if (subject) subjectNames.push(subject.name);
   }
 
+  const preferences = await listPreferences(appDataDir);
   const prompt = buildGradingPrompt({
     subjectNames,
     topic,
     question,
     answerText: trimmedAnswer.slice(0, MAX_ANSWER_CHARS),
+    preferences,
   });
 
   let replyText;

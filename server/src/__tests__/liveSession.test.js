@@ -6,6 +6,7 @@ import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, recordTopicReview } from "../topics.js";
 import { createSession, getSession, setCurrentQuestion, recordAnswer } from "../sessions.js";
+import { addPreference } from "../preferences.js";
 import {
   pickNextTopicId,
   buildFirstQuestionPrompt,
@@ -104,6 +105,33 @@ test("buildFirstQuestionPrompt frames a reviewed topic as a real recall/applicat
 test("buildFirstQuestionPrompt handles no subject name and no notes", () => {
   const prompt = buildFirstQuestionPrompt({ subjectNames: [], topic: { name: "Topic X", notes: "" }, isNewTopic: true });
   assert.match(prompt, /an unspecified subject/);
+});
+
+test("buildFirstQuestionPrompt appends stored preferences when given any", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: true,
+    preferences: [{ text: "harder questions on proofs" }],
+  });
+  assert.match(prompt, /standing study preferences/);
+  assert.match(prompt, /harder questions on proofs/);
+});
+
+test("buildFirstQuestionPrompt adds nothing extra when there are no preferences", () => {
+  const withEmpty = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: true,
+    preferences: [],
+  });
+  const withNone = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: true,
+  });
+  assert.equal(withEmpty, withNone);
+  assert.doesNotMatch(withEmpty, /standing study preferences/);
 });
 
 // --- parseFirstQuestionReply -------------------------------------------------
@@ -214,6 +242,19 @@ test("generateNextLiveQuestion stores the question and moves the session to wait
 
   const stored = await getSession(dir, session.id);
   assert.deepEqual(stored, result.session);
+});
+
+test("generateNextLiveQuestion includes stored preferences in the prompt sent to the model", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedSession(dir);
+  await addPreference(dir, { text: "harder questions on proofs" });
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return fence({ prompt: "What do you think SN1 means?", type: "free_recall", difficulty: "intro" });
+  };
+  await generateNextLiveQuestion(dir, session.id, { runTurn });
+  assert.match(seenPrompt, /harder questions on proofs/);
 });
 
 test("generateNextLiveQuestion frames a reviewed topic differently from a brand-new one", async () => {
@@ -348,6 +389,18 @@ test("buildGradingPrompt handles no subject name and no notes", () => {
   assert.match(prompt, /an unspecified subject/);
 });
 
+test("buildGradingPrompt appends stored preferences when given any", () => {
+  const prompt = buildGradingPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    question: { prompt: "Q?", type: "free_recall", difficulty: "intro" },
+    answerText: "an answer",
+    preferences: [{ text: "always give a worked example after a miss" }],
+  });
+  assert.match(prompt, /standing study preferences/);
+  assert.match(prompt, /worked example after a miss/);
+});
+
 // --- parseGradingReply ---------------------------------------------------
 
 function feedbackFence(obj) {
@@ -463,6 +516,19 @@ test("submitLiveAnswer grades the answer, updates FSRS, and records history", as
   const { listTopics } = await import("../topics.js");
   const [updatedTopic] = await listTopics(dir, topic.subjectId);
   assert.notEqual(updatedTopic.fsrs.reps, topic.fsrs.reps);
+});
+
+test("submitLiveAnswer includes stored preferences in the prompt sent to the model", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedWaitingSession(dir);
+  await addPreference(dir, { text: "always give a worked example after a miss" });
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return feedbackFence({ feedback: "ok", rating: "good" });
+  };
+  await submitLiveAnswer(dir, session.id, { answerText: "an answer", confidence: 3 }, { runTurn });
+  assert.match(seenPrompt, /worked example after a miss/);
 });
 
 test("submitLiveAnswer trims and bounds the answer text fed into the prompt", async () => {
