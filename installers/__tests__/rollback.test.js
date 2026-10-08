@@ -113,6 +113,11 @@ test("real git: getCurrentCommit + rollbackToLastGoodCommit round-trip against a
     execFileSync("git", ["init", "-q"], { cwd: repoDir });
     execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: repoDir });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: repoDir });
+    // Windows CI runners default to core.autocrlf=true, which would make
+    // `git checkout --detach` below rewrite VERSION's line ending to \r\n
+    // and fail the plain-text assertions further down for a reason that
+    // has nothing to do with rollback.mjs's own logic.
+    execFileSync("git", ["config", "core.autocrlf", "false"], { cwd: repoDir });
     writeFileSync(path.join(repoDir, "VERSION"), "1\n");
     execFileSync("git", ["add", "-A"], { cwd: repoDir });
     execFileSync("git", ["commit", "-q", "-m", "good version"], { cwd: repoDir });
