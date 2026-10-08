@@ -1,0 +1,8 @@
+# .githooks/pre-commit and installers/macos.sh are POSIX shell scripts
+# invoked via a `#!/bin/sh` shebang (git hooks directly, macos.sh via a
+# `sh`/`bash` invocation). Without this, a Windows checkout's default
+# core.autocrlf normalizes their line endings to CRLF, corrupting the
+# shebang line (the interpreter path gets a trailing \r) and making the
+# script fail to run at all.
+.githooks/* text eol=lf
+installers/*.sh text eol=lf

@@ -31,8 +31,15 @@
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const REPO_ROOT = new URL("..", import.meta.url).pathname;
+// new URL(...).pathname is NOT a usable filesystem path on Windows — it
+// keeps a leading slash before the drive letter (e.g. "/D:/a/Athena/"),
+// which neither execFileSync's cwd option nor a native path join accepts.
+// fileURLToPath() is the platform-aware conversion (matches the pattern
+// scripts/install-hooks.js and server/src/index.js already use).
+const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 // Path allowlist — everything that's allowed to exist in this repo at all.
 // Matched against the repo-relative, forward-slash path git reports.
@@ -140,17 +147,6 @@ function listTrackedFiles() {
   return out.split("\n").filter(Boolean);
 }
 
-function readFileContent(relPath, staged) {
-  if (staged) {
-    // Read from the git index (what will actually be committed), not the
-    // working tree — a file can be edited again after `git add` without
-    // re-staging, and it's the staged *blob* that's about to become part
-    // of history.
-    return execFileSync("git", ["show", `:${relPath}`], { cwd: REPO_ROOT, encoding: "utf8" });
-  }
-  return readFileSync(new URL(relPath, `file://${REPO_ROOT}`), "utf8");
-}
-
 function main() {
   const staged = process.argv.includes("--staged");
   const files = staged ? listStagedFiles() : listTrackedFiles();
@@ -174,7 +170,7 @@ function main() {
     try {
       raw = staged
         ? execFileSync("git", ["show", `:${relPath}`], { cwd: REPO_ROOT })
-        : readFileSync(new URL(relPath, `file://${REPO_ROOT}`));
+        : readFileSync(path.join(REPO_ROOT, relPath));
     } catch {
       continue; // file deleted/renamed away by the time we got here — nothing to scan
     }
