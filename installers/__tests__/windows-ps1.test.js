@@ -90,7 +90,13 @@ function runInstaller(env) {
   try {
     const stdout = execFileSync(PWSH_PATH, ["-NoLogo", "-NonInteractive", "-File", SCRIPT_PATH], {
       encoding: "utf8",
-      env: { HOME: env.HOME ?? tmpdir(), ...env },
+      // Start from the real process env, not an almost-empty object: on native
+      // Windows, pwsh/powershell.exe/git.exe/node.exe need ambient variables
+      // like SystemRoot/windir/TEMP just to start at all (a POSIX shell
+      // tolerates a near-empty env fine, which is why this looked harmless on
+      // Linux/macOS). PATH (and any other key in `env`) still override below,
+      // so the test's intent of hiding/exposing specific commands is unaffected.
+      env: { ...process.env, HOME: env.HOME ?? tmpdir(), ...env },
     });
     return { code: 0, stdout, stderr: "" };
   } catch (err) {
