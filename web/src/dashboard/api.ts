@@ -69,3 +69,11 @@ export type SessionStats = {
 export function getSessionStats(): Promise<SessionStats> {
   return getJson(`/api/stats/sessions`);
 }
+
+// Mirrors server/src/usageStatus.js's return shape exactly.
+export type UsageWindow = { status: "ok" | "warning" | "exceeded"; utilization: number; resetsAt?: number } | null;
+export type UsageStatus = { fiveHour: UsageWindow; weekly: UsageWindow; checkedAt: number | null; error: string | null };
+
+export function getUsageStatus(): Promise<UsageStatus> {
+  return getJson(`/api/stats/usage`);
+}

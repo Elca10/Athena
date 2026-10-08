@@ -34,3 +34,26 @@ test("GET /sessions returns zeroed/null stats for a fresh app-data dir", async (
     server.close();
   }
 });
+
+// Deliberately not asserting exact values -- this calls the real `claude`
+// CLI if one is on PATH (same posture as topics.js's own `/scan` route,
+// which also has no DI seam through the router), and whether that CLI is
+// installed/logged in varies by machine. `/usage` is confirmed free either
+// way (usageStatus.js's module docstring), and checkUsageNow never throws,
+// so the one thing this test can assert everywhere is the response shape:
+// a 200 with either a real reading or a graceful `error` string, never a
+// crash.
+test("GET /usage returns 200 with the shape checkUsageNow always produces", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/usage`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(typeof body.checkedAt, "number");
+    assert.ok(body.fiveHour === null || typeof body.fiveHour === "object");
+    assert.ok(body.weekly === null || typeof body.weekly === "object");
+    assert.ok(body.error === null || typeof body.error === "string");
+  } finally {
+    server.close();
+  }
+});

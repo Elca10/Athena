@@ -14,6 +14,12 @@ const EMPTY_STATS = {
   calibration: { byConfidence: [1, 2, 3, 4, 5].map((confidence) => ({ confidence, total: 0, correctRate: null })) },
 };
 
+const EMPTY_USAGE = { fiveHour: null, weekly: null, checkedAt: null, error: null };
+
+function mockEmptyUsage() {
+  vi.mocked(api.getUsageStatus).mockResolvedValue(EMPTY_USAGE);
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -22,6 +28,7 @@ test("renders the top bar actions and the session columns' empty state", async (
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
@@ -35,7 +42,7 @@ test("renders the top bar actions and the session columns' empty state", async (
   }
   expect(await screen.findAllByText("Nothing here yet.")).toHaveLength(3);
   expect(await screen.findByText(/no questions answered yet/)).toBeInTheDocument();
-  expect(screen.getByText(/Subscription usage — coming soon\./)).toBeInTheDocument();
+  expect(await screen.findByText(/Subscription usage — session: unknown · week: unknown/)).toBeInTheDocument();
 });
 
 test("renders real session stats, including the per-confidence calibration breakdown", async () => {
@@ -56,6 +63,7 @@ test("renders real session stats, including the per-confidence calibration break
       ],
     },
   });
+  mockEmptyUsage();
   render(<Dashboard />);
 
   expect(await screen.findByText(/3 sessions · 12 questions this week · 4-day streak/)).toBeInTheDocument();
@@ -65,10 +73,43 @@ test("renders real session stats, including the per-confidence calibration break
   expect(screen.queryByText(/confidence 1 →/)).not.toBeInTheDocument();
 });
 
+test("renders real subscription usage, including each window's reset time", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  const resetsAt = Math.floor(new Date(2026, 9, 7, 21, 59).getTime() / 1000);
+  vi.mocked(api.getUsageStatus).mockResolvedValue({
+    fiveHour: { status: "ok", utilization: 0.12, resetsAt },
+    weekly: { status: "warning", utilization: 0.91 },
+    checkedAt: Date.now(),
+    error: null,
+  });
+  render(<Dashboard />);
+
+  expect(await screen.findByText(/Subscription usage — session: 12% used \(resets/)).toBeInTheDocument();
+  expect(screen.getByText(/week: 91% used/)).toBeInTheDocument();
+});
+
+test("shows a 'couldn't check' message when the usage check itself failed", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.getUsageStatus).mockResolvedValue({
+    fiveHour: null,
+    weekly: null,
+    checkedAt: Date.now(),
+    error: "claude exited with code 1: not logged in",
+  });
+  render(<Dashboard />);
+
+  expect(await screen.findByText(/Subscription usage — couldn't check\./)).toBeInTheDocument();
+});
+
 test("shows the empty state once the subjects list resolves to none", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   expect(await screen.findByText("No subjects yet.")).toBeInTheDocument();
@@ -86,6 +127,7 @@ test("renders a real subject card with its mastery/due/bank-size stats once load
   vi.mocked(api.listSessions).mockResolvedValue([]);
 
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   const heading = await screen.findByRole("heading", { name: "Organic Chemistry" });
@@ -112,6 +154,7 @@ test("renders one card per subject, each fetching its own summary", async () => 
   vi.mocked(api.listSessions).mockResolvedValue([]);
 
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   expect(await screen.findByRole("heading", { name: "Biology" })).toBeInTheDocument();
@@ -164,6 +207,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
   ]);
 
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   const activeHeading = await screen.findByRole("heading", { name: "Active" });
@@ -207,6 +251,7 @@ test("truncates a long waiting-question prompt preview", async () => {
   ]);
 
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
 
   expect(await screen.findByText(`${"x".repeat(80)}…`)).toBeInTheDocument();
@@ -245,6 +290,7 @@ test("Archive button switches to the Archive view, listing archived subjects and
   );
 
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
   render(<Dashboard />);
   await screen.findByRole("heading", { name: "Biology" });
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getSessionStats,
   getSubjectSummary,
+  getUsageStatus,
   listSessions,
   listSubjects,
   restoreSession,
@@ -11,18 +12,18 @@ import {
   type SessionStatus,
   type Subject,
   type SubjectSummary,
+  type UsageStatus,
+  type UsageWindow,
 } from "./api";
 
-// The real dashboard (SPEC.md section 4). This step wires the top bar's
-// session stats (sessions/questions this week, streak, accuracy,
-// calibration — server/src/sessionStats.js) in place of the old static
-// placeholder. Subscription usage (the other half of the top bar's
-// "Stats" line, SPEC.md section 4) is still a separate, bigger piece —
-// it needs its own `claude -p "/usage"` integration, not just local
-// aggregation — so that half stays "coming soon" for now. Subjects' and
-// sessions' own Archive actions still aren't wired, and the remaining top
-// bar action buttons (Report a bug, Tune Athena, Calendar) still need
-// their own flows built, so they stay disabled placeholders.
+// The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
+// now fully wired: session stats (sessions/questions this week, streak,
+// accuracy, calibration — server/src/sessionStats.js) and subscription
+// usage (the account's Claude usage windows, read live via `claude -p
+// "/usage"` — server/src/usageStatus.js). Subjects' and sessions' own
+// Archive actions still aren't wired, and the remaining top bar action
+// buttons (Report a bug, Tune Athena, Calendar) still need their own
+// flows built, so they stay disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -35,6 +36,7 @@ export function Dashboard() {
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
 
   async function refresh() {
     const list = await listSubjects();
@@ -43,6 +45,7 @@ export function Dashboard() {
     setSummaries(Object.fromEntries(entries));
     setSessions(await listSessions());
     setStats(await getSessionStats());
+    setUsage(await getUsageStatus());
   }
 
   useEffect(() => {
@@ -68,7 +71,7 @@ export function Dashboard() {
         <h1>Athena</h1>
         <div className="dashboard-stats">
           <SessionStatsSummary stats={stats} />
-          <span className="dashboard-stats-usage"> · Subscription usage — coming soon.</span>
+          <UsageStatusSummary usage={usage} />
         </div>
         <div className="dashboard-header-actions">
           <button type="button" disabled title="Coming soon">
@@ -296,4 +299,37 @@ function formatSessionStats(stats: SessionStats): string {
 
 function SessionStatsSummary({ stats }: { stats: SessionStats | null }) {
   return <span className="dashboard-stats-sessions">{stats ? formatSessionStats(stats) : "Loading stats…"}</span>;
+}
+
+function formatResetsAt(resetsAt: number | undefined): string {
+  if (!resetsAt) return "";
+  const when = new Date(resetsAt * 1000).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return ` (resets ${when})`;
+}
+
+function formatUsageWindow(label: string, window: UsageWindow): string {
+  if (!window) return `${label}: unknown`;
+  return `${label}: ${Math.round(window.utilization * 100)}% used${formatResetsAt(window.resetsAt)}`;
+}
+
+// SPEC.md section 4's "subscription usage" stat, read live off the `claude`
+// CLI's own `/usage` command (server/src/usageStatus.js) rather than
+// derived from anything this app tracks itself. A non-null `error` means
+// the check itself failed (CLI missing/not logged in, or a future CLI
+// reply shape this app's parser doesn't recognize yet) — shown plainly
+// rather than silently falling back to stale or invented numbers.
+function formatUsageStatus(usage: UsageStatus): string {
+  if (usage.error) return "Subscription usage — couldn't check.";
+  return `Subscription usage — ${formatUsageWindow("session", usage.fiveHour)} · ${formatUsageWindow("week", usage.weekly)}`;
+}
+
+function UsageStatusSummary({ usage }: { usage: UsageStatus | null }) {
+  return (
+    <span className="dashboard-stats-usage"> · {usage ? formatUsageStatus(usage) : "Checking subscription usage…"}</span>
+  );
 }
