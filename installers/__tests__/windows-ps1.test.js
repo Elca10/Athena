@@ -34,13 +34,32 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPT_PATH = path.resolve(__dirname, "..", "windows.ps1");
 
+// `which` on Windows is Git for Windows' MSYS build, which prints
+// MSYS/POSIX-style paths (e.g. "/c/Program Files/PowerShell/7/pwsh.exe").
+// Handing that straight to execFileSync (no `shell: true`, so it goes
+// through Windows' native CreateProcess, not an MSYS runtime that could
+// translate it) makes the child process fail to even launch -- caught via
+// real windows-latest CI runs where every execFileSync(PWSH_PATH, ...)
+// call came back with exit code 1 and completely empty stdout *and*
+// stderr, consistent with the process never actually starting rather than
+// the script running and failing. `where` is the Windows-native
+// equivalent and prints native paths; it can also print more than one
+// match (one per PATH directory), so take the first the same way PATH
+// search order would.
+function resolveCommand(name) {
+  const finder = process.platform === "win32" ? "where" : "which";
+  try {
+    const output = execFileSync(finder, [name], { encoding: "utf8" }).trim();
+    return output.split(/\r?\n/)[0];
+  } catch {
+    return null;
+  }
+}
+
 function findPwshPath() {
   for (const candidate of ["pwsh", "powershell.exe", "powershell"]) {
-    try {
-      return execFileSync("which", [candidate], { encoding: "utf8" }).trim();
-    } catch {
-      // try the next candidate
-    }
+    const resolved = resolveCommand(candidate);
+    if (resolved) return resolved;
   }
   return null;
 }
@@ -48,7 +67,7 @@ function findPwshPath() {
 const PWSH_PATH = findPwshPath();
 
 function realPathOf(command) {
-  return execFileSync("which", [command], { encoding: "utf8" }).trim();
+  return resolveCommand(command);
 }
 
 /** A PATH directory with symlinks to the real `git`/`node` on this
