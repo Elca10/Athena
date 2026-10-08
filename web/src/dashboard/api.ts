@@ -37,6 +37,29 @@ async function postJson<T>(url: string): Promise<T> {
   return res.json();
 }
 
+// Surfaces the server's own `{error: "..."}` message (routes/preferences.js)
+// rather than a generic status-code string, since these are shown directly
+// to the user (e.g. "too long"/"already at the maximum").
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  const body = await res.json().catch(() => null);
+  return (body && typeof body.error === "string" && body.error) || fallback;
+}
+
+async function postJsonBody<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `POST ${url} responded ${res.status}`));
+  return res.json();
+}
+
+async function deleteJson(url: string): Promise<void> {
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${url} responded ${res.status}`));
+}
+
 export function listSubjects({ includeArchived = false }: { includeArchived?: boolean } = {}): Promise<Subject[]> {
   return getJson(`/api/subjects${includeArchived ? "?includeArchived=true" : ""}`);
 }
@@ -76,4 +99,20 @@ export type UsageStatus = { fiveHour: UsageWindow; weekly: UsageWindow; checkedA
 
 export function getUsageStatus(): Promise<UsageStatus> {
   return getJson(`/api/stats/usage`);
+}
+
+// Mirrors server/src/preferences.js's record shape (SPEC.md section 8,
+// "Tune Athena").
+export type Preference = { id: string; text: string; createdAt: string };
+
+export function listPreferences(): Promise<Preference[]> {
+  return getJson(`/api/preferences`);
+}
+
+export function addPreference(text: string): Promise<Preference> {
+  return postJsonBody(`/api/preferences`, { text });
+}
+
+export function deletePreference(id: string): Promise<void> {
+  return deleteJson(`/api/preferences/${id}`);
 }

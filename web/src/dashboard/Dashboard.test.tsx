@@ -32,10 +32,12 @@ test("renders the top bar actions and the session columns' empty state", async (
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
-  for (const label of ["Report a bug", "Tune Athena", "Calendar"]) {
+  for (const label of ["Report a bug", "Calendar"]) {
     expect(screen.getByRole("button", { name: label })).toBeDisabled();
   }
-  expect(screen.getByRole("button", { name: "Archive" })).toBeEnabled();
+  for (const label of ["Tune Athena", "Archive"]) {
+    expect(screen.getByRole("button", { name: label })).toBeEnabled();
+  }
 
   for (const label of ["Active", "Waiting", "Completed"]) {
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
@@ -255,6 +257,28 @@ test("truncates a long waiting-question prompt preview", async () => {
   render(<Dashboard />);
 
   expect(await screen.findByText(`${"x".repeat(80)}…`)).toBeInTheDocument();
+});
+
+test("Tune Athena button toggles the preferences panel open and closed", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  vi.mocked(api.listPreferences).mockResolvedValue([
+    { id: "p1", text: "Harder questions on proofs", createdAt: "2026-01-01" },
+  ]);
+  render(<Dashboard />);
+  await screen.findByRole("heading", { name: "Athena" });
+
+  expect(screen.queryByRole("heading", { name: "Tune Athena" })).not.toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Tune Athena" }));
+
+  expect(await screen.findByRole("heading", { name: "Tune Athena" })).toBeInTheDocument();
+  expect(await screen.findByText("Harder questions on proofs")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("heading", { name: "Tune Athena" })).not.toBeInTheDocument();
 });
 
 test("Archive button switches to the Archive view, listing archived subjects and sessions with Restore actions", async () => {

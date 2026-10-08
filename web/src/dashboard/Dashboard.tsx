@@ -15,15 +15,17 @@ import {
   type UsageStatus,
   type UsageWindow,
 } from "./api";
+import { TuneAthenaPanel } from "./TuneAthenaPanel";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
-// now fully wired: session stats (sessions/questions this week, streak,
+// fully wired: session stats (sessions/questions this week, streak,
 // accuracy, calibration — server/src/sessionStats.js) and subscription
 // usage (the account's Claude usage windows, read live via `claude -p
-// "/usage"` — server/src/usageStatus.js). Subjects' and sessions' own
+// "/usage"` — server/src/usageStatus.js). "Tune Athena" opens
+// TuneAthenaPanel (SPEC.md section 8). Subjects' and sessions' own
 // Archive actions still aren't wired, and the remaining top bar action
-// buttons (Report a bug, Tune Athena, Calendar) still need their own
-// flows built, so they stay disabled placeholders.
+// buttons (Report a bug, Calendar) still need their own flows built, so
+// they stay disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -32,6 +34,7 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 
 export function Dashboard() {
   const [view, setView] = useState<"dashboard" | "archive">("dashboard");
+  const [showTune, setShowTune] = useState(false);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -77,7 +80,7 @@ export function Dashboard() {
           <button type="button" disabled title="Coming soon">
             Report a bug
           </button>
-          <button type="button" disabled title="Coming soon">
+          <button type="button" onClick={() => setShowTune((v) => !v)}>
             Tune Athena
           </button>
           <button type="button" disabled title="Coming soon">
@@ -88,6 +91,7 @@ export function Dashboard() {
           </button>
         </div>
       </header>
+      {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
       <div className="dashboard-body">
         <section className="dashboard-subjects">
           <h2>Subjects</h2>
