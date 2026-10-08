@@ -38,21 +38,26 @@ jobs:
         with:
           node-version: "22"
 
+      # --test-reporter=spec is for the human reading the log; the second
+      # reporter (scripts/ci/githubTestReporter.mjs) turns each failing
+      # test into a GitHub Actions `::error::` annotation, which is the
+      # only part of a check run visible without the job-log auth this
+      # build doesn't have — see athena-build/brief.md priority item 0.
       - name: Run privacy-guard and git-hook tests
-        run: node --test "scripts/__tests__/*.test.js"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "scripts/__tests__/*.test.js"
 
       - name: Run installer (bootstrap.mjs) tests
-        run: node --test "installers/__tests__/bootstrap.test.js"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/bootstrap.test.js"
 
       - name: Run auto-update rollback (rollback.mjs) tests
-        run: node --test "installers/__tests__/rollback.test.js"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/rollback.test.js"
 
       # installers/macos.sh is bash and only meaningful on an OS that
       # actually runs it; the Windows runner's default shell has no `bash`
       # guaranteed on PATH for the test harness to shell out to.
       - name: Run macOS installer (macos.sh) tests
         if: runner.os != 'Windows'
-        run: node --test "installers/__tests__/macos-sh.test.js"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/macos-sh.test.js"
 
       # installers/windows.ps1 only matters on the OS that actually runs
       # it; conversely, ubuntu-latest/macos-latest don't ship `pwsh` or
@@ -62,14 +67,14 @@ jobs:
       # skips on two of the three runners.
       - name: Run Windows installer (windows.ps1) tests
         if: runner.os == 'Windows'
-        run: node --test "installers/__tests__/windows-ps1.test.js"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/windows-ps1.test.js"
 
       - name: Install server dependencies
         run: npm install
         working-directory: server
 
       - name: Run server tests
-        run: npm test
+        run: npm test -- --test-reporter=spec --test-reporter-destination=stdout --test-reporter=../scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout
         working-directory: server
 
       # --legacy-peer-deps: see installers/bootstrap.mjs's installAndStart
@@ -80,9 +85,12 @@ jobs:
         run: npm install --legacy-peer-deps
         working-directory: web
 
+      # github-actions reporter is vitest's own built-in equivalent of the
+      # custom node:test reporter above (same motivation: a public
+      # annotation GitHub shows without job-log auth).
       - name: Run web tests
         if: hashFiles('web/package.json') != ''
-        run: npm test
+        run: npm test -- --reporter=default --reporter=github-actions
         working-directory: web
 
       - name: Build web frontend
