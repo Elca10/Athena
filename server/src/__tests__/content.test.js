@@ -1,14 +1,38 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
+import { createWriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listContent, addUploadedContent, addPastedNotes } from "../content.js";
+import PDFDocument from "pdfkit";
+import { listContent, addUploadedContent, addPastedNotes, buildPdfParsedText, MAX_BINARY_CONTENT_BYTES } from "../content.js";
 import { appDataSubdirs } from "../dataDir.js";
 import { makeJsonFileStore } from "../store/jsonFileStore.js";
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-content-"));
+}
+
+/** Generates a real multi-page PDF with pdfkit (never committed — written
+ * fresh into a scratch tmpdir per test, same technique as
+ * pdfExtract.test.js) and returns it as a Buffer, ready to pass as
+ * `contentBase64` would carry it over the wire. */
+async function samplePdfBuffer(pages) {
+  const dir = await scratchDir();
+  const filePath = path.join(dir, "sample.pdf");
+  await new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ autoFirstPage: false });
+    const stream = createWriteStream(filePath);
+    doc.pipe(stream);
+    for (const pageText of pages) {
+      doc.addPage();
+      if (pageText) doc.fontSize(12).text(pageText);
+    }
+    doc.end();
+    stream.on("finish", resolve);
+    stream.on("error", reject);
+  });
+  return fs.readFile(filePath);
 }
 
 test("listContent starts empty for any subject id", async () => {
@@ -60,7 +84,7 @@ test("addUploadedContent rejects a missing filename", async () => {
 test("addUploadedContent rejects an unsupported file type and stores nothing", async () => {
   const dir = await scratchDir();
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "slides.pdf", text: "whatever" }),
+    () => addUploadedContent(dir, "subject-1", { filename: "slides.pptx", text: "whatever" }),
     /unsupported file type/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -149,4 +173,133 @@ test("addUploadedContent never collides on id across concurrent calls", async ()
   const ids = new Set(created.map((c) => c.id));
   assert.equal(ids.size, 15);
   assert.equal((await listContent(dir, "subject-1")).length, 15);
+});
+
+// --- PDF ingestion: real PDF binaries, generated fresh per test (never
+// committed). contentBase64 is how the route (and the frontend) carries
+// raw binary bytes over JSON. ---
+
+test("buildPdfParsedText joins pages under '## Page N' headings", () => {
+  assert.equal(buildPdfParsedText(["first", "second"]), "## Page 1\n\nfirst\n\n## Page 2\n\nsecond");
+});
+
+test("addUploadedContent accepts a real .pdf, extracts text, and records no unreliable pages", async () => {
+  const dir = await scratchDir();
+  const rawBytes = await samplePdfBuffer([
+    "The quick brown fox jumps over the lazy dog and the cat too.",
+    "Page two has different content about the history of the subject.",
+  ]);
+
+  const record = await addUploadedContent(dir, "subject-1", {
+    filename: "Lecture 1.pdf",
+    contentBase64: rawBytes.toString("base64"),
+  });
+
+  assert.equal(record.extension, ".pdf");
+  assert.equal(record.source, "upload");
+  assert.equal(record.sizeBytes, rawBytes.length);
+  assert.deepEqual(record.unreliablePages, []);
+
+  const dirs = appDataSubdirs(dir);
+  const rawPath = path.join(dirs.content, "subject-1", "raw", `${record.id}.pdf`);
+  const parsedPath = path.join(dirs.content, "subject-1", "parsed", `${record.id}.md`);
+  // Raw file on disk is the exact original binary, not re-encoded/altered.
+  assert.deepEqual(await fs.readFile(rawPath), rawBytes);
+  const parsedText = await fs.readFile(parsedPath, "utf8");
+  assert.match(parsedText, /## Page 1/);
+  assert.match(parsedText, /quick brown fox/);
+  assert.match(parsedText, /## Page 2/);
+  assert.match(parsedText, /history of the subject/);
+});
+
+test("addUploadedContent flags a PDF's unreliable pages without dropping them", async () => {
+  const dir = await scratchDir();
+  const brokenPage = Array.from({ length: 60 }, (_, i) => `(cid:${i})`).join(" ");
+  const rawBytes = await samplePdfBuffer([
+    "This is a perfectly normal page with the usual common English words.",
+    brokenPage,
+  ]);
+
+  const record = await addUploadedContent(dir, "subject-1", {
+    filename: "Lecture 2.pdf",
+    contentBase64: rawBytes.toString("base64"),
+  });
+
+  assert.deepEqual(record.unreliablePages, [2]);
+  const dirs = appDataSubdirs(dir);
+  const parsedText = await fs.readFile(path.join(dirs.content, "subject-1", "parsed", `${record.id}.md`), "utf8");
+  // The flagged page's text is still present (not dropped), just marked.
+  assert.match(parsedText, /EXTRACTION UNRELIABLE/);
+  assert.match(parsedText, /cid:0/);
+});
+
+test("addUploadedContent rejects a PDF with no extractable text on any page, and leaves no raw file behind", async () => {
+  const dir = await scratchDir();
+  const rawBytes = await samplePdfBuffer([null, null]); // two blank pages, no text at all
+
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "scanned.pdf", contentBase64: rawBytes.toString("base64") }),
+    /no extractable text/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+  const dirs = appDataSubdirs(dir);
+  assert.deepEqual(await fs.readdir(path.join(dirs.content, "subject-1", "raw")).catch(() => []), []);
+});
+
+test("addUploadedContent rejects a PDF over the binary size limit and stores nothing", async () => {
+  const dir = await scratchDir();
+  // Doesn't need a real oversized PDF (slow to generate and pointless —
+  // the size check runs before any attempt to parse it) — any buffer over
+  // the limit exercises the same guard.
+  const tooBig = Buffer.alloc(MAX_BINARY_CONTENT_BYTES + 1, 1);
+
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "huge.pdf", contentBase64: tooBig.toString("base64") }),
+    /too large/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+});
+
+test("addUploadedContent rejects a .pdf upload with no file content", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "empty.pdf" }),
+    /content is empty/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+});
+
+test("addUploadedContent rejects a corrupt .pdf (not a real PDF) and leaves no raw file behind", async () => {
+  const dir = await scratchDir();
+  const notAPdf = Buffer.from("this is not a pdf file at all, just plain bytes");
+
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "fake.pdf", contentBase64: notAPdf.toString("base64") }),
+    /couldn't read this pdf/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+  const dirs = appDataSubdirs(dir);
+  assert.deepEqual(await fs.readdir(path.join(dirs.content, "subject-1", "raw")).catch(() => []), []);
+});
+
+test("a PDF upload counts toward the same per-subject item limit as text uploads", async () => {
+  const dir = await scratchDir();
+  const dirs = appDataSubdirs(dir);
+  const store = makeJsonFileStore(dirs.db, "content.json", []);
+  const seeded = Array.from({ length: 200 }, (_, i) => ({
+    id: `seed-${i}`,
+    subjectId: "subject-1",
+    originalFilename: `seed-${i}.txt`,
+    extension: ".txt",
+    source: "upload",
+    sizeBytes: 1,
+    addedAt: new Date().toISOString(),
+  }));
+  await store.write(seeded);
+
+  const rawBytes = await samplePdfBuffer(["one more page of real content for this subject"]);
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "one-more.pdf", contentBase64: rawBytes.toString("base64") }),
+    /maximum of 200/i,
+  );
 });

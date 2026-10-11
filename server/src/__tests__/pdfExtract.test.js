@@ -90,13 +90,14 @@ test("extractPdfPages returns one string per page with the expected text", async
     "Page two has different content about the history of the subject.",
   ]);
 
-  const pages = await extractPdfPages(filePath);
+  const { pages, unreliablePageNumbers } = await extractPdfPages(filePath);
   assert.equal(pages.length, 2);
   assert.match(pages[0], /quick brown fox/);
   assert.match(pages[1], /history of the subject/);
   // Normal prose shouldn't trip the unreliable-extraction marker.
   assert.doesNotMatch(pages[0], /EXTRACTION UNRELIABLE/);
   assert.doesNotMatch(pages[1], /EXTRACTION UNRELIABLE/);
+  assert.deepEqual(unreliablePageNumbers, []);
 });
 
 test("extractPdfPages prepends the unreliable marker to a flagged page only", async () => {
@@ -114,8 +115,9 @@ test("extractPdfPages prepends the unreliable marker to a flagged page only", as
     brokenPage,
   ]);
 
-  const pages = await extractPdfPages(filePath);
+  const { pages, unreliablePageNumbers } = await extractPdfPages(filePath);
   assert.equal(pages.length, 2);
   assert.doesNotMatch(pages[0], /EXTRACTION UNRELIABLE/);
   assert.ok(pages[1].startsWith(UNRELIABLE_EXTRACTION_MARKER));
+  assert.deepEqual(unreliablePageNumbers, [2]);
 });

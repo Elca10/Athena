@@ -116,3 +116,40 @@ export function addPreference(text: string): Promise<Preference> {
 export function deletePreference(id: string): Promise<void> {
   return deleteJson(`/api/preferences/${id}`);
 }
+
+// Mirrors server/src/content.js's record shape (SPEC.md section 7).
+// `unreliablePages` is 1-based page numbers pdfExtract.js flagged as
+// likely garbled/undecoded for a PDF upload — [] for a clean PDF or any
+// plain-text item.
+export type ContentItem = {
+  id: string;
+  subjectId: string;
+  originalFilename: string;
+  extension: string;
+  source: "upload" | "paste";
+  sizeBytes: number;
+  addedAt: string;
+  topicsExtractedAt: string | null;
+  unreliablePages: number[];
+};
+
+export function listContent(subjectId: string): Promise<ContentItem[]> {
+  return getJson(`/api/subjects/${subjectId}/content`);
+}
+
+// Plain-text formats (.txt/.md/.markdown): the browser reads the file as
+// text and sends it verbatim.
+export function uploadTextContent(subjectId: string, filename: string, text: string): Promise<ContentItem> {
+  return postJsonBody(`/api/subjects/${subjectId}/content`, { filename, text });
+}
+
+// Binary formats (currently just .pdf): the browser reads the file as
+// raw bytes and base64-encodes them — see routes/content.js's comment on
+// why this goes over JSON rather than multipart/form-data.
+export function uploadBinaryContent(subjectId: string, filename: string, contentBase64: string): Promise<ContentItem> {
+  return postJsonBody(`/api/subjects/${subjectId}/content`, { filename, contentBase64 });
+}
+
+export function addPastedNotes(subjectId: string, text: string): Promise<ContentItem> {
+  return postJsonBody(`/api/subjects/${subjectId}/content/notes`, { text });
+}

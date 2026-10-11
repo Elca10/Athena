@@ -16,16 +16,18 @@ import {
   type UsageWindow,
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
+import { AddContentPanel } from "./AddContentPanel";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
 // fully wired: session stats (sessions/questions this week, streak,
 // accuracy, calibration — server/src/sessionStats.js) and subscription
 // usage (the account's Claude usage windows, read live via `claude -p
 // "/usage"` — server/src/usageStatus.js). "Tune Athena" opens
-// TuneAthenaPanel (SPEC.md section 8). Subjects' and sessions' own
-// Archive actions still aren't wired, and the remaining top bar action
-// buttons (Report a bug, Calendar) still need their own flows built, so
-// they stay disabled placeholders.
+// TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
+// opens AddContentPanel (SPEC.md section 7). Subjects' Study/Archive
+// actions, sessions' own Archive action, and the remaining top bar
+// action buttons (Report a bug, Calendar) still need their own flows
+// built, so they stay disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -35,6 +37,7 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 export function Dashboard() {
   const [view, setView] = useState<"dashboard" | "archive">("dashboard");
   const [showTune, setShowTune] = useState(false);
+  const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -92,13 +95,26 @@ export function Dashboard() {
         </div>
       </header>
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
+      {contentSubjectId && (
+        <AddContentPanel
+          subjectId={contentSubjectId}
+          subjectName={subjectName(contentSubjectId)}
+          onClose={() => setContentSubjectId(null)}
+          onContentAdded={refresh}
+        />
+      )}
       <div className="dashboard-body">
         <section className="dashboard-subjects">
           <h2>Subjects</h2>
           {subjects === null && <div className="dashboard-empty">Loading…</div>}
           {subjects?.length === 0 && <div className="dashboard-empty">No subjects yet.</div>}
           {subjects?.map((subject) => (
-            <SubjectCard key={subject.id} subject={subject} summary={summaries[subject.id]} />
+            <SubjectCard
+              key={subject.id}
+              subject={subject}
+              summary={summaries[subject.id]}
+              onAddContent={() => setContentSubjectId(subject.id)}
+            />
           ))}
         </section>
         <section className="dashboard-sessions">
@@ -238,7 +254,15 @@ function SessionRow({ session, subjectName }: { session: Session; subjectName: (
   );
 }
 
-function SubjectCard({ subject, summary }: { subject: Subject; summary: SubjectSummary | undefined }) {
+function SubjectCard({
+  subject,
+  summary,
+  onAddContent,
+}: {
+  subject: Subject;
+  summary: SubjectSummary | undefined;
+  onAddContent: () => void;
+}) {
   return (
     <article className="subject-card">
       <h3>{subject.name}</h3>
@@ -255,7 +279,7 @@ function SubjectCard({ subject, summary }: { subject: Subject; summary: SubjectS
         <div className="subject-card-stats">Loading stats…</div>
       )}
       <div className="subject-card-actions">
-        <button type="button" disabled title="Coming soon">
+        <button type="button" onClick={onAddContent}>
           Add content
         </button>
         <button type="button" disabled title="Coming soon">

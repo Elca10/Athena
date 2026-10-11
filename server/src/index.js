@@ -26,7 +26,15 @@ export async function createApp() {
   await ensureAppDataDir(appDataDir);
 
   const app = express();
-  app.use(express.json());
+  // Default (100kb) is too small for a base64-encoded PDF upload
+  // (content.js's MAX_BINARY_CONTENT_BYTES is 25MB raw, ~33% bigger
+  // base64-encoded); raised for the whole app rather than scoped to the
+  // content route alone, since Express runs this parser ahead of route
+  // matching and a request over the old limit would be rejected before
+  // ever reaching a route-specific one. Fine for a local-only,
+  // single-user app bound to 127.0.0.1 (SPEC.md section 2) — there's no
+  // untrusted caller to harden this against.
+  app.use(express.json({ limit: "35mb" }));
 
   // Never cache API responses: a stale cached GET served from the
   // browser's HTTP cache with no revalidation request is a known,

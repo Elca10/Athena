@@ -1,8 +1,8 @@
-// PDF text extraction (SPEC.md section 7, priority queue item 3, first
-// piece) — pulls raw text out of a PDF, one string per page, for the
-// content-ingestion pipeline content.js will eventually call into. PPTX
-// support and wiring this into content.js's `ingest()` are separate later
-// steps (see content.js's own header comment).
+// PDF text extraction (SPEC.md section 7, priority queue item 3) — pulls
+// raw text out of a PDF, one string per page, for the content-ingestion
+// pipeline. Wired into content.js's `ingest()` for the ".pdf" extension;
+// PPTX support is a separate later step (see content.js's own header
+// comment).
 //
 // Node, not bundled Python (SPEC.md section 11's decision) — pdfjs-dist is
 // pure JavaScript with prebuilt WASM only for optional image codecs we
@@ -126,11 +126,15 @@ function joinPageItems(items) {
     .join("\n");
 }
 
-/** Returns one raw text string per page of the PDF at `filePath`. Pages
- * whose text looks unreliable (see `pageLooksUnreliable`) get
- * `UNRELIABLE_EXTRACTION_MARKER` prepended; a single warning naming the
- * file and affected page numbers is logged via `console.warn` if any
- * page was flagged — mirrors extractors.py's `extract_pdf_pages()`. */
+/** Returns `{ pages, unreliablePageNumbers }` for the PDF at `filePath`:
+ * `pages` is one raw text string per page (1-indexed order). Pages whose
+ * text looks unreliable (see `pageLooksUnreliable`) get
+ * `UNRELIABLE_EXTRACTION_MARKER` prepended to their string AND their
+ * 1-based page number collected into `unreliablePageNumbers`, so a caller
+ * (content.js) can flag the content item structurally rather than only
+ * via an embedded text marker. A single warning naming the file and
+ * affected page numbers is also logged via `console.warn` if any page was
+ * flagged — mirrors extractors.py's `extract_pdf_pages()`. */
 export async function extractPdfPages(filePath) {
   // Imported lazily (not at module load) so modules that only need
   // `pageLooksUnreliable` (e.g. its own unit tests) never pay for
@@ -169,5 +173,5 @@ export async function extractPdfPages(filePath) {
     );
   }
 
-  return pages;
+  return { pages, unreliablePageNumbers };
 }

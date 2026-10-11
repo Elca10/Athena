@@ -1,9 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
+import { createWriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { addUploadedContent, listContent } from "../content.js";
+import PDFDocument from "pdfkit";
+import { addUploadedContent, listContent, parsedFilePath } from "../content.js";
 import { listTopics } from "../topics.js";
 import {
   batchFiles,
@@ -14,6 +16,26 @@ import {
   MAX_FILES_PER_BATCH,
   MAX_BATCH_BYTES,
 } from "../topicExtraction.js";
+
+/** Real PDF binary, generated fresh (never committed) — same technique as
+ * pdfExtract.test.js/content.test.js. */
+async function samplePdfBuffer(pages) {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-topic-extraction-pdf-"));
+  const filePath = path.join(dir, "sample.pdf");
+  await new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ autoFirstPage: false });
+    const stream = createWriteStream(filePath);
+    doc.pipe(stream);
+    for (const pageText of pages) {
+      doc.addPage();
+      doc.fontSize(12).text(pageText);
+    }
+    doc.end();
+    stream.on("finish", resolve);
+    stream.on("error", reject);
+  });
+  return fs.readFile(filePath);
+}
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-topic-extraction-"));
@@ -210,6 +232,41 @@ test("scanSubjectForTopics runs a turn per batch, saves topics, and marks files 
 
   const content = await listContent(dir, "subject-1");
   assert.ok(content.every((c) => typeof c.topicsExtractedAt === "string"));
+});
+
+test("scanSubjectForTopics points the turn at a PDF-sourced item's real extracted text, not the raw binary", async () => {
+  const dir = await scratchDir();
+  const rawBytes = await samplePdfBuffer([
+    "Binary search trees are a fundamental data structure covered in this lecture.",
+  ]);
+  const content = await addUploadedContent(dir, "subject-1", {
+    filename: "Lecture 1.pdf",
+    contentBase64: rawBytes.toString("base64"),
+  });
+
+  const prompts = [];
+  const fakeTurn = async (prompt) => {
+    prompts.push(prompt);
+    return "```json athena-topics\n" + JSON.stringify({ topics: [{ name: "Binary search trees" }], summary: "ok" }) + "\n```";
+  };
+
+  const result = await scanSubjectForTopics(dir, "subject-1", { subjectName: "CS 101", runTurn: fakeTurn });
+  assert.equal(result.ok, true);
+  assert.equal(result.filesProcessed, 1);
+
+  // The prompt (topicExtraction.js only ever points the turn at file
+  // paths — the turn itself Reads them) names the item's PARSED path, not
+  // its raw .pdf path.
+  const expectedPath = parsedFilePath(dir, content);
+  assert.match(prompts[0], new RegExp(expectedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  // And that parsed path on disk is real, human-readable extracted text —
+  // not the original PDF's binary bytes — proving the pipeline actually
+  // ran pdfExtract.js on this upload rather than, say, pointing the turn
+  // at the raw file or an empty one.
+  const parsedText = await fs.readFile(expectedPath, "utf8");
+  assert.match(parsedText, /Binary search trees/);
+  assert.doesNotMatch(parsedText, /%PDF-/); // the raw PDF's own header magic bytes
 });
 
 test("scanSubjectForTopics never re-sends content whose topics were already extracted", async () => {

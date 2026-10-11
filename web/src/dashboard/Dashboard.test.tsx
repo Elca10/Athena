@@ -137,10 +137,36 @@ test("renders a real subject card with its mastery/due/bank-size stats once load
   expect(within(card).getByText("2 new · 1 learning · 3 mastered")).toBeInTheDocument();
   expect(within(card).getByText("4 due today")).toBeInTheDocument();
   expect(within(card).getByText("10 ready questions")).toBeInTheDocument();
-  for (const label of ["Add content", "Study", "Archive"]) {
+  for (const label of ["Study", "Archive"]) {
     expect(within(card).getByRole("button", { name: label })).toBeDisabled();
   }
+  expect(within(card).getByRole("button", { name: "Add content" })).toBeEnabled();
   expect(api.getSubjectSummary).toHaveBeenCalledWith("s1");
+});
+
+test("clicking Add content opens the panel for that subject, and Close dismisses it", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await screen.findByRole("heading", { name: "Organic Chemistry" });
+  await user.click(screen.getByRole("button", { name: "Add content" }));
+
+  expect(await screen.findByRole("heading", { name: "Add content — Organic Chemistry" })).toBeInTheDocument();
+  expect(api.listContent).toHaveBeenCalledWith("s1");
+
+  const panel = screen.getByRole("heading", { name: "Add content — Organic Chemistry" }).closest("section") as HTMLElement;
+  await user.click(within(panel).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("heading", { name: "Add content — Organic Chemistry" })).not.toBeInTheDocument();
 });
 
 test("renders one card per subject, each fetching its own summary", async () => {
