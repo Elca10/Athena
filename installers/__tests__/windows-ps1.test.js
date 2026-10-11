@@ -204,7 +204,7 @@ test("clones a fresh checkout and hands off to the Node installer", { skip: !PWS
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
     });
-    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.code, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     assert.ok(existsSync(path.join(installDir, ".git")), "should have cloned a real checkout");
     assert.ok(existsSync(marker), "bootstrap.mjs stub should have run");
   } finally {
@@ -225,7 +225,7 @@ test("updates an existing checkout via fast-forward merge instead of re-cloning"
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
     });
-    assert.equal(first.code, 0, first.stderr);
+    assert.equal(first.code, 0, `stdout:\n${first.stdout}\nstderr:\n${first.stderr}`);
     const firstMarkerValue = readFileSync(marker, "utf8");
 
     // A new commit upstream, so the second run has something to pull.
@@ -239,7 +239,7 @@ test("updates an existing checkout via fast-forward merge instead of re-cloning"
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
     });
-    assert.equal(second.code, 0, second.stderr);
+    assert.equal(second.code, 0, `stdout:\n${second.stdout}\nstderr:\n${second.stderr}`);
     assert.match(second.stdout, /updating/i);
     assert.ok(existsSync(path.join(installDir, "NOTE.txt")), "fast-forward merge should have pulled the new commit");
     assert.notEqual(readFileSync(marker, "utf8"), firstMarkerValue, "bootstrap stub should have re-run");
