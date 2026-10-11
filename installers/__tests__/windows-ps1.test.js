@@ -73,11 +73,25 @@ function realPathOf(command) {
 /** A PATH directory with symlinks to the real `git`/`node` on this
  * machine (or whichever subset is requested) — so the script's own
  * `Get-Command` checks see exactly "present" or "absent", deterministically,
- * regardless of what else happens to be on the test runner's real PATH. */
+ * regardless of what else happens to be on the test runner's real PATH.
+ *
+ * The symlink is named after the *real target's* extension, not the bare
+ * command name: a real windows-latest CI run showed `Test-CommandExists
+ * "node"` (a `Get-Command` check) finding a bare-named "node" symlink fine
+ * (detection is lenient about extension), but actually invoking it
+ * (`& node -v`) silently produced no output at all — no error, no
+ * version string — rather than running the real node.exe through the
+ * symlink. `Ensure-Git` never surfaced the equivalent problem because it
+ * only ever detects git, never invokes it for output, so a bare "git"
+ * symlink working for detection was never evidence that invoking it would
+ * actually work either. On POSIX, the real binaries have no extension
+ * (`path.extname()` is ""), so this is a no-op there — matches today's
+ * behavior exactly. */
 function makeFakeBin(commands) {
   const dir = mkdtempSync(path.join(tmpdir(), "athena-fakebin-"));
   for (const command of commands) {
-    symlinkSync(realPathOf(command), path.join(dir, command));
+    const target = realPathOf(command);
+    symlinkSync(target, path.join(dir, command + path.extname(target)));
   }
   return dir;
 }
