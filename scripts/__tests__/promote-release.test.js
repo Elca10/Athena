@@ -4,7 +4,36 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { isCommitCiGreen, promoteRelease } from "../promote-release.mjs";
+
+const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "promote-release.mjs");
+
+// Regression test for the Windows `import.meta.url === \`file://${process.argv[1]}\``
+// entry-point bug (CVE-2024-27980's sibling issue found the same day as the
+// npm.cmd hotfix): process.argv[1] is a native OS path (backslashes, no
+// file:// prefix on Windows), so that bare template comparison can never
+// match there — the script's own `if` guard silently never ran `main()` at
+// all, with zero output, on real Windows, even though it "happened to
+// work" on POSIX (where argv[1] already looks like the file:// form). No
+// test here ever ran this file as a real, directly-invoked `node
+// scripts/promote-release.mjs` subprocess before — only ever imported its
+// named exports — so this exact gap was invisible to every OS in CI,
+// including windows-latest. Calling it with no commit arg hits `main`'s
+// own fast, side-effect-free usage-error exit before anything resembling a
+// real git/network operation, so this is safe to run for real everywhere.
+test("entry-point guard: running promote-release.mjs directly for real invokes main()", () => {
+  const result = (() => {
+    try {
+      execFileSync("node", [SCRIPT_PATH], { encoding: "utf8" });
+      return { code: 0, stderr: "" };
+    } catch (err) {
+      return { code: typeof err.status === "number" ? err.status : 1, stderr: err.stderr?.toString() ?? "" };
+    }
+  })();
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /Usage: node scripts\/promote-release\.mjs <commit-sha>/);
+});
 
 function runGitAt(dir) {
   return (args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();

@@ -3,6 +3,22 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
+import net from "node:net";
+import { fileURLToPath } from "node:url";
+
+const INDEX_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "index.js");
+
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const { port } = srv.address();
+      srv.close(() => resolve(port));
+    });
+    srv.on("error", reject);
+  });
+}
 
 // Scratch, collision-proof data dir for every test in this file — must be
 // set before createApp() runs (though dataDir.js itself re-reads
@@ -69,5 +85,44 @@ test("POST /api/setup/complete then GET /api/health reflects setupComplete:true"
     assert.equal(body.setupComplete, true);
   } finally {
     server.close();
+  }
+});
+
+// Regression test for the Windows `import.meta.url === \`file://${process.argv[1]}\``
+// entry-point bug (found 2026-10-12, same day as the npm.cmd installer
+// hotfix): process.argv[1] is a native OS path (backslashes, no file://
+// prefix on Windows), so that bare template comparison can never match
+// there — main() silently never ran, with zero output, on real Windows,
+// even though it "happened to work" on POSIX. Every other test in this
+// file imports `createApp` as a module, which never exercises this guard
+// at all (import.meta.url only equals pathToFileURL(process.argv[1]).href
+// when the file is the process's own directly-invoked entry script) — so
+// this exact gap was invisible to every OS in CI, including
+// windows-latest, until this test actually spawns the real file.
+test("entry-point guard: running index.js directly for real invokes main() and starts listening", async () => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "athena-index-direct-"));
+  const port = await findFreePort();
+  const child = spawn(process.execPath, [INDEX_PATH], {
+    env: { ...process.env, ATHENA_PORT: String(port), ATHENA_DATA_DIR: scratch },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  child.stdout.on("data", (chunk) => (stdout += chunk));
+  let stderr = "";
+  child.stderr.on("data", (chunk) => (stderr += chunk));
+
+  try {
+    const deadline = Date.now() + 5000;
+    while (!stdout.includes("Athena-Studying backend listening") && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    assert.match(stdout, /Athena-Studying backend listening/, `main() never started listening.\nstderr:\n${stderr}`);
+
+    const res = await fetch(`http://127.0.0.1:${port}/api/health`);
+    assert.equal(res.status, 200);
+  } finally {
+    child.kill();
+    await fs.rm(scratch, { recursive: true, force: true });
   }
 });
