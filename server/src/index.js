@@ -16,6 +16,7 @@ import { makeSubjectsRouter } from "./routes/subjects.js";
 import { makeContentRouter } from "./routes/content.js";
 import { makeTopicsRouter } from "./routes/topics.js";
 import { makeSessionsRouter } from "./routes/sessions.js";
+import { makeReflectionsRouter } from "./routes/reflections.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 
@@ -50,6 +51,7 @@ export async function createApp() {
   app.use("/api/subjects", makeSubjectsRouter(appDataDir));
   app.use("/api/subjects/:id/content", makeContentRouter(appDataDir));
   app.use("/api/subjects/:id/topics", makeTopicsRouter(appDataDir));
+  app.use("/api/subjects/:id/reflections", makeReflectionsRouter(appDataDir));
   app.use("/api/sessions", makeSessionsRouter(appDataDir));
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));

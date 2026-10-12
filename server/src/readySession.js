@@ -37,7 +37,7 @@
 // every other response here is correctly post-answer and returns the full
 // thing.
 
-import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, endSession } from "./sessions.js";
+import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, promptReflection } from "./sessions.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { listBankQuestions, markQuestionShown, isBankDrained } from "./questionBank.js";
 import { getSubject } from "./subjects.js";
@@ -164,10 +164,13 @@ export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTo
  * Serves a Ready session's next question: `pickNextTopicId` decides which
  * due topic (if any) is next, same interleaving-order logic Live mode
  * uses; `pickBankQuestion` picks the least-recently-shown bank question for
- * it. Once every topic's been asked, the session ends itself and tops up
- * any topic it drained (`topUpDrainedTopics`), mirroring
- * `generateNextLiveQuestion`'s `{ok: true, done: true, session}` shape
- * with an added `bankTopUps` array (empty when nothing needed topping up).
+ * it. Once every topic's been asked, the session moves to "waiting" for
+ * its end-of-session reflection (`sessions.js`'s `promptReflection`, same
+ * as Live mode — `reflection.js` is what actually finalizes it) and tops
+ * up any topic it drained (`topUpDrainedTopics`), mirroring
+ * `generateNextLiveQuestion`'s `{ok: true, done: true, awaitingReflection:
+ * true, session}` shape with an added `bankTopUps` array (empty when
+ * nothing needed topping up).
  * An empty/not-yet-generated bank for the next topic (SPEC.md section 5's
  * "empty or thin bank") is a real, recoverable outcome, not a caller
  * mistake — it comes back as `{ok: false, noBank: true, topicId, reason}`
@@ -186,9 +189,9 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
 
   const topicId = pickNextTopicId(session.topicIds, session.history);
   if (topicId === null) {
-    const ended = await endSession(appDataDir, sessionId);
+    const waiting = await promptReflection(appDataDir, sessionId);
     const bankTopUps = await topUpDrainedTopics(appDataDir, session.topicIds, { topUp });
-    return { ok: true, done: true, session: ended, bankTopUps };
+    return { ok: true, done: true, awaitingReflection: true, session: waiting, bankTopUps };
   }
   const topic = await getTopicById(appDataDir, topicId);
   if (!topic) throw new Error(`Topic not found: ${topicId}`);

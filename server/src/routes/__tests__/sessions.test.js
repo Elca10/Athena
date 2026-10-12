@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
-import { createSession, endSession, setCurrentQuestion } from "../../sessions.js";
+import { createSession, endSession, setCurrentQuestion, promptReflection } from "../../sessions.js";
 import { addPlannedTopics } from "../../topics.js";
 import { addBankQuestions } from "../../questionBank.js";
 import { makeSessionsRouter } from "../sessions.js";
@@ -534,6 +534,106 @@ test("POST /api/sessions/:id/live/answer with a missing confidence returns 400",
     });
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /confidence must be an integer from 1 to 5/);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection stores a reflection and finalizes the session", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
+    await promptReflection(dir, session.id);
+
+    const res = await fetch(`${base}/${session.id}/reflection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learned: "The Revolution had multiple phases", connects: "", surprised: "", differently: "" }),
+    });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.reflection.learned, "The Revolution had multiple phases");
+    assert.deepEqual(body.reflection.subjectIds, [subject.id]);
+    assert.equal(body.session.status, "completed");
+    assert.equal(body.session.reflectionPending, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection with every field blank returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
+    await promptReflection(dir, session.id);
+
+    const res = await fetch(`${base}/${session.id}/reflection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /at least one reflection answer is required/i);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection on a session not awaiting one returns 400", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
+    const res = await fetch(`${base}/${session.id}/reflection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learned: "X" }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /not awaiting a reflection/);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection for an unknown session returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/no-such-id/reflection`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ learned: "X" }),
+    });
+    assert.equal(res.status, 404);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection/skip finalizes the session without storing a reflection", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "History" });
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "live" });
+    await promptReflection(dir, session.id);
+
+    const res = await fetch(`${base}/${session.id}/reflection/skip`, { method: "POST" });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.status, "completed");
+    assert.equal(body.reflectionPending, false);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions/:id/reflection/skip for an unknown session returns 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const res = await fetch(`${base}/no-such-id/reflection/skip`, { method: "POST" });
+    assert.equal(res.status, 404);
   } finally {
     server.close();
   }

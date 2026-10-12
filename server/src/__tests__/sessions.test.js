@@ -12,6 +12,7 @@ import {
   recordPendingAnswer,
   recordAnswer,
   endSession,
+  promptReflection,
   archiveSession,
   restoreSession,
 } from "../sessions.js";
@@ -39,6 +40,7 @@ test("createSession assigns an id and starts active, unended, unarchived", async
   assert.equal(session.archived, false);
   assert.equal(session.currentQuestion, null);
   assert.deepEqual(session.history, []);
+  assert.equal(session.reflectionPending, false);
   assert.deepEqual(await listSessions(dir), [session]);
 });
 
@@ -214,11 +216,44 @@ test("endSession marks a session completed and stamps endedAt", async () => {
   const ended = await endSession(dir, session.id);
   assert.equal(ended.status, "completed");
   assert.equal(typeof ended.endedAt, "string");
+  assert.equal(ended.reflectionPending, false);
+});
+
+test("endSession clears reflectionPending when a session awaiting reflection is finalized", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await promptReflection(dir, session.id);
+  const ended = await endSession(dir, session.id);
+  assert.equal(ended.status, "completed");
+  assert.equal(ended.reflectionPending, false);
 });
 
 test("endSession rejects an unknown session id", async () => {
   const dir = await scratchDir();
   await assert.rejects(() => endSession(dir, "no-such-id"), /Session not found/);
+});
+
+test("promptReflection moves a session to waiting and sets reflectionPending, clearing any current question", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await setCurrentQuestion(dir, session.id, { topicId: "topic-1", prompt: "Q1" });
+  const waiting = await promptReflection(dir, session.id);
+  assert.equal(waiting.status, "waiting");
+  assert.equal(waiting.reflectionPending, true);
+  assert.equal(waiting.currentQuestion, null);
+  assert.deepEqual(await getSession(dir, session.id), waiting);
+});
+
+test("promptReflection rejects an unknown session id", async () => {
+  const dir = await scratchDir();
+  await assert.rejects(() => promptReflection(dir, "no-such-id"), /Session not found/);
+});
+
+test("promptReflection refuses to reopen a completed session", async () => {
+  const dir = await scratchDir();
+  const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live" });
+  await endSession(dir, session.id);
+  await assert.rejects(() => promptReflection(dir, session.id), /already completed/);
 });
 
 test("archiveSession hides a session from the default list but not includeArchived:true", async () => {

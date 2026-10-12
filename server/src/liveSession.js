@@ -35,7 +35,7 @@
 // though neither turn ever needed file access in the first place.
 
 import { runCommand } from "./processUtil.js";
-import { getSession, setCurrentQuestion, recordAnswer, endSession } from "./sessions.js";
+import { getSession, setCurrentQuestion, recordAnswer, promptReflection } from "./sessions.js";
 import { getSubject } from "./subjects.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { RATINGS } from "./scheduler.js";
@@ -191,11 +191,14 @@ export async function runFirstQuestionTurn(prompt, { env } = {}) {
  * session and every subsequent call after an answer's been recorded both
  * go through here, `pickNextTopicId` deciding which topic (if any) is
  * next. Once every `topicIds` entry already has a `history` entry, there
- * is nothing left to ask: rather than erroring, the session is ended
- * (SPEC.md section 4's "Completed" — a Live session finishes on its own
- * once it's worked through its topics, the same way a Ready session isn't
- * expected to need an explicit end for running out of due topics either)
- * and returned as `{ok: true, done: true, session}`. Validation errors
+ * is nothing left to ask: rather than erroring, the session moves to
+ * "waiting" for its end-of-session reflection (SPEC.md section 6;
+ * `sessions.js`'s `promptReflection` — a Live session doesn't complete
+ * outright just because it's worked through its topics, the same way a
+ * Ready session isn't expected to need an explicit end for running out of
+ * due topics either; `reflection.js` is what actually finalizes it) and
+ * returned as `{ok: true, done: true, awaitingReflection: true, session}`.
+ * Validation errors
  * (bad session id, wrong mode, a question already generated, no topics at
  * all) throw — these are caller mistakes, not a recoverable model-call
  * outcome. A model-call failure or an unparseable reply is NOT thrown:
@@ -213,8 +216,8 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
 
   const topicId = pickNextTopicId(session.topicIds, session.history);
   if (topicId === null) {
-    const ended = await endSession(appDataDir, sessionId);
-    return { ok: true, done: true, session: ended };
+    const waiting = await promptReflection(appDataDir, sessionId);
+    return { ok: true, done: true, awaitingReflection: true, session: waiting };
   }
   const topic = await getTopicById(appDataDir, topicId);
   if (!topic) throw new Error(`Topic not found: ${topicId}`);

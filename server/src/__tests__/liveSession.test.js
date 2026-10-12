@@ -346,7 +346,7 @@ test("generateNextLiveQuestion asks about the next unasked topic once the first 
   assert.match(seenPrompt, /E1 vs E2/);
 });
 
-test("generateNextLiveQuestion ends the session once every topic has been asked, rather than generating another question", async () => {
+test("generateNextLiveQuestion moves the session to waiting for a reflection once every topic has been asked, rather than generating another question or completing outright", async () => {
   const dir = await scratchDir();
   const { session } = await seedSession(dir);
   await setCurrentQuestion(dir, session.id, { topicId: session.topicIds[0], prompt: "Q1" });
@@ -354,12 +354,14 @@ test("generateNextLiveQuestion ends the session once every topic has been asked,
 
   const runTurn = async () => assert.fail("should not call the model once every topic is already asked");
   const result = await generateNextLiveQuestion(dir, session.id, { runTurn });
-  assert.deepEqual(result, { ok: true, done: true, session: result.session });
-  assert.equal(result.session.status, "completed");
-  assert.notEqual(result.session.endedAt, null);
+  assert.deepEqual(result, { ok: true, done: true, awaitingReflection: true, session: result.session });
+  assert.equal(result.session.status, "waiting");
+  assert.equal(result.session.reflectionPending, true);
+  assert.equal(result.session.endedAt, null);
 
   const stored = await getSession(dir, session.id);
-  assert.equal(stored.status, "completed");
+  assert.equal(stored.status, "waiting");
+  assert.equal(stored.reflectionPending, true);
 });
 
 // --- buildGradingPrompt -------------------------------------------------

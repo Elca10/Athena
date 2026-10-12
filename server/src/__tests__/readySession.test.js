@@ -152,7 +152,7 @@ test("generateNextReadyQuestion serves a bank question and marks it shown", asyn
   assert.equal(typeof storedQuestion.lastShownAt, "string");
 });
 
-test("generateNextReadyQuestion ends the session once every topic has a history entry", async () => {
+test("generateNextReadyQuestion moves the session to waiting for a reflection once every topic has a history entry, rather than completing it outright", async () => {
   const dir = await scratchDir();
   const { subject, topic } = await seedSubjectWithTopic(dir);
   await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
@@ -165,7 +165,9 @@ test("generateNextReadyQuestion ends the session once every topic has a history 
   const result = await generateNextReadyQuestion(dir, session.id, { topUp: noOpTopUp });
   assert.equal(result.ok, true);
   assert.equal(result.done, true);
-  assert.equal(result.session.status, "completed");
+  assert.equal(result.awaitingReflection, true);
+  assert.equal(result.session.status, "waiting");
+  assert.equal(result.session.reflectionPending, true);
 });
 
 // --- topUpDrainedTopics ----------------------------------------------------
@@ -457,7 +459,7 @@ test("submitReadySelfGrade rejects an unknown session id", async () => {
 
 // --- full round-trip: two topics, one self-graded + one auto-graded -----
 
-test("full ready-mode round trip across two topics ends the session naturally", async () => {
+test("full ready-mode round trip across two topics moves the session to waiting for a reflection naturally", async () => {
   const dir = await scratchDir();
   const subject = await createSubject(dir, { name: "Algorithms" });
   const [t1, t2] = await addPlannedTopics(dir, subject.id, ["Recursion", "Sorting"]);
@@ -479,6 +481,8 @@ test("full ready-mode round trip across two topics ends the session naturally", 
 
   const done = await generateNextReadyQuestion(dir, session.id, { topUp: noOpTopUp });
   assert.equal(done.done, true);
-  assert.equal(done.session.status, "completed");
+  assert.equal(done.awaitingReflection, true);
+  assert.equal(done.session.status, "waiting");
+  assert.equal(done.session.reflectionPending, true);
   assert.equal(done.session.history.length, 2);
 });

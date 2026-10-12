@@ -54,6 +54,7 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
     archived: false,
     currentQuestion: null,
     history: [],
+    reflectionPending: false,
   };
   await storeFor(appDataDir).update((current) => [...current, session]);
   return session;
@@ -91,7 +92,28 @@ export function endSession(appDataDir, id) {
     ...session,
     status: "completed",
     endedAt: new Date().toISOString(),
+    reflectionPending: false,
   }));
+}
+
+/**
+ * Moves a session to "waiting" for an end-of-session reflection (SPEC.md
+ * section 6; section 4's "Waiting: waiting on the user (a question is up,
+ * a reflection prompt, etc.)") instead of completing it outright once its
+ * topics are exhausted — `liveSession.js`/`readySession.js` call this in
+ * place of `endSession` when `pickNextTopicId` has nothing left. The
+ * session only reaches "completed" once `reflection.js`'s
+ * `submitSessionReflection`/`skipSessionReflection` finalizes it via
+ * `endSession`. A "completed" session is terminal, same guard as every
+ * other mutator here.
+ */
+export function promptReflection(appDataDir, id) {
+  return mutate(appDataDir, id, (session) => {
+    if (session.status === "completed") {
+      throw new Error(`Session already completed: ${id}`);
+    }
+    return { ...session, status: "waiting", reflectionPending: true, currentQuestion: null };
+  });
 }
 
 /**

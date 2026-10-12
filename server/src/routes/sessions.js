@@ -13,6 +13,7 @@ import {
 import { buildSessionTopicIds } from "../sessionBuilder.js";
 import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
 import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView } from "../readySession.js";
+import { submitSessionReflection, skipSessionReflection } from "../reflection.js";
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
@@ -171,6 +172,45 @@ export function makeSessionsRouter(appDataDir) {
     }
     try {
       res.json(await submitReadySelfGrade(appDataDir, req.params.id, { selfGrades: req.body?.selfGrades }));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Submits the end-of-session reflection (SPEC.md section 6) and
+  // finalizes the session — only valid once the session is actually
+  // awaiting one (`reflectionPending`, set by liveSession.js's/
+  // readySession.js's `promptReflection` once every topic's been asked).
+  // No model call happens here, so every failure (unknown session, not
+  // awaiting reflection, every field blank) is a caller mistake — 400,
+  // same all-caller-mistake posture as /ready/answer.
+  router.post("/:id/reflection", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(
+        await submitSessionReflection(appDataDir, req.params.id, {
+          learned: req.body?.learned,
+          surprised: req.body?.surprised,
+          connects: req.body?.connects,
+          differently: req.body?.differently,
+        }),
+      );
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Finalizes a session awaiting reflection without storing one.
+  router.post("/:id/reflection/skip", async (req, res) => {
+    if (!(await getSession(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(await skipSessionReflection(appDataDir, req.params.id));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
