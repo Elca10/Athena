@@ -13,6 +13,7 @@ afterEach(() => {
 
 test("shows the setup wizard when setup isn't complete", async () => {
   vi.mocked(api.getHealth).mockResolvedValue({ ok: true, version: "0.1.0", setupComplete: false });
+  vi.mocked(api.detectOs).mockResolvedValue({ detected: "mac" });
   vi.mocked(api.checkClaudeCode).mockResolvedValue({ installed: true, loggedIn: true });
   render(<App />);
   expect(await screen.findByText("Set up Athena-Studying")).toBeInTheDocument();

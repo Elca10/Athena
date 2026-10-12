@@ -4,35 +4,101 @@ import {
   checkGithub,
   completeSetup,
   createSubject,
+  detectOs,
   getGithubConnectState,
   startGithubConnect,
   type ClaudeCodeCheck,
+  type DetectedOs,
   type GithubCheck,
   type GithubConnectState,
 } from "./api";
 
-// First-run setup wizard (SPEC.md section 2): three steps — Claude Code,
-// GitHub, then creating the first subject. Adding content for it happens
-// on the dashboard right after (AddContentPanel), not in the wizard.
+type ConfirmedOs = "windows" | "mac";
+
+// First-run setup wizard (SPEC.md section 2; v1.0 ship scope item 3a):
+// four steps — which computer this is, Claude Code, GitHub, then creating
+// the first subject. Adding content for it happens on the dashboard right
+// after (AddContentPanel), not in the wizard. The OS step's answer is
+// lifted here and threaded into the Claude Code and GitHub steps so their
+// install instructions can be OS-specific rather than generic/Mac-shaped —
+// the first real friend to run this wizard is on Windows.
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [os, setOs] = useState<ConfirmedOs | null>(null);
 
   return (
     <div className="setup-wizard">
       <h1>Set up Athena-Studying</h1>
       <ol className="setup-steps">
-        <li className={step === 1 ? "active" : step > 1 ? "done" : ""}>Claude Code</li>
-        <li className={step === 2 ? "active" : step > 2 ? "done" : ""}>GitHub</li>
-        <li className={step === 3 ? "active" : ""}>First subject</li>
+        <li className={step === 1 ? "active" : step > 1 ? "done" : ""}>Computer</li>
+        <li className={step === 2 ? "active" : step > 2 ? "done" : ""}>Claude Code</li>
+        <li className={step === 3 ? "active" : step > 3 ? "done" : ""}>GitHub</li>
+        <li className={step === 4 ? "active" : ""}>First subject</li>
       </ol>
-      {step === 1 && <ClaudeCodeStep onContinue={() => setStep(2)} />}
-      {step === 2 && <GithubStep onBack={() => setStep(1)} onContinue={() => setStep(3)} />}
-      {step === 3 && <FirstSubjectStep onBack={() => setStep(2)} onFinish={onComplete} />}
+      {step === 1 && (
+        <OsStep
+          onContinue={(picked) => {
+            setOs(picked);
+            setStep(2);
+          }}
+        />
+      )}
+      {step === 2 && <ClaudeCodeStep os={os} onBack={() => setStep(1)} onContinue={() => setStep(3)} />}
+      {step === 3 && <GithubStep os={os} onBack={() => setStep(2)} onContinue={() => setStep(4)} />}
+      {step === 4 && <FirstSubjectStep onBack={() => setStep(3)} onFinish={onComplete} />}
     </div>
   );
 }
 
-function ClaudeCodeStep({ onContinue }: { onContinue: () => void }) {
+// Pre-selects the server-detected OS (`process.platform`, setupChecks.js's
+// `detectOs`) but always requires an explicit Continue click — a detected
+// `other` (this build's own Linux dev machine; no installer script exists
+// for it) leaves neither radio pre-selected, forcing a real choice between
+// the two platforms this app actually supports rather than guessing wrong.
+function OsStep({ onContinue }: { onContinue: (os: ConfirmedOs) => void }) {
+  const [selected, setSelected] = useState<ConfirmedOs | null>(null);
+  const [detecting, setDetecting] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    detectOs()
+      .then(({ detected }: { detected: DetectedOs }) => {
+        if (!cancelled && (detected === "windows" || detected === "mac")) setSelected(detected);
+      })
+      .finally(() => {
+        if (!cancelled) setDetecting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section>
+      <p>Which computer are you setting this up on?</p>
+      {detecting && <p>Checking...</p>}
+      {!detecting && (
+        <fieldset className="setup-os-options">
+          <label>
+            <input type="radio" name="setup-os" checked={selected === "windows"} onChange={() => setSelected("windows")} />
+            Windows
+          </label>
+          <label>
+            <input type="radio" name="setup-os" checked={selected === "mac"} onChange={() => setSelected("mac")} />
+            Mac
+          </label>
+        </fieldset>
+      )}
+      <div className="setup-actions">
+        <button type="button" onClick={() => selected && onContinue(selected)} disabled={!selected || detecting}>
+          Continue
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack: () => void; onContinue: () => void }) {
   const [state, setState] = useState<ClaudeCodeCheck | null>(null);
   const [checking, setChecking] = useState(false);
 
@@ -59,8 +125,17 @@ function ClaudeCodeStep({ onContinue }: { onContinue: () => void }) {
       {checking && <p>Checking...</p>}
       {!checking && state && !state.installed && (
         <p className="setup-error">
-          Claude Code isn't installed, or couldn't be run. Install it from{" "}
-          <code>claude.ai/code</code>, then check again.
+          Claude Code isn't installed, or couldn't be run.{" "}
+          {os === "windows" ? (
+            <>
+              Open PowerShell and run <code>winget install --id Anthropic.ClaudeCode -e --source winget</code>, then open
+              a new PowerShell window and check again.
+            </>
+          ) : (
+            <>
+              Install it from <code>claude.ai/code</code>, then check again.
+            </>
+          )}
         </p>
       )}
       {!checking && state?.installed && state.loggedIn === false && (
@@ -71,6 +146,9 @@ function ClaudeCodeStep({ onContinue }: { onContinue: () => void }) {
       )}
       {!checking && state?.installed && state.loggedIn === true && <p className="setup-ok">Claude Code is installed and logged in.</p>}
       <div className="setup-actions">
+        <button type="button" onClick={onBack}>
+          Back
+        </button>
         <button type="button" onClick={runCheck} disabled={checking}>
           Check again
         </button>
@@ -82,7 +160,7 @@ function ClaudeCodeStep({ onContinue }: { onContinue: () => void }) {
   );
 }
 
-function GithubStep({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
+function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack: () => void; onContinue: () => void }) {
   const [state, setState] = useState<GithubCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [connect, setConnect] = useState<GithubConnectState | null>(null);
@@ -129,12 +207,25 @@ function GithubStep({ onBack, onContinue }: { onBack: () => void; onContinue: ()
 
   return (
     <section>
-      <p>Bug reports (section 10) are filed as GitHub issues using your own GitHub account.</p>
+      <p>
+        This needs a free GitHub.com account — only so that if you ever file a bug report, it's posted from your own
+        account. Nothing else in the app uses it. Don't have one? Create it at <code>github.com/signup</code>, it only
+        takes a minute.
+      </p>
       {checking && <p>Checking...</p>}
       {!checking && state && !state.installed && (
         <p className="setup-error">
-          The GitHub CLI (<code>gh</code>) isn't installed. Install it from{" "}
-          <code>cli.github.com</code>, then check again.
+          The GitHub CLI (<code>gh</code>) isn't installed.{" "}
+          {os === "windows" ? (
+            <>
+              Open PowerShell and run <code>winget install --id GitHub.cli -e --source winget</code>, then open a new
+              PowerShell window and check again.
+            </>
+          ) : (
+            <>
+              Install it from <code>cli.github.com</code>, then check again.
+            </>
+          )}
         </p>
       )}
       {!checking && state?.installed && state.authenticated === false && !connect && (

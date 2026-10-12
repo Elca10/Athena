@@ -2,6 +2,11 @@
 // Kept separate from SetupWizard.tsx so the request/response shape can be
 // unit-tested without rendering any component.
 
+// Mirrors setupChecks.js's `detectOs` — `other` (e.g. this build's own
+// Linux dev machine) is real but has no installer script, so the wizard
+// never pre-selects it.
+export type DetectedOs = "windows" | "mac" | "other";
+
 export type ClaudeCodeCheck = { installed: boolean; loggedIn?: boolean | null; detail?: string };
 export type GithubCheck = { installed: boolean; authenticated?: boolean; detail?: string };
 export type GithubConnectState = {
@@ -17,6 +22,10 @@ async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`GET ${url} responded ${res.status}`);
   return res.json();
+}
+
+export function detectOs(): Promise<{ detected: DetectedOs }> {
+  return getJson("/api/setup/os");
 }
 
 export function checkClaudeCode(): Promise<ClaudeCodeCheck> {

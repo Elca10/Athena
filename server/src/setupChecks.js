@@ -7,6 +7,27 @@
 import { runCommand } from "./processUtil.js";
 
 /**
+ * Detects the OS the server is actually running on (SPEC.md section 2;
+ * v1.0 ship scope item 3a: the setup wizard's very first step pre-selects
+ * this, but the user must still confirm it explicitly — a browser running
+ * on a different machine than the server, or Node's own platform naming
+ * being surprising, are both real enough that a silent auto-pick would be
+ * wrong sometimes). Only `windows`/`mac` are real options — those are the
+ * only two platforms `installers/` has a script for — `other` covers
+ * anything else (e.g. Linux, this very build's own dev machine) with no
+ * pre-selection, forcing an explicit choice rather than guessing between
+ * two instruction sets neither of which may be right. `platform` is
+ * injectable (defaults to the real `process.platform`) so this is
+ * testable on every OS without actually running on one — same `{env}`-
+ * style DI seam `checkClaudeCode`/`checkGh` use for the real CLI calls.
+ */
+export function detectOs(platform = process.platform) {
+  if (platform === "win32") return "windows";
+  if (platform === "darwin") return "mac";
+  return "other";
+}
+
+/**
  * Pure interpretation of `claude -p -- "/usage"`'s result — factored out of
  * `checkClaudeCode` so the login-state heuristic is unit-testable without
  * spawning a real process (and without needing the real CLI installed,

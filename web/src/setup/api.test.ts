@@ -4,6 +4,7 @@ import {
   checkGithub,
   completeSetup,
   createSubject,
+  detectOs,
   getGithubConnectState,
   getHealth,
   startGithubConnect,
@@ -16,6 +17,14 @@ function mockFetchOnce(body: unknown, { ok = true, status = 200 } = {}) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("detectOs", () => {
+  test("hits /api/setup/os and returns the parsed detection", async () => {
+    mockFetchOnce({ detected: "windows" });
+    await expect(detectOs()).resolves.toEqual({ detected: "windows" });
+    expect(fetch).toHaveBeenCalledWith("/api/setup/os");
+  });
 });
 
 describe("checkClaudeCode / checkGithub / getHealth", () => {

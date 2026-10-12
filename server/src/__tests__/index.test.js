@@ -40,6 +40,21 @@ test("GET /api/health reports ok and an unset-up app", async () => {
   }
 });
 
+test("GET /api/setup/os reports a real detected OS (windows, mac, or other)", async () => {
+  const { createApp } = await import("../index.js");
+  const { app } = await createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/setup/os`);
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.ok(["windows", "mac", "other"].includes(body.detected));
+  } finally {
+    server.close();
+  }
+});
+
 test("POST /api/setup/complete then GET /api/health reflects setupComplete:true", async () => {
   const { createApp } = await import("../index.js");
   const { app } = await createApp();

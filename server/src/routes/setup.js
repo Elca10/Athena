@@ -1,18 +1,24 @@
 import express from "express";
-import { checkClaudeCode, checkGh } from "../setupChecks.js";
+import { checkClaudeCode, checkGh, detectOs } from "../setupChecks.js";
 import { startGithubConnect, getGithubConnectState } from "../githubConnect.js";
 import { markSetupComplete } from "../setupState.js";
 
 export function makeSetupRouter(appDataDir) {
   const setupRouter = express.Router();
 
-  // Step 1: Claude Code installed + logged in.
+  // Step 1: which computer is this? Pre-selects the wizard's OS step; the
+  // user still confirms explicitly (setupChecks.js's detectOs doc comment).
+  setupRouter.get("/os", (_req, res) => {
+    res.json({ detected: detectOs() });
+  });
+
+  // Step 2: Claude Code installed + logged in.
   setupRouter.get("/claude-code", async (_req, res) => {
     const result = await checkClaudeCode();
     res.json(result);
   });
 
-  // Step 2: GitHub CLI installed + authenticated (checked first, before
+  // Step 3: GitHub CLI installed + authenticated (checked first, before
   // offering to start a new login flow — most friends will already have
   // `gh` authenticated from prior use).
   setupRouter.get("/github", async (_req, res) => {
@@ -34,7 +40,7 @@ export function makeSetupRouter(appDataDir) {
     res.json(state);
   });
 
-  // Step 3: marks first-run setup as done so the wizard doesn't show
+  // Step 4: marks first-run setup as done so the wizard doesn't show
   // again. Subject creation itself (or skipping it) happens client-side
   // in the wizard before this is called; this just records that the
   // one-time setup flow finished.

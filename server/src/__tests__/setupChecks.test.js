@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
-import { checkClaudeCode, checkGh, interpretClaudeUsageOutput, interpretGhAuthStatus } from "../setupChecks.js";
+import { checkClaudeCode, checkGh, detectOs, interpretClaudeUsageOutput, interpretGhAuthStatus } from "../setupChecks.js";
 
 // An env whose PATH points nowhere real — guarantees ENOENT for any CLI
 // lookup regardless of what's actually installed on the machine running
@@ -56,4 +56,15 @@ test("checkClaudeCode reports not installed when the binary can't be found", asy
 test("checkGh reports not installed when the binary can't be found", async () => {
   const result = await checkGh({ env: emptyPathEnv() });
   assert.equal(result.installed, false);
+});
+
+test("detectOs maps win32 to windows, darwin to mac, and anything else to other", () => {
+  assert.equal(detectOs("win32"), "windows");
+  assert.equal(detectOs("darwin"), "mac");
+  assert.equal(detectOs("linux"), "other");
+  assert.equal(detectOs("freebsd"), "other");
+});
+
+test("detectOs defaults to the real process.platform when none is given", () => {
+  assert.equal(detectOs(), detectOs(process.platform));
 });
