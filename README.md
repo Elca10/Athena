@@ -29,7 +29,7 @@ Open **PowerShell** (search for it in the Start Menu — the plain
 blue/black icon, not "PowerShell ISE") and paste this, then press Enter:
 
 ```powershell
-irm https://raw.githubusercontent.com/Elca10/Athena/main/installers/windows.ps1 | iex
+irm https://raw.githubusercontent.com/Elca10/Athena/release/installers/windows.ps1 | iex
 ```
 
 What happens next:
@@ -57,7 +57,7 @@ Open **Terminal** (search for it in Spotlight, the magnifying glass in
 the top-right corner) and paste this, then press Enter:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/main/installers/macos.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/release/installers/macos.sh | sh
 ```
 
 What happens next is the same as Windows above, minus the admin prompts:
@@ -82,7 +82,7 @@ opens your browser to the right page.
 command again:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/main/installers/macos.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/release/installers/macos.sh | sh
 ```
 
 It's safe to run any time — if Athena-Studying is already running, it
@@ -147,3 +147,25 @@ rm -rf ~/Library/Application\ Support/Athena-Studying
 ## For maintainers
 
 See [SPEC.md](SPEC.md) for the full design and build order.
+
+### How to ship an update
+
+Installed copies auto-update from the `release` branch, not `main` — so
+pushing to `main` (including an unattended overnight build run) never
+reaches anyone until you deliberately promote it. To ship whatever is
+currently on `main`:
+
+```bash
+node scripts/promote-release.mjs <main-commit-sha>
+```
+
+This fast-forwards `release` to that commit, but only if CI has already
+finished green for it — otherwise it refuses and exits non-zero. It never
+force-pushes: a plain `git push` with no `--force` is the actual
+enforcement, so a `release` that's somehow diverged (it shouldn't) will
+fail loudly instead of being silently rewritten.
+
+For local testing without touching the real channel, both
+`installers/windows.ps1` and `installers/macos.sh` honor an
+`ATHENA_UPDATE_BRANCH` env override (defaults to `release`) for which
+branch they clone/update from.

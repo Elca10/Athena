@@ -22,7 +22,11 @@
 # this file and call its functions directly), ATHENA_PORT (must match
 # whatever the running server actually binds to), ATHENA_NO_OPEN_BROWSER,
 # ATHENA_DESKTOP_DIR / ATHENA_STARTMENU_DIR (where the shortcuts get
-# written - so a test never touches the real Desktop/Start Menu).
+# written - so a test never touches the real Desktop/Start Menu),
+# ATHENA_UPDATE_BRANCH (which branch installs track and auto-update from -
+# defaults to `release` so nothing pushed straight to `main` reaches an
+# installed copy until the maintainer promotes it; see
+# scripts/promote-release.mjs).
 
 # $PSStyle only exists on PowerShell 7.2+ (not the Windows PowerShell 5.1
 # that ships by default on Windows 10/11) - guard it rather than assume it.
@@ -38,6 +42,7 @@ $MinNodeMajor = 18
 $Port = if ($env:ATHENA_PORT) { $env:ATHENA_PORT } else { 4417 }
 $DesktopDir = if ($env:ATHENA_DESKTOP_DIR) { $env:ATHENA_DESKTOP_DIR } else { [Environment]::GetFolderPath("Desktop") }
 $StartMenuDir = if ($env:ATHENA_STARTMENU_DIR) { $env:ATHENA_STARTMENU_DIR } else { [Environment]::GetFolderPath("Programs") }
+$Branch = if ($env:ATHENA_UPDATE_BRANCH) { $env:ATHENA_UPDATE_BRANCH } else { "release" }
 
 function Write-Log([string]$Message) {
     Write-Host "==> $Message"
@@ -177,15 +182,27 @@ function Install-RelaunchShortcuts {
 function Sync-Checkout {
     if (Test-Path (Join-Path $InstallDir ".git")) {
         Write-Log "Found an existing checkout at $InstallDir, updating..."
-        & git -C $InstallDir fetch origin main
+        & git -C $InstallDir fetch origin $Branch
         if ($LASTEXITCODE -ne 0) { Invoke-Fail "git fetch failed in $InstallDir." }
-        & git -C $InstallDir checkout main
-        if ($LASTEXITCODE -ne 0) { Invoke-Fail "git checkout main failed in $InstallDir." }
-        & git -C $InstallDir merge --ff-only origin/main
-        if ($LASTEXITCODE -ne 0) { Invoke-Fail "$InstallDir has local changes that aren't a fast-forward of origin/main - resolve manually, then re-run." }
+        & git -C $InstallDir show-ref --verify --quiet "refs/heads/$Branch"
+        if ($LASTEXITCODE -eq 0) {
+            & git -C $InstallDir checkout $Branch
+            if ($LASTEXITCODE -ne 0) { Invoke-Fail "git checkout $Branch failed in $InstallDir." }
+        } else {
+            # A checkout from before the release channel existed (or before
+            # this branch was ever fetched here) has no local branch to
+            # switch to yet - create one tracking origin/$Branch so it
+            # switches cleanly instead of failing. Covers e.g. an old
+            # install still on `main` the first time it updates after
+            # `release` became the tracked branch.
+            & git -C $InstallDir checkout -b $Branch "origin/$Branch"
+            if ($LASTEXITCODE -ne 0) { Invoke-Fail "git checkout -b $Branch failed in $InstallDir." }
+        }
+        & git -C $InstallDir merge --ff-only "origin/$Branch"
+        if ($LASTEXITCODE -ne 0) { Invoke-Fail "$InstallDir has local changes that aren't a fast-forward of origin/$Branch - resolve manually, then re-run." }
     } else {
         Write-Log "Cloning Athena-Studying into $InstallDir..."
-        & git clone $RepoUrl $InstallDir
+        & git clone --branch $Branch $RepoUrl $InstallDir
         if ($LASTEXITCODE -ne 0) { Invoke-Fail "git clone failed." }
     }
 }

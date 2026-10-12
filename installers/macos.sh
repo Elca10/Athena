@@ -10,12 +10,17 @@
 # installers/bootstrap.mjs — shared with the future Windows installer, and
 # unit-testable the normal way, unlike this file.
 #
-# Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR.
+# Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR,
+# ATHENA_UPDATE_BRANCH (which branch installs track and auto-update from —
+# defaults to `release` so nothing pushed straight to `main` reaches an
+# installed copy until the maintainer promotes it; see
+# scripts/promote-release.mjs).
 
 set -euo pipefail
 
 REPO_URL="${ATHENA_REPO_URL:-https://github.com/Elca10/Athena.git}"
 INSTALL_DIR="${ATHENA_INSTALL_DIR:-$HOME/Athena-Studying}"
+BRANCH="${ATHENA_UPDATE_BRANCH:-release}"
 MIN_NODE_MAJOR=18
 
 log() { printf '==> %s\n' "$1"; }
@@ -55,13 +60,23 @@ ensure_node() {
 clone_or_update() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     log "Found an existing checkout at $INSTALL_DIR, updating..."
-    git -C "$INSTALL_DIR" fetch origin main || fail "git fetch failed in $INSTALL_DIR."
-    git -C "$INSTALL_DIR" checkout main || fail "git checkout main failed in $INSTALL_DIR."
-    git -C "$INSTALL_DIR" merge --ff-only origin/main \
-      || fail "$INSTALL_DIR has local changes that aren't a fast-forward of origin/main — resolve manually, then re-run."
+    git -C "$INSTALL_DIR" fetch origin "$BRANCH" || fail "git fetch failed in $INSTALL_DIR."
+    if git -C "$INSTALL_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+      git -C "$INSTALL_DIR" checkout "$BRANCH" || fail "git checkout $BRANCH failed in $INSTALL_DIR."
+    else
+      # A checkout from before the release channel existed (or before this
+      # branch was ever fetched here) has no local branch to switch to yet —
+      # create one tracking origin/$BRANCH so it switches cleanly instead of
+      # failing. Covers e.g. an old install still on `main` the first time it
+      # updates after `release` became the tracked branch.
+      git -C "$INSTALL_DIR" checkout -b "$BRANCH" "origin/$BRANCH" \
+        || fail "git checkout -b $BRANCH failed in $INSTALL_DIR."
+    fi
+    git -C "$INSTALL_DIR" merge --ff-only "origin/$BRANCH" \
+      || fail "$INSTALL_DIR has local changes that aren't a fast-forward of origin/$BRANCH — resolve manually, then re-run."
   else
     log "Cloning Athena-Studying into $INSTALL_DIR..."
-    git clone "$REPO_URL" "$INSTALL_DIR" || fail "git clone failed."
+    git clone --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" || fail "git clone failed."
   fi
 }
 

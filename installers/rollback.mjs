@@ -5,11 +5,12 @@
 // as every other piece of user/install state in this app.
 //
 // Deliberately only ever moves the checkout to a specific known commit
-// (`git checkout --detach <sha>`) rather than resetting the `main` branch
+// (`git checkout --detach <sha>`) rather than resetting the tracked branch
 // itself: the next launch's normal fetch + fast-forward-merge
-// (installers/macos.sh) re-attaches to `main` and tries the newest commit
-// again on its own, so a rollback is a per-launch safety net, not a
-// persistent downgrade.
+// (installers/macos.sh, installers/windows.ps1 - origin/release by default,
+// overridable via ATHENA_UPDATE_BRANCH) re-attaches to that branch and
+// tries its newest commit again on its own, so a rollback is a per-launch
+// safety net, not a persistent downgrade.
 //
 // No npm dependencies, same constraint as bootstrap.mjs — this runs before
 // `npm install` has put anything on disk. server/src/dataDir.js is safe to

@@ -52,7 +52,10 @@ console.log("stub bootstrap ran");
 
 /** A local git repo that stands in for the real Athena repo as a clone
  * source — same shape (installers/bootstrap.mjs present), except that
- * file is the stub above instead of the real installer. */
+ * file is the stub above instead of the real installer. Its default
+ * branch is `release` (matching macos.sh's own ATHENA_UPDATE_BRANCH
+ * default) so the plain clone/update tests exercise the real tracked
+ * branch without needing an override. */
 function makeFixtureRepo() {
   const dir = mkdtempSync(path.join(tmpdir(), "athena-fixture-repo-"));
   execFileSync("git", ["init", "-q"], { cwd: dir });
@@ -62,7 +65,7 @@ function makeFixtureRepo() {
   writeFileSync(path.join(dir, "installers", "bootstrap.mjs"), stubBootstrapSource);
   execFileSync("git", ["add", "-A"], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "fixture init"], { cwd: dir });
-  execFileSync("git", ["branch", "-M", "main"], { cwd: dir });
+  execFileSync("git", ["branch", "-M", "release"], { cwd: dir });
   return dir;
 }
 
@@ -162,6 +165,45 @@ test("updates an existing checkout via fast-forward merge instead of re-cloning"
     assert.match(second.stdout, /updating/i);
     assert.ok(existsSync(path.join(installDir, "NOTE.txt")), "fast-forward merge should have pulled the new commit");
     assert.notEqual(readFileSync(marker, "utf8"), firstMarkerValue, "bootstrap stub should have re-run");
+  } finally {
+    cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
+    rmSync(marker, { force: true });
+  }
+});
+
+test("an existing checkout left on main switches cleanly to release (ship queue item 3.5)", () => {
+  const fakeBin = makeFakeBin(["git", "node"]);
+  const fixtureRepo = makeFixtureRepo();
+  // `release` and `main` start equal; `main` stays frozen there (as it
+  // would have before this change existed) while `release` moves ahead —
+  // exactly the shape a real pre-3.5 install left behind.
+  execFileSync("git", ["branch", "main", "release"], { cwd: fixtureRepo });
+  writeFileSync(path.join(fixtureRepo, "ONLY_ON_RELEASE.txt"), "release-only content\n");
+  execFileSync("git", ["add", "-A"], { cwd: fixtureRepo });
+  execFileSync("git", ["commit", "-q", "-m", "release-only commit"], { cwd: fixtureRepo });
+
+  const installDir = path.join(mkdtempSync(path.join(tmpdir(), "athena-install-")), "checkout");
+  const marker = path.join(tmpdir(), `athena-marker-${process.pid}-${Date.now()}`);
+  try {
+    // Simulate an old install: cloned from `main` back when that was the
+    // tracked branch, before `release` existed as a concept to this checkout.
+    execFileSync("git", ["clone", "--quiet", "--branch", "main", fixtureRepo, installDir]);
+    assert.ok(!existsSync(path.join(installDir, "ONLY_ON_RELEASE.txt")), "sanity: old checkout starts without release's commit");
+
+    const result = runInstaller({
+      PATH: fakeBin,
+      ATHENA_REPO_URL: fixtureRepo,
+      ATHENA_INSTALL_DIR: installDir,
+      ATHENA_TEST_MARKER: marker,
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.ok(existsSync(path.join(installDir, "ONLY_ON_RELEASE.txt")), "should have switched onto release's content");
+    assert.equal(
+      execFileSync("git", ["-C", installDir, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim(),
+      "release",
+      "should be on a real local release branch, not detached",
+    );
+    assert.ok(existsSync(marker), "bootstrap.mjs stub should have run");
   } finally {
     cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
     rmSync(marker, { force: true });
