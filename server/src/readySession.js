@@ -60,9 +60,24 @@ export const SELF_GRADE_STATUSES = ["got_it", "partly", "missed"];
  * "not reused verbatim too soon". Returns `null` for an empty bank (the
  * "empty or thin bank" case the section also names). Pure, exported for
  * its own test.
+ *
+ * `preferGeneration` (set by `generateNextReadyQuestion` when the topic
+ * has never been reviewed — `isNewTopic`, same check liveSession.js uses)
+ * serves an unseen `isGenerationQuestion`-flagged question ahead of the
+ * usual seenCount/lastShownAt order, once — SPEC.md section 6's
+ * Generation principle, the Ready-mode counterpart to Live mode's
+ * attempt-first framing for a topic's first-ever question. Once the topic
+ * has been reviewed at least once, `isNewTopic` goes false on its own and
+ * this has no further effect; a bank with no generation-flagged question
+ * (every top-up, and any initial bank generated for an already-reviewed
+ * topic) falls straight through to the normal order.
  */
-export function pickBankQuestion(questions) {
+export function pickBankQuestion(questions, { preferGeneration = false } = {}) {
   if (!questions.length) return null;
+  if (preferGeneration) {
+    const generation = questions.find((q) => q.isGenerationQuestion && q.seenCount === 0);
+    if (generation) return generation;
+  }
   return questions.slice().sort((a, b) => {
     if (a.seenCount !== b.seenCount) return a.seenCount - b.seenCount;
     const aShown = a.lastShownAt ? Date.parse(a.lastShownAt) : -Infinity;
@@ -197,7 +212,8 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
   if (!topic) throw new Error(`Topic not found: ${topicId}`);
 
   const bankQuestions = await listBankQuestions(appDataDir, topicId);
-  const picked = pickBankQuestion(bankQuestions);
+  const isNewTopic = (topic.fsrs?.reps ?? 0) === 0;
+  const picked = pickBankQuestion(bankQuestions, { preferGeneration: isNewTopic });
   if (!picked) {
     return { ok: false, noBank: true, topicId, reason: `No bank questions available yet for topic "${topic.name}"` };
   }
@@ -213,6 +229,7 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
     modelAnswer: picked.modelAnswer,
     rubric: picked.rubric,
     misconceptions: picked.misconceptions,
+    isGenerationQuestion: picked.isGenerationQuestion,
     ...(picked.type === "multiple_choice" ? { choices: picked.choices, correctIndex: picked.correctIndex } : {}),
     ...(picked.type === "cloze" ? { clozeAnswer: picked.clozeAnswer } : {}),
     askedAt: new Date().toISOString(),

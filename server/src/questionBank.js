@@ -62,6 +62,12 @@ export async function addBankQuestions(appDataDir, topicId, subjectId, questions
     modelAnswer: q.modelAnswer,
     rubric: q.rubric ?? [],
     misconceptions: q.misconceptions ?? [],
+    // SPEC.md section 6's Generation principle: flagged true for (at most)
+    // one question per never-reviewed topic at bank-generation time
+    // (questionBankGeneration.js's buildBankPrompt) — readySession.js's
+    // pickBankQuestion prefers serving this one first for such a topic,
+    // the Ready-mode counterpart to liveSession.js's isNewTopic framing.
+    isGenerationQuestion: q.isGenerationQuestion ?? false,
     ...(q.type === "multiple_choice" ? { choices: q.choices, correctIndex: q.correctIndex } : {}),
     ...(q.type === "cloze" ? { clozeAnswer: q.clozeAnswer } : {}),
     createdAt: now,

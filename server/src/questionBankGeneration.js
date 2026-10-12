@@ -66,6 +66,16 @@ const PLAIN_FENCE_RE = /```(?:json)?\s*\n([\s\S]*?)```/g;
  * be empty — a topic added without any readable source material still
  * gets a bank, just from the model's own knowledge of the topic name).
  * Pure, exported for its own test.
+ *
+ * A topic with `isNewTopic: true` (never reviewed via Live or Ready —
+ * `fsrs.reps === 0`, the same check `liveSession.js`'s `isNewTopic` uses)
+ * gets one of its questions flagged `isGenerationQuestion: true`: SPEC.md
+ * section 6's Generation principle applied to Ready mode, the counterpart
+ * to Live's "ask an attempt/prediction before any explanation" framing —
+ * `readySession.js`'s `pickBankQuestion` serves that question first for
+ * such a topic. A topic that's already been reviewed (via Live, or this
+ * isn't its first bank) doesn't need one; generation only applies to a
+ * topic's first-ever exposure, not every initial bank generation.
  */
 export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic = QUESTIONS_PER_TOPIC, preferences }) {
   const filesBlock = files.length
@@ -75,8 +85,13 @@ export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic 
     : `No uploaded material is available for these topics yet — use your own knowledge of each topic name/notes instead.`;
 
   const topicsBlock = topics
-    .map((t, i) => `${i + 1}. "${t.name}"${t.notes ? ` — ${t.notes}` : ""}`)
+    .map((t, i) => `${i + 1}. "${t.name}"${t.notes ? ` — ${t.notes}` : ""}${t.isNewTopic ? " (the user has never been reviewed on this topic before)" : ""}`)
     .join("\n");
+
+  const newTopicNames = topics.filter((t) => t.isNewTopic).map((t) => `"${t.name}"`);
+  const generationBlock = newTopicNames.length
+    ? `\nFor each topic marked "never been reviewed on this topic before" (${newTopicNames.join(", ")}): per this app's "generation" study principle, make exactly ONE of its questions an attempt-first question — do NOT explain the topic first; ask something that invites an attempt or a prediction (e.g. "what do you think X means", "how would you approach Y"), pitched at someone encountering it for the first time. Use one of these types for it: ${SELF_GRADED_TYPES.join(", ")} (not multiple_choice/cloze — those don't fit an open-ended first attempt). Set "isGenerationQuestion": true on that one question only; every other question (including the rest of that same topic's) should have "isGenerationQuestion": false.\n`
+    : "";
 
   return `This is a one-shot background task, not a conversation. Don't ask questions back; just produce the question bank below and reply once.
 
@@ -93,7 +108,8 @@ For EACH topic above, write exactly ${questionsPerTopic} questions, varied in ty
 - "modelAnswer": a correct, complete answer.
 - "rubric": the key points a correct answer should hit, as a short list — required for every type except multiple_choice/cloze (those are graded automatically from their own answer key below, not a rubric).
 - "misconceptions": common wrong answers or mix-ups for this question, as a short list (can be empty if none are notable).
-
+- "isGenerationQuestion": true or false (see below; false unless told otherwise for a specific topic).
+${generationBlock}
 Additionally, for a "multiple_choice" question also give "choices" (2-6 short options) and "correctIndex" (the 0-based index of the right one in "choices"). For a "cloze" question also give "clozeAnswer" (the exact text that fills the blank).
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
@@ -111,6 +127,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
           "modelAnswer": "<model answer>",
           "rubric": ["<key point>"],
           "misconceptions": ["<common mistake>"],
+          "isGenerationQuestion": false,
           "choices": ["<option>"],
           "correctIndex": 0,
           "clozeAnswer": "<exact blank-filling text>"
@@ -163,6 +180,11 @@ function normalizeQuestion(raw) {
     modelAnswer: modelAnswer.slice(0, MAX_ANSWER_CHARS),
     rubric,
     misconceptions: cappedStringArray(raw.misconceptions, { maxCount: MAX_MISCONCEPTIONS, maxChars: MAX_RUBRIC_POINT_CHARS }),
+    // Clamped to false for multiple_choice/cloze regardless of what the
+    // reply says — the prompt already asks the model not to use those
+    // types for a generation question, but a reply is untrusted input,
+    // same posture as every other field here.
+    isGenerationQuestion: raw.isGenerationQuestion === true && SELF_GRADED_TYPES.includes(raw.type),
   };
 
   if (raw.type === "multiple_choice") {
@@ -268,9 +290,15 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
   const groundingFiles = batchFiles(availableFiles)[0] ?? [];
   const preferences = await listPreferences(appDataDir);
 
+  // Same `fsrs.reps === 0` check liveSession.js's `isNewTopic` uses — a
+  // topic can arrive here already reviewed via Live before ever getting a
+  // Ready-mode bank, so this is independent of whether a bank already
+  // exists (buildBankPrompt's header comment has the full reasoning).
+  const annotatedTopics = topics.map((t) => ({ ...t, isNewTopic: (t.fsrs?.reps ?? 0) === 0 }));
+
   const topicBatches = [];
-  for (let i = 0; i < topics.length; i += MAX_TOPICS_PER_BATCH) {
-    topicBatches.push(topics.slice(i, i + MAX_TOPICS_PER_BATCH));
+  for (let i = 0; i < annotatedTopics.length; i += MAX_TOPICS_PER_BATCH) {
+    topicBatches.push(annotatedTopics.slice(i, i + MAX_TOPICS_PER_BATCH));
   }
 
   const errors = [];

@@ -32,10 +32,27 @@ test("addBankQuestions stores rows with ids and seen-tracking bookkeeping", asyn
   assert.equal(added[0].subjectId, "subject-1");
   assert.equal(added[0].seenCount, 0);
   assert.equal(added[0].lastShownAt, null);
+  assert.equal(added[0].isGenerationQuestion, false);
   assert.equal(typeof added[0].createdAt, "string");
 
   const stored = await listBankQuestions(dir, "topic-1");
   assert.deepEqual(stored, added);
+});
+
+test("addBankQuestions stores isGenerationQuestion true when given", async () => {
+  const dir = await scratchDir();
+  const [added] = await addBankQuestions(dir, "topic-1", "subject-1", [
+    {
+      type: "free_recall",
+      prompt: "What do you think a binary search tree is?",
+      difficulty: "intro",
+      modelAnswer: "A tree where each node's left subtree is smaller and right is larger.",
+      rubric: ["mentions ordering property"],
+      misconceptions: [],
+      isGenerationQuestion: true,
+    },
+  ]);
+  assert.equal(added.isGenerationQuestion, true);
 });
 
 test("addBankQuestions keeps multiple_choice's choices/correctIndex and drops them for other types", async () => {

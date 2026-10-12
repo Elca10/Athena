@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { createSubject } from "../subjects.js";
-import { addPlannedTopics, listTopics, getTopicById } from "../topics.js";
+import { addPlannedTopics, listTopics, getTopicById, recordTopicReview } from "../topics.js";
 import { addBankQuestions, listBankQuestions, markQuestionShown } from "../questionBank.js";
 import { createSession, getSession } from "../sessions.js";
 import {
@@ -64,6 +64,27 @@ test("pickBankQuestion breaks a seenCount tie by the oldest lastShownAt", () => 
   const older = { id: "a", seenCount: 1, lastShownAt: "2026-01-01T00:00:00.000Z" };
   const newer = { id: "b", seenCount: 1, lastShownAt: "2026-06-01T00:00:00.000Z" };
   assert.equal(pickBankQuestion([newer, older]).id, "a");
+});
+
+test("pickBankQuestion with preferGeneration serves the unseen generation-flagged question ahead of the normal order", () => {
+  const normal = { id: "a", seenCount: 0, lastShownAt: null, isGenerationQuestion: false };
+  const generation = { id: "b", seenCount: 0, lastShownAt: null, isGenerationQuestion: true };
+  // Without preferGeneration, order is a tie broken arbitrarily by array
+  // order (both unseen, no lastShownAt) — "a" would win since it's first.
+  assert.equal(pickBankQuestion([normal, generation]).id, "a");
+  assert.equal(pickBankQuestion([normal, generation], { preferGeneration: true }).id, "b");
+});
+
+test("pickBankQuestion with preferGeneration ignores an already-shown generation-flagged question", () => {
+  const generationAlreadyShown = { id: "a", seenCount: 1, lastShownAt: "2026-01-01T00:00:00.000Z", isGenerationQuestion: true };
+  const neverShown = { id: "b", seenCount: 0, lastShownAt: null, isGenerationQuestion: false };
+  assert.equal(pickBankQuestion([generationAlreadyShown, neverShown], { preferGeneration: true }).id, "b");
+});
+
+test("pickBankQuestion with preferGeneration falls through to the normal order when no question is flagged", () => {
+  const shown = { id: "a", seenCount: 1, lastShownAt: new Date().toISOString(), isGenerationQuestion: false };
+  const neverShown = { id: "b", seenCount: 0, lastShownAt: null, isGenerationQuestion: false };
+  assert.equal(pickBankQuestion([shown, neverShown], { preferGeneration: true }).id, "b");
 });
 
 // --- publicQuestionView --------------------------------------------------
@@ -150,6 +171,34 @@ test("generateNextReadyQuestion serves a bank question and marks it shown", asyn
   const [storedQuestion] = await listBankQuestions(dir, topic.id);
   assert.equal(storedQuestion.seenCount, 1);
   assert.equal(typeof storedQuestion.lastShownAt, "string");
+});
+
+test("generateNextReadyQuestion serves a never-reviewed topic's generation-flagged question first, even though a plain seenCount/lastShownAt order would pick the other one", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir); // fresh topic: fsrs.reps === 0
+  await addBankQuestions(dir, topic.id, subject.id, [
+    shortAnswerQuestion({ prompt: "Plain question, added first" }),
+    shortAnswerQuestion({ prompt: "Attempt-first generation question", isGenerationQuestion: true }),
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+
+  const result = await generateNextReadyQuestion(dir, session.id);
+  assert.equal(result.session.currentQuestion.prompt, "Attempt-first generation question");
+  assert.equal(result.session.currentQuestion.isGenerationQuestion, true);
+});
+
+test("generateNextReadyQuestion does NOT prefer a generation-flagged question for a topic already reviewed via Live", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await recordTopicReview(dir, topic.id, "good"); // fsrs.reps becomes > 0, same as if reviewed via Live first
+  await addBankQuestions(dir, topic.id, subject.id, [
+    shortAnswerQuestion({ prompt: "Plain question, added first" }),
+    shortAnswerQuestion({ prompt: "Attempt-first generation question", isGenerationQuestion: true }),
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+
+  const result = await generateNextReadyQuestion(dir, session.id);
+  assert.equal(result.session.currentQuestion.prompt, "Plain question, added first");
 });
 
 test("generateNextReadyQuestion moves the session to waiting for a reflection once every topic has a history entry, rather than completing it outright", async () => {

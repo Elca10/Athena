@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { addUploadedContent } from "../content.js";
-import { addPlannedTopics, listTopics, markBankGenerated } from "../topics.js";
+import { addPlannedTopics, listTopics, markBankGenerated, recordTopicReview } from "../topics.js";
 import { listBankQuestions, addBankQuestions } from "../questionBank.js";
 import { addPreference } from "../preferences.js";
 import {
@@ -66,6 +66,24 @@ test("buildBankPrompt says no material is available when there are no files", ()
 test("buildBankPrompt mentions the requested question count", () => {
   const prompt = buildBankPrompt({ subjectName: "Biology", topics: [{ name: "Osmosis" }], files: [], questionsPerTopic: 3 });
   assert.match(prompt, /exactly 3 questions/);
+});
+
+test("buildBankPrompt flags a never-reviewed topic and asks for one generation question on it", () => {
+  const prompt = buildBankPrompt({
+    subjectName: "Biology",
+    topics: [{ name: "Osmosis", isNewTopic: true }, { name: "Mitosis" }],
+    files: [],
+  });
+  assert.match(prompt, /"Osmosis".*never been reviewed on this topic before/);
+  assert.doesNotMatch(prompt, /"Mitosis".*never been reviewed/);
+  assert.match(prompt, /never been reviewed on this topic before.*"Osmosis"/);
+  assert.match(prompt, /isGenerationQuestion.*true/i);
+  assert.match(prompt, /not multiple_choice\/cloze/);
+});
+
+test("buildBankPrompt adds no generation instructions when no topic is new", () => {
+  const prompt = buildBankPrompt({ subjectName: "Biology", topics: [{ name: "Mitosis" }], files: [] });
+  assert.doesNotMatch(prompt, /attempt-first question/);
 });
 
 test("buildBankPrompt appends stored preferences when given any", () => {
@@ -132,6 +150,30 @@ test("parseBankReply drops a self-graded-type question with an empty rubric", ()
   const result = parseBankReply(reply);
   assert.equal(result.ok, true);
   assert.equal(result.topics[0].questions.length, 0);
+});
+
+test("parseBankReply keeps isGenerationQuestion:true for a self-graded type", () => {
+  const reply = bankReply([{ topicName: "Stacks", questions: [validQuestion({ isGenerationQuestion: true })] }]);
+  const result = parseBankReply(reply);
+  assert.equal(result.topics[0].questions[0].isGenerationQuestion, true);
+});
+
+test("parseBankReply defaults isGenerationQuestion to false when omitted", () => {
+  const reply = bankReply([{ topicName: "Stacks", questions: [validQuestion()] }]);
+  const result = parseBankReply(reply);
+  assert.equal(result.topics[0].questions[0].isGenerationQuestion, false);
+});
+
+test("parseBankReply clamps isGenerationQuestion to false for multiple_choice/cloze even if the reply says true", () => {
+  const mcReply = bankReply([
+    { topicName: "Sorting", questions: [validQuestion({ type: "multiple_choice", rubric: [], choices: ["a", "b"], correctIndex: 0, isGenerationQuestion: true })] },
+  ]);
+  assert.equal(parseBankReply(mcReply).topics[0].questions[0].isGenerationQuestion, false);
+
+  const clozeReply = bankReply([
+    { topicName: "Biology", questions: [validQuestion({ type: "cloze", rubric: [], clozeAnswer: "x", isGenerationQuestion: true })] },
+  ]);
+  assert.equal(parseBankReply(clozeReply).topics[0].questions[0].isGenerationQuestion, false);
 });
 
 test("parseBankReply accepts a multiple_choice question with valid choices/correctIndex", () => {
@@ -254,6 +296,33 @@ test("scanSubjectForBankGeneration generates a bank per topic, grounded in the s
 
   assert.equal((await listBankQuestions(dir, topic1.id)).length, 1);
   assert.equal((await listBankQuestions(dir, topic2.id)).length, 1);
+});
+
+test("scanSubjectForBankGeneration flags a never-reviewed topic as new in the prompt, but not one already reviewed via Live", async () => {
+  const dir = await scratchDir();
+  const [neverReviewed, alreadyReviewed] = await addPlannedTopics(dir, "subject-1", ["Recursion", "Sorting"]);
+  // Simulates the topic having been reviewed via Live mode before this,
+  // its first-ever bank generation — isNewTopic must key off fsrs.reps,
+  // not off whether a bank exists yet (the module header comment's point).
+  await recordTopicReview(dir, alreadyReviewed.id, "good");
+
+  let prompt = "";
+  const fakeTurn = async (p) => {
+    prompt = p;
+    return bankReply([
+      { topicName: "Recursion", questions: [validQuestion({ isGenerationQuestion: true })] },
+      { topicName: "Sorting", questions: [validQuestion({ prompt: "Compare two sorts.", isGenerationQuestion: false })] },
+    ]);
+  };
+
+  await scanSubjectForBankGeneration(dir, "subject-1", { subjectName: "CS 101", runTurn: fakeTurn });
+  assert.match(prompt, /"Recursion".*never been reviewed on this topic before/);
+  assert.doesNotMatch(prompt, /"Sorting".*never been reviewed on this topic before/);
+
+  const [recursionQuestion] = await listBankQuestions(dir, neverReviewed.id);
+  assert.equal(recursionQuestion.isGenerationQuestion, true);
+  const [sortingQuestion] = await listBankQuestions(dir, alreadyReviewed.id);
+  assert.equal(sortingQuestion.isGenerationQuestion, false);
 });
 
 test("scanSubjectForBankGeneration includes stored preferences in the prompt sent to the model", async () => {
