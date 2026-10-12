@@ -9,7 +9,12 @@
 // ubuntu/macos runners either), so there's no way to invoke it here, same
 // reasoning that already excludes macos.sh's Homebrew branches. Only the
 // "already present" and "missing, no winget either -> fail with
-// instructions" paths are covered.
+// instructions" paths are covered. What IS covered instead: Join-PathEnvValues,
+// the pure PATH-merge logic behind Update-SessionPath (the $env:Path refresh
+// that runs after each winget install so one run of the installer survives
+// a fresh git/Node install without needing a new terminal) — reached by
+// dot-sourcing the script with ATHENA_TEST_SKIP_MAIN set, see evalInScript
+// below.
 //
 // Runs under whichever PowerShell is on PATH (pwsh preferred, falling back
 // to Windows PowerShell's powershell.exe) so this suite works both on a
@@ -180,6 +185,46 @@ test("mergeEnvCaseInsensitive: same-case override still replaces (POSIX case)", 
   const merged = mergeEnvCaseInsensitive({ PATH: "/real" }, { PATH: "/fake" });
   assert.deepEqual(merged, { PATH: "/fake" });
 });
+
+/** Dot-sources windows.ps1 (with ATHENA_TEST_SKIP_MAIN set so Main doesn't
+ * run the whole installer) and evaluates `expression` in that same scope,
+ * so a function defined in the script - like Join-PathEnvValues - can be
+ * called directly without needing a real winget install to exercise it. */
+function evalInScript(expression) {
+  return execFileSync(
+    PWSH_PATH,
+    ["-NoLogo", "-NonInteractive", "-Command", `. '${SCRIPT_PATH}'; ${expression}`],
+    {
+      encoding: "utf8",
+      env: mergeEnvCaseInsensitive(process.env, { HOME: tmpdir(), ATHENA_TEST_SKIP_MAIN: "1" }),
+    },
+  ).trim();
+}
+
+// Join-PathEnvValues backs Update-SessionPath (the actual $env:Path refresh
+// after each winget install, added so one run of the installer survives a
+// fresh git/Node install without needing a new terminal) - winget itself
+// isn't invokable from this test (same reasoning as the "deliberately NOT
+// exercised" note at the top of this file), so this is the testable unit:
+// the pure merge of the registry's Machine/User PATH values Update-SessionPath
+// reads after each install.
+test(
+  "Join-PathEnvValues: combines Machine and User PATH with a separator",
+  { skip: !PWSH_PATH && "no PowerShell host found on PATH" },
+  () => {
+    const result = evalInScript("Join-PathEnvValues 'C:\\Machine\\bin' 'C:\\Users\\me\\bin'");
+    assert.equal(result, "C:\\Machine\\bin;C:\\Users\\me\\bin");
+  },
+);
+
+test(
+  "Join-PathEnvValues: a missing scope is dropped, not left as a stray separator",
+  { skip: !PWSH_PATH && "no PowerShell host found on PATH" },
+  () => {
+    assert.equal(evalInScript("Join-PathEnvValues 'C:\\Machine\\bin' $null"), "C:\\Machine\\bin");
+    assert.equal(evalInScript("Join-PathEnvValues $null 'C:\\Users\\me\\bin'"), "C:\\Users\\me\\bin");
+  },
+);
 
 test("fails with install instructions when git is missing and there's no winget", { skip: !PWSH_PATH && "no PowerShell host found on PATH" }, () => {
   // No PATH entries at all -> `Get-Command git` (and winget) both miss.

@@ -9,7 +9,9 @@
 # installing npm deps, starting the server) is cross-platform Node code in
 # installers/bootstrap.mjs, shared with the macOS installer.
 #
-# Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR.
+# Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR,
+# ATHENA_TEST_SKIP_MAIN (skip auto-running Main so a test can dot-source
+# this file and call its functions directly).
 
 # $PSStyle only exists on PowerShell 7.2+ (not the Windows PowerShell 5.1
 # that ships by default on Windows 10/11) - guard it rather than assume it.
@@ -32,12 +34,31 @@ function Test-CommandExists([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
+function Join-PathEnvValues([string]$MachinePath, [string]$UserPath) {
+    ($MachinePath, $UserPath | Where-Object { $_ }) -join ";"
+}
+
+function Update-SessionPath {
+    # A winget install updates the Machine or User PATH value in the
+    # registry (depending on install scope) but never touches this
+    # already-running process's $env:Path - so on a fresh machine, the
+    # command this script just installed stays invisible to the rest of
+    # this script and it tells the user to open a new terminal and re-run.
+    # Re-read both scopes and recombine, the same approach Chocolatey's
+    # `refreshenv` uses, so one run of the installer gets all the way
+    # through.
+    $env:Path = Join-PathEnvValues `
+        ([System.Environment]::GetEnvironmentVariable("Path", "Machine")) `
+        ([System.Environment]::GetEnvironmentVariable("Path", "User"))
+}
+
 function Install-ViaWinget([string]$Id, [string]$FriendlyName) {
     Write-Log "Installing $FriendlyName via winget..."
     & winget install --id $Id -e --source winget --accept-package-agreements --accept-source-agreements
     if ($LASTEXITCODE -ne 0) {
         Invoke-Fail "winget install of $FriendlyName failed - install it manually and re-run this installer."
     }
+    Update-SessionPath
 }
 
 function Ensure-Git {
@@ -99,4 +120,6 @@ function Main {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-Main
+if (-not $env:ATHENA_TEST_SKIP_MAIN) {
+    Main
+}
