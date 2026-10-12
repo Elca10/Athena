@@ -27,10 +27,18 @@
 // (see stubBootstrapSource below) so this test proves windows.ps1's own
 // job — prereq checks, clone, update, handoff — without also paying for a
 // real `npm install`.
+//
+// Also NOT exercised here on a non-Windows host: Install-RelaunchShortcuts'
+// actual shortcut-file properties, since it calls `New-Object -ComObject
+// WScript.Shell` — COM is Windows-only infrastructure, so even a real pwsh
+// on this Linux box errors on that line specifically (confirmed manually;
+// everything in the function up to that call runs fine). That one test is
+// gated on `process.platform === "win32"` in addition to the usual
+// PWSH_PATH check, and only actually proves itself on windows-latest CI.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -256,18 +264,26 @@ test("clones a fresh checkout and hands off to the Node installer", { skip: !PWS
   const fixtureRepo = makeFixtureRepo();
   const installDir = path.join(mkdtempSync(path.join(tmpdir(), "athena-install-")), "checkout");
   const marker = path.join(tmpdir(), `athena-marker-${process.pid}-${Date.now()}`);
+  // Main now also runs Install-RelaunchShortcuts after a successful
+  // clone/update, which would otherwise write real shortcuts into this
+  // test-runner's actual Desktop/Start Menu — point it at scratch dirs
+  // instead, same reasoning as every other ATHENA_* override here.
+  const desktopDir = mkdtempSync(path.join(tmpdir(), "athena-desktop-"));
+  const startMenuDir = mkdtempSync(path.join(tmpdir(), "athena-startmenu-"));
   try {
     const result = runInstaller({
       PATH: fakeBin,
       ATHENA_REPO_URL: fixtureRepo,
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
+      ATHENA_DESKTOP_DIR: desktopDir,
+      ATHENA_STARTMENU_DIR: startMenuDir,
     });
     assert.equal(result.code, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
     assert.ok(existsSync(path.join(installDir, ".git")), "should have cloned a real checkout");
     assert.ok(existsSync(marker), "bootstrap.mjs stub should have run");
   } finally {
-    cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
+    cleanup(fakeBin, fixtureRepo, path.dirname(installDir), desktopDir, startMenuDir);
     rmSync(marker, { force: true });
   }
 });
@@ -277,12 +293,18 @@ test("updates an existing checkout via fast-forward merge instead of re-cloning"
   const fixtureRepo = makeFixtureRepo();
   const installDir = path.join(mkdtempSync(path.join(tmpdir(), "athena-install-")), "checkout");
   const marker = path.join(tmpdir(), `athena-marker-${process.pid}-${Date.now()}`);
+  // See the previous test's comment: keep Install-RelaunchShortcuts off the
+  // real Desktop/Start Menu.
+  const desktopDir = mkdtempSync(path.join(tmpdir(), "athena-desktop-"));
+  const startMenuDir = mkdtempSync(path.join(tmpdir(), "athena-startmenu-"));
   try {
     const first = runInstaller({
       PATH: fakeBin,
       ATHENA_REPO_URL: fixtureRepo,
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
+      ATHENA_DESKTOP_DIR: desktopDir,
+      ATHENA_STARTMENU_DIR: startMenuDir,
     });
     assert.equal(first.code, 0, `stdout:\n${first.stdout}\nstderr:\n${first.stderr}`);
     const firstMarkerValue = readFileSync(marker, "utf8");
@@ -297,13 +319,141 @@ test("updates an existing checkout via fast-forward merge instead of re-cloning"
       ATHENA_REPO_URL: fixtureRepo,
       ATHENA_INSTALL_DIR: installDir,
       ATHENA_TEST_MARKER: marker,
+      ATHENA_DESKTOP_DIR: desktopDir,
+      ATHENA_STARTMENU_DIR: startMenuDir,
     });
     assert.equal(second.code, 0, `stdout:\n${second.stdout}\nstderr:\n${second.stderr}`);
     assert.match(second.stdout, /updating/i);
     assert.ok(existsSync(path.join(installDir, "NOTE.txt")), "fast-forward merge should have pulled the new commit");
     assert.notEqual(readFileSync(marker, "utf8"), firstMarkerValue, "bootstrap stub should have re-run");
   } finally {
-    cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
+    cleanup(fakeBin, fixtureRepo, path.dirname(installDir), desktopDir, startMenuDir);
     rmSync(marker, { force: true });
   }
 });
+
+/** Starts a minimal HTTP server that always answers `{ok: true}` as a
+ * SEPARATE OS process, not an in-process `http.createServer` — this test
+ * file calls `execFileSync` (synchronous, blocks Node's own event loop for
+ * the duration) to run PowerShell, so an in-process listener would never
+ * get to accept the PowerShell-side request while that call is blocking. */
+function startFakeHealthServer() {
+  const script = `
+    const http = require("http");
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    server.listen(0, "127.0.0.1", () => console.log("PORT:" + server.address().port));
+  `;
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ["-e", script], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    child.on("error", reject);
+    child.stdout.on("data", (chunk) => {
+      out += chunk;
+      const match = out.match(/PORT:(\d+)/);
+      if (match) resolve({ child, port: Number(match[1]) });
+    });
+  });
+}
+
+// Backs the "reopen Athena" Start Menu/Desktop shortcut's harmlessness
+// guarantee: before doing anything else (git/node checks, a fetch, an npm
+// install), Main checks whether Athena is already answering its health
+// endpoint and, if so, just opens the browser. Test-AthenaHealthy is the
+// one-shot check behind that — verified directly here against a real
+// listener and against nothing listening at all, each confirmed manually
+// against a real HTTP round trip before writing this test (see this
+// session's progress.md entry).
+test(
+  "Test-AthenaHealthy: true when the health endpoint reports ok, false when nothing is listening",
+  { skip: !PWSH_PATH && "no PowerShell host found on PATH" },
+  async () => {
+    const { child, port } = await startFakeHealthServer();
+    try {
+      const healthy = evalInScript(`Test-AthenaHealthy 'http://127.0.0.1:${port}/api/health'`);
+      assert.equal(healthy, "True");
+    } finally {
+      child.kill();
+    }
+    // Port 1 on loopback: refused immediately, nothing ever listens there.
+    const unhealthy = evalInScript("Test-AthenaHealthy 'http://127.0.0.1:1/api/health'");
+    assert.equal(unhealthy, "False");
+  },
+);
+
+test(
+  "already running: Main opens the browser and returns without ever checking for git/node or hitting the Node installer",
+  { skip: !PWSH_PATH && "no PowerShell host found on PATH" },
+  async () => {
+    const { child, port } = await startFakeHealthServer();
+    // Deliberately empty PATH: if Main reached Ensure-Git/Ensure-Node it
+    // would fail immediately (no git, no node, no winget) — exit 0 here
+    // is itself proof the already-running short-circuit fired before any
+    // of that.
+    const emptyBin = mkdtempSync(path.join(tmpdir(), "athena-emptybin-"));
+    try {
+      const result = runInstaller({
+        PATH: emptyBin,
+        ATHENA_PORT: String(port),
+        ATHENA_NO_OPEN_BROWSER: "1",
+      });
+      assert.equal(result.code, 0, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+      assert.match(result.stdout, /already running/i);
+    } finally {
+      child.kill();
+      cleanup(emptyBin);
+    }
+  },
+);
+
+// Install-RelaunchShortcuts' actual .lnk output only exists on Windows
+// (WScript.Shell is COM, Windows-only) — see the file-header note. Reads
+// the properties back via the same CreateShortcut call PowerShell itself
+// uses to read an existing .lnk, which is the normal way to introspect one.
+test(
+  "Install-RelaunchShortcuts: writes a Desktop and Start Menu shortcut that reruns windows.ps1 under -ExecutionPolicy Bypass, hidden",
+  { skip: !PWSH_PATH ? "no PowerShell host found on PATH" : process.platform !== "win32" ? "WScript.Shell COM shortcuts only exist on Windows" : false },
+  () => {
+    const desktopDir = mkdtempSync(path.join(tmpdir(), "athena-desktop-"));
+    const startMenuDir = mkdtempSync(path.join(tmpdir(), "athena-startmenu-"));
+    const installDir = mkdtempSync(path.join(tmpdir(), "athena-installdir-"));
+    try {
+      const output = execFileSync(
+        PWSH_PATH,
+        [
+          "-NoLogo",
+          "-NonInteractive",
+          "-Command",
+          `. '${SCRIPT_PATH}'; Install-RelaunchShortcuts | Out-Null; ` +
+            `$wsh = New-Object -ComObject WScript.Shell; ` +
+            `$d = $wsh.CreateShortcut((Join-Path '${desktopDir}' 'Athena-Studying.lnk')); ` +
+            `$s = $wsh.CreateShortcut((Join-Path '${startMenuDir}' 'Athena-Studying.lnk')); ` +
+            `[PSCustomObject]@{ DesktopTarget=$d.TargetPath; DesktopArgs=$d.Arguments; DesktopWorkDir=$d.WorkingDirectory; StartMenuTarget=$s.TargetPath; StartMenuArgs=$s.Arguments } | ConvertTo-Json`,
+        ],
+        {
+          encoding: "utf8",
+          env: mergeEnvCaseInsensitive(process.env, {
+            HOME: tmpdir(),
+            ATHENA_TEST_SKIP_MAIN: "1",
+            ATHENA_INSTALL_DIR: installDir,
+            ATHENA_DESKTOP_DIR: desktopDir,
+            ATHENA_STARTMENU_DIR: startMenuDir,
+          }),
+        },
+      );
+      const result = JSON.parse(output);
+      assert.match(result.DesktopTarget, /powershell\.exe$/i);
+      assert.match(result.DesktopArgs, /-ExecutionPolicy Bypass/);
+      assert.match(result.DesktopArgs, /-WindowStyle Hidden/);
+      assert.match(result.DesktopArgs, /windows\.ps1/);
+      assert.equal(path.normalize(result.DesktopWorkDir), path.normalize(installDir));
+      assert.match(result.StartMenuTarget, /powershell\.exe$/i);
+      assert.match(result.StartMenuArgs, /-ExecutionPolicy Bypass/);
+      assert.match(result.StartMenuArgs, /windows\.ps1/);
+    } finally {
+      cleanup(desktopDir, startMenuDir, installDir);
+    }
+  },
+);

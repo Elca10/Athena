@@ -9,9 +9,20 @@
 # installing npm deps, starting the server) is cross-platform Node code in
 # installers/bootstrap.mjs, shared with the macOS installer.
 #
+# Also creates a Start Menu + Desktop shortcut back to this same script, so
+# a friend can reopen Athena-Studying later without remembering the
+# one-liner (SPEC-v2.md section 7 covers the macOS equivalent). The
+# shortcut re-runs this whole script, so a relaunch gets the same
+# auto-update + rollback path (installers/bootstrap.mjs) as a fresh
+# install - except when Athena is already running, in which case Main
+# below short-circuits to just opening the browser.
+#
 # Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR,
 # ATHENA_TEST_SKIP_MAIN (skip auto-running Main so a test can dot-source
-# this file and call its functions directly).
+# this file and call its functions directly), ATHENA_PORT (must match
+# whatever the running server actually binds to), ATHENA_NO_OPEN_BROWSER,
+# ATHENA_DESKTOP_DIR / ATHENA_STARTMENU_DIR (where the shortcuts get
+# written - so a test never touches the real Desktop/Start Menu).
 
 # $PSStyle only exists on PowerShell 7.2+ (not the Windows PowerShell 5.1
 # that ships by default on Windows 10/11) - guard it rather than assume it.
@@ -21,6 +32,12 @@ $ErrorActionPreference = "Stop"
 $RepoUrl = if ($env:ATHENA_REPO_URL) { $env:ATHENA_REPO_URL } else { "https://github.com/Elca10/Athena.git" }
 $InstallDir = if ($env:ATHENA_INSTALL_DIR) { $env:ATHENA_INSTALL_DIR } else { Join-Path $HOME "Athena-Studying" }
 $MinNodeMajor = 18
+# Matches bootstrap.mjs's own ATHENA_PORT/default-4417 handling exactly -
+# this script and the server it starts must agree on the port to make the
+# "already running" health check meaningful.
+$Port = if ($env:ATHENA_PORT) { $env:ATHENA_PORT } else { 4417 }
+$DesktopDir = if ($env:ATHENA_DESKTOP_DIR) { $env:ATHENA_DESKTOP_DIR } else { [Environment]::GetFolderPath("Desktop") }
+$StartMenuDir = if ($env:ATHENA_STARTMENU_DIR) { $env:ATHENA_STARTMENU_DIR } else { [Environment]::GetFolderPath("Programs") }
 
 function Write-Log([string]$Message) {
     Write-Host "==> $Message"
@@ -92,6 +109,71 @@ function Ensure-Node {
     }
 }
 
+function Test-AthenaHealthy([string]$Url) {
+    # Mirrors bootstrap.mjs's waitForHealth contract ({ok: true, ...} JSON) -
+    # used here for a one-shot check, not a poll, so a relaunch shortcut can
+    # tell "already running" from "not running" instantly rather than
+    # waiting out a timeout.
+    try {
+        $response = Invoke-RestMethod -Uri $Url -TimeoutSec 2 -ErrorAction Stop
+        return [bool]$response.ok
+    } catch {
+        return $false
+    }
+}
+
+function Open-AthenaBrowser([string]$Url) {
+    # Same escape hatch as bootstrap.mjs's own ATHENA_NO_OPEN_BROWSER, and
+    # for the same reason: a headless box (or a test) shouldn't have this
+    # pop a real browser window.
+    if ($env:ATHENA_NO_OPEN_BROWSER) { return }
+    Start-Process $Url
+}
+
+function New-RelaunchShortcut([string]$Path, [string]$TargetPath, [string]$Arguments, [string]$WorkingDirectory) {
+    $wshShell = New-Object -ComObject WScript.Shell
+    $shortcut = $wshShell.CreateShortcut($Path)
+    $shortcut.TargetPath = $TargetPath
+    $shortcut.Arguments = $Arguments
+    $shortcut.WorkingDirectory = $WorkingDirectory
+    $shortcut.WindowStyle = 7 # minimized; -WindowStyle Hidden in $Arguments does the real hiding
+    $shortcut.Description = "Reopen Athena-Studying"
+    $shortcut.Save()
+}
+
+function Install-RelaunchShortcuts {
+    # Best-effort only, same philosophy as bootstrap.mjs's openBrowser: a
+    # shortcut is a convenience, not core functionality, and WScript.Shell
+    # (COM) could plausibly be blocked by some security policy on a given
+    # machine - that must never take down an otherwise-successful install.
+    try {
+        # -ExecutionPolicy Bypass is a per-process override, not a system
+        # setting change - it lets this one invocation run under the
+        # default Restricted policy every fresh Windows machine ships
+        # with, without touching the user's actual execution-policy
+        # configuration.
+        $powershellExe = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
+        if (-not $powershellExe) {
+            # Plain string concatenation, not Join-Path: Join-Path resolves
+            # its base through the filesystem provider even just to build a
+            # string, and a literal "C:\..." fallback has no such drive on
+            # a non-Windows test host, which blows up here with "Cannot
+            # find drive" long before this would ever run for real on
+            # Windows.
+            $systemRoot = if ($env:SystemRoot) { $env:SystemRoot } else { "C:\Windows" }
+            $powershellExe = "$systemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+        }
+        $scriptPath = Join-Path (Join-Path $InstallDir "installers") "windows.ps1"
+        $arguments = "-NoLogo -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$scriptPath`""
+        foreach ($dir in @($DesktopDir, $StartMenuDir)) {
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            New-RelaunchShortcut -Path (Join-Path $dir "Athena-Studying.lnk") -TargetPath $powershellExe -Arguments $arguments -WorkingDirectory $InstallDir
+        }
+    } catch {
+        Write-Log "Couldn't create a relaunch shortcut ($($_.Exception.Message)) - Athena-Studying will still work, just without one."
+    }
+}
+
 function Sync-Checkout {
     if (Test-Path (Join-Path $InstallDir ".git")) {
         Write-Log "Found an existing checkout at $InstallDir, updating..."
@@ -109,9 +191,24 @@ function Sync-Checkout {
 }
 
 function Main {
+    $healthUrl = "http://127.0.0.1:$Port/api/health"
+    $appUrl = "http://127.0.0.1:$Port/"
+
+    # Relaunching (via the shortcut Install-RelaunchShortcuts below creates)
+    # must be harmless if Athena is already running - e.g. the friend
+    # double-clicks the shortcut while a session is already open. Checked
+    # first, before anything else in this script, so that case never waits
+    # on a git fetch or an npm install it doesn't need.
+    if (Test-AthenaHealthy $healthUrl) {
+        Write-Log "Athena-Studying is already running."
+        Open-AthenaBrowser $appUrl
+        return
+    }
+
     Ensure-Git
     Ensure-Node
     Sync-Checkout
+    Install-RelaunchShortcuts
     Write-Log "Handing off to the Node installer..."
     # Chained two-arg Join-Path, not the 3-arg form: Windows PowerShell 5.1
     # (the default on Windows 10/11) has no -AdditionalChildPath parameter;
