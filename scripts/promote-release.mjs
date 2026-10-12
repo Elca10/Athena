@@ -60,7 +60,16 @@ export async function promoteRelease(
   commit,
   { checkCiGreen = isCommitCiGreen, runFn = runGit, log = console.log, error = console.error } = {},
 ) {
-  runFn(["fetch", "origin", "main", "release"]);
+  runFn(["fetch", "origin", "main"]);
+  try {
+    // Best-effort: on the very first promotion ever, `release` doesn't
+    // exist on origin yet, so there's nothing to fetch — the push below
+    // creates it fresh, which is a normal ref creation, not something
+    // --force is needed for.
+    runFn(["fetch", "origin", "release"]);
+  } catch {
+    // Not fatal — see above.
+  }
 
   let full;
   try {
@@ -76,7 +85,13 @@ export async function promoteRelease(
   }
 
   try {
-    runFn(["push", "origin", `${full}:release`]);
+    // Fully-qualified destination (`refs/heads/release`, not bare
+    // `release`): a bare ref name only resolves on push if it already
+    // exists on the remote, so the very first promotion ever (nothing to
+    // disambiguate against yet) fails outright with "not a full refname"
+    // — caught live against a real bare-repo fixture, see this file's
+    // "very first promotion" test.
+    runFn(["push", "origin", `${full}:refs/heads/release`]);
   } catch (err) {
     error(
       `Push rejected — ${full} is not a fast-forward of origin/release. Never force-pushing; ` +

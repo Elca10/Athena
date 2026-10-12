@@ -102,8 +102,26 @@ test("promoteRelease: pushes the resolved commit to release, with no --force, wh
   assert.equal(result.commit, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
   const pushCall = calls.find((args) => args[0] === "push");
   assert.ok(pushCall, "should have pushed");
-  assert.deepEqual(pushCall, ["push", "origin", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef:release"]);
+  assert.deepEqual(pushCall, ["push", "origin", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef:refs/heads/release"]);
   assert.ok(!pushCall.includes("--force") && !pushCall.includes("-f"), "must never force-push");
+});
+
+test("promoteRelease: survives the very first promotion ever, when origin has no release ref to fetch yet", async () => {
+  const calls = [];
+  const runFn = (args) => {
+    calls.push(args);
+    if (args[0] === "rev-parse") return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    if (args[0] === "fetch" && args.includes("release")) throw new Error("fatal: couldn't find remote ref release");
+    return "";
+  };
+  const result = await promoteRelease("deadbeef", {
+    runFn,
+    checkCiGreen: async () => true,
+    log: () => {},
+    error: () => {},
+  });
+  assert.equal(result.promoted, true, "a missing release ref must not abort the promotion");
+  assert.ok(calls.some((args) => args[0] === "push"), "should still push to create release");
 });
 
 test("promoteRelease: reports unknown-commit (and never pushes) when rev-parse can't resolve it", async () => {
@@ -195,6 +213,58 @@ test("real git: a non-fast-forward push to release is rejected by git itself, wi
     // Confirm release on the remote genuinely wasn't moved.
     const releaseTip = execFileSync("git", ["ls-remote", bareDir, "refs/heads/release"], { encoding: "utf8" }).trim();
     assert.ok(!releaseTip.includes(siblingCommit), "release must not have been moved by the rejected push");
+  } finally {
+    rmSync(bareDir, { recursive: true, force: true });
+    rmSync(cloneDir, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  }
+});
+
+// Real-git integration test for the very first promotion ever, against a
+// real remote that genuinely has no `release` ref at all (not injected) —
+// caught a real bug live: `git fetch origin main release` fails outright
+// ("couldn't find remote ref release") when origin has no release branch
+// yet, which aborted the whole promotion on the Athena repo's actual first
+// run of this script. Fetching release is best-effort for exactly this
+// reason (see promoteRelease's try/catch around it).
+test("real git: the very first promotion creates release on a remote that has no release ref yet", async () => {
+  const bareDir = mkdtempSync(path.join(tmpdir(), "athena-promote-bare-"));
+  const cloneDir = mkdtempSync(path.join(tmpdir(), "athena-promote-clone-"));
+  const seedDir = mkdtempSync(path.join(tmpdir(), "athena-promote-seed-"));
+  try {
+    execFileSync("git", ["init", "-q", "--bare", bareDir]);
+
+    execFileSync("git", ["init", "-q"], { cwd: seedDir });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: seedDir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: seedDir });
+    writeFileSync(path.join(seedDir, "VERSION"), "1\n");
+    execFileSync("git", ["add", "-A"], { cwd: seedDir });
+    execFileSync("git", ["commit", "-q", "-m", "first"], { cwd: seedDir });
+    execFileSync("git", ["branch", "-M", "main"], { cwd: seedDir });
+    execFileSync("git", ["remote", "add", "origin", bareDir], { cwd: seedDir });
+    execFileSync("git", ["push", "-q", "origin", "main"], { cwd: seedDir });
+    const mainCommit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: seedDir, encoding: "utf8" }).trim();
+    // Deliberately no push to `release` — origin has only `main`, exactly
+    // the state of a brand-new repo before this script has ever run.
+    assert.equal(
+      execFileSync("git", ["ls-remote", bareDir, "refs/heads/release"], { encoding: "utf8" }).trim(),
+      "",
+      "sanity: release genuinely doesn't exist on origin yet",
+    );
+
+    execFileSync("git", ["clone", "-q", bareDir, cloneDir]);
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: cloneDir });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: cloneDir });
+
+    const result = await promoteRelease(mainCommit, {
+      runFn: runGitAt(cloneDir),
+      checkCiGreen: async () => true,
+      log: () => {},
+      error: () => {},
+    });
+    assert.equal(result.promoted, true);
+    const releaseTip = execFileSync("git", ["ls-remote", bareDir, "refs/heads/release"], { encoding: "utf8" }).trim();
+    assert.match(releaseTip, new RegExp(`^${mainCommit}`), "release should now exist on origin, pointing at the promoted commit");
   } finally {
     rmSync(bareDir, { recursive: true, force: true });
     rmSync(cloneDir, { recursive: true, force: true });
