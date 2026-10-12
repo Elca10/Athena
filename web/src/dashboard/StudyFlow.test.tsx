@@ -55,14 +55,15 @@ function freeRecallQuestion(overrides: Partial<api.SessionQuestion> = {}): api.S
   };
 }
 
-test("the mode picker pre-selects the clicked subject and only lets Ready be chosen", async () => {
+test("the mode picker pre-selects the clicked subject and defaults to Ready, with Live selectable", async () => {
   vi.mocked(api.createSession).mockResolvedValue(baseSession());
   render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
 
   expect(screen.getByRole("checkbox", { name: "Biology" })).toBeChecked();
   expect(screen.getByRole("checkbox", { name: "Chemistry" })).not.toBeChecked();
   expect(screen.getByRole("radio", { name: /Ready/ })).toBeChecked();
-  expect(screen.getByRole("radio", { name: /Live/ })).toBeDisabled();
+  expect(screen.getByRole("radio", { name: /Live/ })).toBeEnabled();
+  expect(screen.getByRole("radio", { name: /Live/ })).not.toBeChecked();
 });
 
 test("starting a session creates it with the selected subjects in ready mode and loads the first question", async () => {
@@ -79,6 +80,106 @@ test("starting a session creates it with the selected subjects in ready mode and
 
   expect(api.createSession).toHaveBeenCalledWith(["s1", "s2"], "ready");
   expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
+});
+
+test("picking Live and starting a session creates it in live mode and loads the first question", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ mode: "live" }));
+  vi.mocked(api.generateNextLiveQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion(), status: "waiting" }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.click(screen.getByRole("radio", { name: /Live/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "live");
+  expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
+});
+
+test("Live: submitting an answer shows the model's real-time feedback, then Next question fetches the next one", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ mode: "live" }));
+  vi.mocked(api.generateNextLiveQuestion)
+    .mockResolvedValueOnce({ ok: true, session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion(), status: "waiting" }) })
+    .mockResolvedValueOnce({
+      ok: true,
+      session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion({ prompt: "What is a chloroplast?", topicId: "t3" }), status: "waiting" }),
+    });
+  vi.mocked(api.submitLiveAnswer).mockResolvedValue({
+    ok: true,
+    session: baseSession({
+      mode: "live",
+      status: "active",
+      history: [{ ...freeRecallQuestion(), answerText: "sunlight to sugar", confidence: 4, rating: "good", feedback: "Solid, specific answer.", answeredAt: "2026-01-01T00:01:00.000Z" }],
+    }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("radio", { name: /Live/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText("Explain photosynthesis in your own words.");
+
+  await user.click(screen.getByRole("button", { name: "4" }));
+  await user.type(screen.getByPlaceholderText("Your answer…"), "sunlight to sugar");
+  await user.click(screen.getByRole("button", { name: "Submit answer" }));
+
+  expect(api.submitLiveAnswer).toHaveBeenCalledWith("sess-1", { answerText: "sunlight to sugar", confidence: 4 });
+  expect(await screen.findByText("Solid, specific answer.")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Next question" }));
+  expect(await screen.findByText("What is a chloroplast?")).toBeInTheDocument();
+});
+
+test("Live: a question-generation failure shows the reason with a Try again button", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ mode: "live" }));
+  vi.mocked(api.generateNextLiveQuestion)
+    .mockResolvedValueOnce({ ok: false, reason: "claude exited with code 1: rate limited" })
+    .mockResolvedValueOnce({ ok: true, session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion(), status: "waiting" }) });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("radio", { name: /Live/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(await screen.findByText("claude exited with code 1: rate limited")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
+});
+
+test("Live: an answer-grading failure keeps the typed answer and shows a Try again button", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ mode: "live" }));
+  vi.mocked(api.generateNextLiveQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.submitLiveAnswer).mockResolvedValue({ ok: false, reason: "the reply was empty" });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("radio", { name: /Live/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText("Explain photosynthesis in your own words.");
+
+  await user.click(screen.getByRole("button", { name: "3" }));
+  await user.type(screen.getByPlaceholderText("Your answer…"), "sunlight to sugar");
+  await user.click(screen.getByRole("button", { name: "Submit answer" }));
+
+  expect(await screen.findByText("the reply was empty")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("Your answer…")).toHaveValue("sunlight to sugar");
+  expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+});
+
+test("resuming a Live session with a question already up skips the mode picker and shows it directly", async () => {
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({ mode: "live", currentQuestion: freeRecallQuestion(), status: "waiting" })}
+      onExit={() => {}}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "Start session" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
+  expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
 });
 
 test("multiple-choice: confidence must be picked before the answer appears, and a correct pick shows immediate feedback", async () => {

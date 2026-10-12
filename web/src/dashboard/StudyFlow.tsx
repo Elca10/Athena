@@ -1,38 +1,43 @@
 import { useEffect, useState } from "react";
 import {
   createSession,
+  generateNextLiveQuestion,
   generateNextReadyQuestion,
   skipSessionReflection,
+  submitLiveAnswer,
   submitReadyAnswer,
   submitReadySelfGrade,
   submitSessionReflection,
+  type LiveHistoryEntry,
   type ReflectionAnswers,
   type SelfGradeStatus,
   type Session,
+  type SessionMode,
   type SessionQuestion,
   type Subject,
 } from "./api";
 
 // The Study flow (SPEC.md section 4's Study button; section 5's session
-// screen). First slice: the mode picker plus a working Ready-mode session
-// loop against the already-tested backend routes (routes/sessions.js's
-// /ready/question, /ready/answer, /ready/self-grade). Live mode is still
-// the disabled "coming soon" option here — its own session screen is a
-// later build step, same ship-queue ordering as the backend build that
-// landed it first.
+// screen): the mode picker, Ready mode's bank-backed session loop
+// (routes/sessions.js's /ready/question, /ready/answer, /ready/self-grade),
+// Live mode's real-time loop (/live/question, /live/answer — each a real
+// `claude -p` turn, so costs more of the user's Claude usage; SPEC.md
+// section 5 is explicit that's the tradeoff the user is choosing when they
+// pick it), and the shared end-of-session reflection prompt.
 //
 // A session that runs out of due topics moves to "waiting" with
 // `reflectionPending: true` (sessions.js's `promptReflection`) rather than
-// completing outright; `ReadySessionScreen`'s `ended` state shows
+// completing outright, in both modes; each mode's own "ended" state shows
 // `ReflectionPrompt` at that point (SPEC.md section 6's four prompts —
 // submit or skip, both finalize the session via reflection.js).
 //
 // `resumeSession`, passed by Dashboard.tsx when the user clicks a Waiting
 // session row instead of a subject's Study button, skips the mode picker
-// and mounts `ReadySessionScreen` directly with that session — it already
-// carries everything needed (`currentQuestion`, `reflectionPending`) to
-// pick up exactly where it left off, whether that's mid-question,
-// mid-self-grade, or just waiting on the not-yet-built reflection prompt.
+// and mounts the matching session screen directly with that session — it
+// already carries everything needed (`mode`, `currentQuestion`,
+// `reflectionPending`) to pick up exactly where it left off, whether
+// that's mid-question, mid-self-grade (Ready only), or just waiting on the
+// reflection prompt.
 export function StudyFlow({
   subjects,
   initialSubjectId,
@@ -48,11 +53,11 @@ export function StudyFlow({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function start(subjectIds: string[]) {
+  async function start(subjectIds: string[], mode: SessionMode) {
     setStarting(true);
     setError(null);
     try {
-      setSession(await createSession(subjectIds, "ready"));
+      setSession(await createSession(subjectIds, mode));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start that session.");
       setStarting(false);
@@ -73,12 +78,8 @@ export function StudyFlow({
       {!session && initialSubjectId && (
         <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
       )}
-      {session && session.mode !== "ready" && (
-        <div className="study-session">
-          <p>Resuming a Live session isn't supported yet.</p>
-        </div>
-      )}
       {session && session.mode === "ready" && <ReadySessionScreen session={session} onExit={onExit} />}
+      {session && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
     </div>
   );
 }
@@ -92,9 +93,10 @@ function ModePicker({
   subjects: Subject[];
   initialSubjectId: string;
   busy: boolean;
-  onStart: (subjectIds: string[]) => void;
+  onStart: (subjectIds: string[], mode: SessionMode) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set([initialSubjectId]));
+  const [mode, setMode] = useState<SessionMode>("ready");
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -124,16 +126,16 @@ function ModePicker({
       <fieldset className="study-picker-mode">
         <legend>Mode</legend>
         <label>
-          <input type="radio" name="study-mode" checked readOnly />
+          <input type="radio" name="study-mode" checked={mode === "ready"} onChange={() => setMode("ready")} disabled={busy} />
           Ready — pre-generated questions, graded instantly or self-graded
         </label>
-        <label className="study-picker-mode-disabled">
-          <input type="radio" name="study-mode" disabled />
-          Live (coming soon)
+        <label>
+          <input type="radio" name="study-mode" checked={mode === "live"} onChange={() => setMode("live")} disabled={busy} />
+          Live — Athena asks and grades in real time (uses more of your Claude usage)
         </label>
       </fieldset>
       <div className="study-picker-actions">
-        <button type="button" disabled={busy || selected.size === 0} onClick={() => onStart([...selected])}>
+        <button type="button" disabled={busy || selected.size === 0} onClick={() => onStart([...selected], mode)}>
           Start session
         </button>
       </div>
@@ -398,6 +400,165 @@ function ReadySessionScreen({ session: initialSession, onExit }: { session: Sess
               <p>
                 {lastResult.kind === "auto" ? (lastResult.isCorrect ? "Correct!" : "Not quite.") : "Self-grade recorded."}
               </p>
+              <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
+                Next question
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+type LiveFeedback = { feedback: string; rating: string };
+
+// Live mode (SPEC.md section 5): every question is one of the free-form
+// types (liveSession.js never generates multiple_choice/cloze — those need
+// a stored answer key this module doesn't have), so there's no
+// choices/self-grade branching the way Ready needs. Grading is a single
+// real-time model turn that returns feedback + an FSRS rating directly
+// (liveSession.js's `submitLiveAnswer`), not a separate reveal-then-self-
+// grade step — the just-graded entry lands in `session.history`, so that's
+// where the feedback to show comes from, not a dedicated response field.
+// Both `/live/question` and `/live/answer` can fail with a real, retryable
+// `{ok: false, reason}` (a model-call or unparseable-reply failure) that
+// leaves the session/topic untouched — shown with a "Try again" button
+// rather than being treated like a thrown error, same posture the server
+// module itself documents.
+function LiveSessionScreen({ session: initialSession, onExit }: { session: Session; onExit: () => void }) {
+  const [session, setSession] = useState(initialSession);
+  const [activeQuestion, setActiveQuestion] = useState(initialSession.currentQuestion);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [genFailure, setGenFailure] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [answerText, setAnswerText] = useState("");
+  const [answerFailure, setAnswerFailure] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<LiveFeedback | null>(null);
+  const [ended, setEnded] = useState(false);
+
+  async function fetchNext(sessionId: string) {
+    setBusy(true);
+    setError(null);
+    setGenFailure(null);
+    try {
+      const result = await generateNextLiveQuestion(sessionId);
+      if (!result.ok) {
+        setGenFailure(result.reason);
+        return;
+      }
+      setSession(result.session);
+      if (result.done) {
+        setEnded(true);
+        return;
+      }
+      setActiveQuestion(result.session.currentQuestion);
+      setConfidence(null);
+      setAnswerText("");
+      setAnswerFailure(null);
+      setFeedback(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't load the next question.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!activeQuestion) fetchNext(session.id);
+    // Same "runs once per mounted session" reasoning as ReadySessionScreen's
+    // identical effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  async function submitAnswer() {
+    if (!activeQuestion || confidence === null || !answerText.trim()) return;
+    setBusy(true);
+    setError(null);
+    setAnswerFailure(null);
+    try {
+      const result = await submitLiveAnswer(session.id, { answerText, confidence });
+      if (!result.ok) {
+        setAnswerFailure(result.reason);
+        return;
+      }
+      setSession(result.session);
+      const last = result.session.history[result.session.history.length - 1] as LiveHistoryEntry;
+      setFeedback({ feedback: last.feedback, rating: last.rating });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't submit that answer.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (ended) {
+    return <ReflectionPrompt sessionId={session.id} onDone={onExit} />;
+  }
+
+  if (genFailure) {
+    return (
+      <div className="study-session">
+        <p>{genFailure}</p>
+        <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  const question = activeQuestion;
+
+  return (
+    <div className="study-session">
+      {error && <div className="study-session-error">{error}</div>}
+      {!question && <p>Loading question…</p>}
+      {question && (
+        <>
+          <div className="study-question">
+            <span className="study-question-difficulty">{question.difficulty}</span>
+            <p className="study-question-prompt">{question.prompt}</p>
+          </div>
+
+          {!feedback && (
+            <div className="study-confidence">
+              <p>How confident are you, before answering?</p>
+              <div className="study-confidence-options">
+                {[1, 2, 3, 4, 5].map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    className={confidence === level ? "study-confidence-selected" : ""}
+                    onClick={() => setConfidence(level)}
+                    disabled={busy}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!feedback && confidence !== null && (
+            <div className="study-answer">
+              <textarea
+                value={answerText}
+                onChange={(e) => setAnswerText(e.target.value)}
+                placeholder="Your answer…"
+                rows={4}
+                disabled={busy}
+              />
+              {answerFailure && <div className="study-session-error">{answerFailure}</div>}
+              <button type="button" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
+                {answerFailure ? "Try again" : "Submit answer"}
+              </button>
+            </div>
+          )}
+
+          {feedback && (
+            <div className="study-result">
+              <p>{feedback.feedback}</p>
               <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
                 Next question
               </button>

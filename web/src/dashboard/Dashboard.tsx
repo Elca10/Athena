@@ -27,11 +27,11 @@ import { StudyFlow } from "./StudyFlow";
 // "/usage"` — server/src/usageStatus.js). "Tune Athena" opens
 // TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
 // opens AddContentPanel (SPEC.md section 7). Each subject's "Study"
-// opens StudyFlow (mode picker + the Ready-mode session screen so far —
-// Live mode's screen is a later build step). A Waiting session row's
-// "Resume" button opens the same StudyFlow, skipping the mode picker,
-// right back into wherever that session left off (mid-question,
-// mid-self-grade, or awaiting the not-yet-built reflection prompt).
+// opens StudyFlow (mode picker, both Ready's and Live's session screens,
+// and the shared end-of-session reflection prompt). A Waiting session
+// row's "Resume" button opens the same StudyFlow, skipping the mode
+// picker, right back into wherever that session left off (mid-question,
+// mid-self-grade in Ready, or awaiting the reflection prompt).
 // Subjects' and sessions' Archive actions, and the remaining top bar
 // action buttons (Report a bug, Calendar), still need their own flows
 // built, so they stay disabled placeholders.

@@ -11,6 +11,7 @@ export type SubjectSummary = {
 };
 
 export type SessionStatus = "active" | "waiting" | "completed";
+export type SessionMode = "live" | "ready";
 
 // Mirrors readySession.js's QUESTION_TYPES (questionBank.js) — the subset
 // of fields `publicQuestionView` leaves on a served question. `choices`
@@ -53,13 +54,25 @@ export type SessionQuestion = {
 export type Session = {
   id: string;
   subjectIds: string[];
-  mode: "live" | "ready";
+  mode: SessionMode;
   status: SessionStatus;
   endedAt: string | null;
   archived: boolean;
   currentQuestion: SessionQuestion | null;
   history: unknown[];
   reflectionPending?: boolean;
+};
+
+// Mirrors a Live session's `history` entry (liveSession.js's
+// `submitLiveAnswer`) — the shape the just-answered question/feedback/
+// rating live in, since /live/answer's own response has no separate
+// top-level field for them the way /ready/answer does.
+export type LiveHistoryEntry = SessionQuestion & {
+  answerText: string;
+  confidence: number;
+  rating: "again" | "hard" | "good" | "easy";
+  feedback: string;
+  answeredAt: string;
 };
 
 async function getJson<T>(url: string): Promise<T> {
@@ -121,8 +134,34 @@ export function restoreSession(id: string): Promise<Session> {
   return postJson(`/api/sessions/${id}/restore`);
 }
 
-export function createSession(subjectIds: string[], mode: "live" | "ready"): Promise<Session> {
+export function createSession(subjectIds: string[], mode: SessionMode): Promise<Session> {
   return postJsonBody("/api/sessions", { subjectIds, mode });
+}
+
+// Mirrors routes/sessions.js's /live/question shapes. `{ok: false, reason}`
+// is a real, retryable model-call-or-unparseable-reply failure that leaves
+// the session untouched (liveSession.js's `generateNextLiveQuestion` doc
+// comment) — same discriminated-result posture as Ready's equivalent, but
+// Live has no bank to come up empty, so there's no `noBank` case here.
+export type LiveQuestionResult =
+  | { ok: true; done: true; awaitingReflection: true; session: Session }
+  | { ok: true; done?: false; session: Session }
+  | { ok: false; reason: string };
+
+export function generateNextLiveQuestion(sessionId: string): Promise<LiveQuestionResult> {
+  return postJson(`/api/sessions/${sessionId}/live/question`);
+}
+
+// Mirrors routes/sessions.js's /live/answer shapes — grading is one more
+// real-time model turn, so the same retryable `{ok: false, reason}` shape
+// applies here too (liveSession.js's `submitLiveAnswer`).
+export type LiveAnswerResult = { ok: true; session: Session } | { ok: false; reason: string };
+
+export function submitLiveAnswer(
+  sessionId: string,
+  body: { answerText: string; confidence: number },
+): Promise<LiveAnswerResult> {
+  return postJsonBody(`/api/sessions/${sessionId}/live/answer`, body);
 }
 
 // Mirrors routes/sessions.js's /ready/question shapes. Discriminates on
