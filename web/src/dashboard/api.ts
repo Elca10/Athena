@@ -14,10 +14,15 @@ export type SessionStatus = "active" | "waiting" | "completed";
 
 // Mirrors readySession.js's QUESTION_TYPES (questionBank.js) — the subset
 // of fields `publicQuestionView` leaves on a served question. `choices`
-// only appears for multiple_choice; none of the answer-key fields
-// (modelAnswer/rubric/misconceptions/correctIndex/clozeAnswer) are ever
-// present here — those only reach the client in a /ready/answer response,
-// once grading is either done or about to be self-graded.
+// only appears for multiple_choice; `correctIndex`/`clozeAnswer` are never
+// present here. `modelAnswer`/`rubric`/`misconceptions` are absent until
+// the question has been answered — `pendingAnswer` is what marks that: a
+// self-graded question the user has already answered but not yet
+// self-graded (set by /ready/answer, kept by GET /, GET /:id, and
+// /ready/question's own response from then on). That's also the shape a
+// resumed Waiting session's `currentQuestion` arrives in, which is exactly
+// why StudyFlow.tsx's `ReadySessionScreen` can resume straight into the
+// self-grade step from it rather than needing a separate fetch.
 export type QuestionType =
   | "free_recall"
   | "explain_why"
@@ -37,6 +42,10 @@ export type SessionQuestion = {
   choices?: string[];
   isGenerationQuestion?: boolean;
   askedAt: string;
+  pendingAnswer?: { answerText: string; confidence: number; answeredAt: string };
+  modelAnswer?: string;
+  rubric?: string[];
+  misconceptions?: string[];
 };
 
 // Mirrors server/src/sessions.js's record shape — only the fields the
@@ -50,6 +59,7 @@ export type Session = {
   archived: boolean;
   currentQuestion: SessionQuestion | null;
   history: unknown[];
+  reflectionPending?: boolean;
 };
 
 async function getJson<T>(url: string): Promise<T> {

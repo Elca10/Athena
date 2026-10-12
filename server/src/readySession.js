@@ -32,10 +32,18 @@
 // A served question's answer-key fields (modelAnswer, rubric,
 // misconceptions, correctIndex, clozeAnswer) ARE stored on
 // `currentQuestion` right away for that reason, but must never reach the
-// client in the initial "here's your question" response — `publicQuestionView`
-// is the scrubbed shape routes/sessions.js sends for that one response;
-// every other response here is correctly post-answer and returns the full
-// thing.
+// client before the question's been answered — `publicQuestionView` is the
+// scrubbed shape routes/sessions.js applies to every session view a client
+// can request (not just the initial "here's your question" response; also
+// GET /api/sessions and GET /api/sessions/:id, which otherwise hand back
+// the session's raw stored `currentQuestion` — that includes a Waiting
+// session's answer key before the resuming client has had a chance to
+// answer it). Once a self-graded question has a `pendingAnswer`
+// (`submitReadyAnswer`'s response already revealed modelAnswer/rubric/
+// misconceptions at that point, same as a fresh /ready/answer call),
+// `publicQuestionView` keeps them — resuming a Waiting session back into
+// the self-grade step needs them, and they're no longer a secret once the
+// user has already answered.
 
 import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, promptReflection } from "./sessions.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
@@ -87,14 +95,20 @@ export function pickBankQuestion(questions, { preferGeneration = false } = {}) {
 }
 
 /**
- * Strips a served question's answer-key fields before it reaches the
- * client — `choices` (the option text for multiple_choice) stays, since
- * the user needs it to answer; `correctIndex`, `clozeAnswer`, `modelAnswer`,
- * `rubric`, and `misconceptions` do not. Pure, exported for its own test.
+ * Strips a question's answer-key fields before it reaches the client —
+ * `choices` (the option text for multiple_choice) stays, since the user
+ * needs it to answer; `correctIndex` and `clozeAnswer` never belong to the
+ * client (auto-graded types finalize server-side and never set
+ * `pendingAnswer`). `modelAnswer`/`rubric`/`misconceptions` are kept only
+ * once `pendingAnswer` is set — the user has already answered and
+ * `submitReadyAnswer` already revealed them for the self-grade step, so a
+ * later view of the same question (resuming a Waiting session) needs them
+ * too; before that, they're still a secret. Pure, exported for its own
+ * test.
  */
 export function publicQuestionView(question) {
-  const { modelAnswer, rubric, misconceptions, correctIndex, clozeAnswer, ...rest } = question;
-  return rest;
+  const { correctIndex, clozeAnswer, modelAnswer, rubric, misconceptions, ...rest } = question;
+  return question.pendingAnswer ? { ...rest, modelAnswer, rubric, misconceptions } : rest;
 }
 
 /**

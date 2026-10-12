@@ -222,6 +222,75 @@ test("shows the awaiting-reflection message once every due topic has been asked"
   expect(screen.getByText(/reflection prompt is coming soon/)).toBeInTheDocument();
 });
 
+test("resuming a session with a question already up skips the mode picker and shows it directly", async () => {
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({ currentQuestion: mcQuestion(), status: "waiting" })}
+      onExit={() => {}}
+    />,
+  );
+
+  expect(screen.queryByRole("button", { name: "Start session" })).not.toBeInTheDocument();
+  expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
+  expect(api.generateNextReadyQuestion).not.toHaveBeenCalled();
+});
+
+test("resuming a self-graded question with a pending answer reopens straight into the self-grade step", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.submitReadySelfGrade).mockResolvedValue({
+    ok: true,
+    finalized: true,
+    session: baseSession({ status: "active", history: [{}] }),
+  });
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({
+        status: "waiting",
+        currentQuestion: freeRecallQuestion({
+          modelAnswer: "Plants convert light energy into chemical energy.",
+          rubric: ["Mentions chlorophyll", "Mentions glucose/oxygen output"],
+          misconceptions: ["Confusing it with respiration"],
+          pendingAnswer: { answerText: "It makes sugar.", confidence: 3, answeredAt: "2026-01-01T00:00:00.000Z" },
+        }),
+      })}
+      onExit={() => {}}
+    />,
+  );
+
+  expect(await screen.findByText(/Plants convert light energy/)).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText("Your answer…")).not.toBeInTheDocument();
+  expect(api.generateNextReadyQuestion).not.toHaveBeenCalled();
+
+  const gotItButtons = screen.getAllByRole("button", { name: "Got it" });
+  await user.click(gotItButtons[0]);
+  await user.click(gotItButtons[1]);
+  await user.click(screen.getByRole("button", { name: "Submit self-grade" }));
+
+  expect(api.submitReadySelfGrade).toHaveBeenCalledWith("sess-1", [{ status: "got_it" }, { status: "got_it" }]);
+  expect(await screen.findByText("Self-grade recorded.")).toBeInTheDocument();
+});
+
+test("resuming a session awaiting reflection shows the same end-of-session message", async () => {
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    done: true,
+    awaitingReflection: true,
+    session: baseSession({ status: "waiting", reflectionPending: true }),
+    bankTopUps: [],
+  });
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({ status: "waiting", reflectionPending: true, currentQuestion: null })}
+      onExit={() => {}}
+    />,
+  );
+
+  expect(await screen.findByText(/everything due right now/)).toBeInTheDocument();
+});
+
 test("surfaces the server's error message if starting the session fails", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockRejectedValue(new Error("subjectIds must be a non-empty array"));

@@ -6,6 +6,7 @@ import {
   submitReadySelfGrade,
   type SelfGradeStatus,
   type Session,
+  type SessionQuestion,
   type Subject,
 } from "./api";
 
@@ -21,18 +22,26 @@ import {
 // `reflectionPending: true` (sessions.js's `promptReflection`) rather than
 // completing outright. This slice doesn't build the reflection prompt yet,
 // so it just says so and leaves the session sitting in the dashboard's
-// Waiting column — a later slice adds resuming a Waiting session back into
-// this same screen, which is exactly what that state is for.
+// Waiting column.
+//
+// `resumeSession`, passed by Dashboard.tsx when the user clicks a Waiting
+// session row instead of a subject's Study button, skips the mode picker
+// and mounts `ReadySessionScreen` directly with that session — it already
+// carries everything needed (`currentQuestion`, `reflectionPending`) to
+// pick up exactly where it left off, whether that's mid-question,
+// mid-self-grade, or just waiting on the not-yet-built reflection prompt.
 export function StudyFlow({
   subjects,
   initialSubjectId,
+  resumeSession,
   onExit,
 }: {
   subjects: Subject[];
-  initialSubjectId: string;
+  initialSubjectId?: string;
+  resumeSession?: Session | null;
   onExit: () => void;
 }) {
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(resumeSession ?? null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,10 +67,15 @@ export function StudyFlow({
         </div>
       </header>
       {error && <div className="study-picker-error">{error}</div>}
-      {!session && (
+      {!session && initialSubjectId && (
         <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
       )}
-      {session && <ReadySessionScreen session={session} />}
+      {session && session.mode !== "ready" && (
+        <div className="study-session">
+          <p>Resuming a Live session isn't supported yet.</p>
+        </div>
+      )}
+      {session && session.mode === "ready" && <ReadySessionScreen session={session} />}
     </div>
   );
 }
@@ -133,6 +147,17 @@ const SELF_GRADE_OPTIONS: { status: SelfGradeStatus; label: string }[] = [
   { status: "missed", label: "Missed" },
 ];
 
+// A resumed session's `currentQuestion` can itself already carry a
+// `pendingAnswer` — a self-graded question the user answered before
+// closing the tab, still waiting on the self-grade step. api.ts's
+// `publicQuestionView`-backed routes keep `modelAnswer`/`rubric`/
+// `misconceptions` on exactly that shape, so there's no extra fetch needed
+// to resume straight into the reveal screen with them.
+function revealedFromPendingAnswer(question: SessionQuestion | null): RevealedAnswer | null {
+  if (!question?.pendingAnswer || !question.modelAnswer || !question.rubric) return null;
+  return { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions ?? [] };
+}
+
 function ReadySessionScreen({ session: initialSession }: { session: Session }) {
   const [session, setSession] = useState(initialSession);
   // Deliberately NOT read from `session.currentQuestion` while rendering
@@ -146,8 +171,13 @@ function ReadySessionScreen({ session: initialSession }: { session: Session }) {
   const [confidence, setConfidence] = useState<number | null>(null);
   const [answerText, setAnswerText] = useState("");
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-  const [revealed, setRevealed] = useState<RevealedAnswer | null>(null);
-  const [selfGrades, setSelfGrades] = useState<(SelfGradeStatus | null)[]>([]);
+  const [revealed, setRevealed] = useState<RevealedAnswer | null>(() =>
+    revealedFromPendingAnswer(initialSession.currentQuestion),
+  );
+  const [selfGrades, setSelfGrades] = useState<(SelfGradeStatus | null)[]>(() => {
+    const initialReveal = revealedFromPendingAnswer(initialSession.currentQuestion);
+    return initialReveal ? initialReveal.rubric.map(() => null) : [];
+  });
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
   const [ended, setEnded] = useState(false);
   const [stuck, setStuck] = useState<string | null>(null);

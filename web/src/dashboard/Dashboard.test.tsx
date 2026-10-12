@@ -239,6 +239,83 @@ test("clicking Study opens the study flow pre-selecting that subject, and Back t
   expect(api.listSubjects).toHaveBeenCalled();
 });
 
+test("clicking Resume on a Waiting session reopens the study flow with that question already up", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "waiting-1",
+      subjectIds: ["s1"],
+      mode: "ready",
+      status: "waiting",
+      endedAt: null,
+      archived: false,
+      currentQuestion: {
+        topicId: "t1",
+        subjectId: "s1",
+        type: "short_answer",
+        prompt: "What is the derivative of x^2?",
+        difficulty: "medium",
+        askedAt: "2026-01-02T00:00:00.000Z",
+      },
+      history: [],
+    },
+  ]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const resumeButton = await screen.findByRole("button", { name: "Resume" });
+  await user.click(resumeButton);
+
+  expect(await screen.findByRole("heading", { name: "Study" })).toBeInTheDocument();
+  expect(screen.getByText("What is the derivative of x^2?")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Start session" })).not.toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Back to dashboard" }));
+  expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
+});
+
+test("an Active session has no Resume button; a reflection-pending Waiting session shows that instead of a prompt", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "active-1",
+      subjectIds: [],
+      mode: "live",
+      status: "active",
+      endedAt: null,
+      archived: false,
+      currentQuestion: null,
+      history: [],
+    },
+    {
+      id: "waiting-reflection-1",
+      subjectIds: [],
+      mode: "ready",
+      status: "waiting",
+      endedAt: null,
+      archived: false,
+      currentQuestion: null,
+      reflectionPending: true,
+      history: [],
+    },
+  ]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  expect(await screen.findByText("Reflection prompt coming soon.")).toBeInTheDocument();
+  expect(screen.getAllByRole("button", { name: "Resume" })).toHaveLength(1);
+});
+
 test("clicking Add content opens the panel for that subject, and Close dismisses it", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);

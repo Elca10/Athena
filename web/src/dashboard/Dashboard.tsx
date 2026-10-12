@@ -28,10 +28,13 @@ import { StudyFlow } from "./StudyFlow";
 // TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
 // opens AddContentPanel (SPEC.md section 7). Each subject's "Study"
 // opens StudyFlow (mode picker + the Ready-mode session screen so far —
-// Live mode's screen is a later build step). Subjects' and sessions'
-// Archive actions, and the remaining top bar action buttons (Report a
-// bug, Calendar), still need their own flows built, so they stay
-// disabled placeholders.
+// Live mode's screen is a later build step). A Waiting session row's
+// "Resume" button opens the same StudyFlow, skipping the mode picker,
+// right back into wherever that session left off (mid-question,
+// mid-self-grade, or awaiting the not-yet-built reflection prompt).
+// Subjects' and sessions' Archive actions, and the remaining top bar
+// action buttons (Report a bug, Calendar), still need their own flows
+// built, so they stay disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -44,6 +47,7 @@ export function Dashboard() {
   const [showNewSubject, setShowNewSubject] = useState(false);
   const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
   const [studySubjectId, setStudySubjectId] = useState<string | null>(null);
+  const [resumeSession, setResumeSession] = useState<Session | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -77,14 +81,16 @@ export function Dashboard() {
     );
   }
 
-  if (view === "study" && studySubjectId) {
+  if (view === "study" && (studySubjectId || resumeSession)) {
     return (
       <StudyFlow
         subjects={subjects ?? []}
-        initialSubjectId={studySubjectId}
+        initialSubjectId={studySubjectId ?? undefined}
+        resumeSession={resumeSession}
         onExit={() => {
           setView("dashboard");
           setStudySubjectId(null);
+          setResumeSession(null);
           refresh();
         }}
       />
@@ -168,7 +174,19 @@ export function Dashboard() {
                   <div className="dashboard-empty">Nothing here yet.</div>
                 )}
                 {columnSessions.map((session) => (
-                  <SessionRow key={session.id} session={session} subjectName={subjectName} />
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    subjectName={subjectName}
+                    onResume={
+                      session.status === "waiting"
+                        ? () => {
+                            setResumeSession(session);
+                            setView("study");
+                          }
+                        : undefined
+                    }
+                  />
                 ))}
               </div>
             );
@@ -268,7 +286,15 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
 
 const MAX_PROMPT_PREVIEW = 80;
 
-function SessionRow({ session, subjectName }: { session: Session; subjectName: (id: string) => string }) {
+function SessionRow({
+  session,
+  subjectName,
+  onResume,
+}: {
+  session: Session;
+  subjectName: (id: string) => string;
+  onResume?: () => void;
+}) {
   const subjectLabel = session.subjectIds.map(subjectName).join(", ");
   const modeLabel = session.mode === "live" ? "Live" : "Ready";
 
@@ -276,9 +302,15 @@ function SessionRow({ session, subjectName }: { session: Session; subjectName: (
   if (session.status === "active") {
     detail = "Working…";
   } else if (session.status === "waiting") {
-    const prompt = session.currentQuestion?.prompt ?? "";
-    detail =
-      prompt.length > MAX_PROMPT_PREVIEW ? `${prompt.slice(0, MAX_PROMPT_PREVIEW)}…` : prompt || "Waiting for your answer.";
+    if (session.reflectionPending) {
+      detail = "Reflection prompt coming soon.";
+    } else {
+      const prompt = session.currentQuestion?.prompt ?? "";
+      detail =
+        prompt.length > MAX_PROMPT_PREVIEW
+          ? `${prompt.slice(0, MAX_PROMPT_PREVIEW)}…`
+          : prompt || "Waiting for your answer.";
+    }
   } else {
     detail = `${session.history.length} question${session.history.length === 1 ? "" : "s"} answered`;
   }
@@ -290,6 +322,11 @@ function SessionRow({ session, subjectName }: { session: Session; subjectName: (
         <span className="session-row-mode">{modeLabel}</span>
       </div>
       <div className="session-row-detail">{detail}</div>
+      {onResume && (
+        <button type="button" onClick={onResume}>
+          Resume
+        </button>
+      )}
     </article>
   );
 }

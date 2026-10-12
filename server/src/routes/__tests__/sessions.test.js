@@ -387,6 +387,66 @@ test("POST /api/sessions/:id/ready/question scrubs answer-key fields from the re
   }
 });
 
+test("GET /api/sessions and GET /api/sessions/:id scrub a waiting Ready session's unanswered question too", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Algorithms" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["Sorting"]);
+    await addBankQuestions(dir, topic.id, subject.id, [
+      {
+        type: "multiple_choice",
+        prompt: "Which is a stable sort?",
+        difficulty: "medium",
+        modelAnswer: "Merge sort",
+        rubric: [],
+        misconceptions: [],
+        choices: ["Quicksort", "Merge sort"],
+        correctIndex: 1,
+      },
+    ]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+    await fetch(`${base}/${session.id}/ready/question`, { method: "POST" });
+
+    for (const url of [base, `${base}/${session.id}`]) {
+      const res = await fetch(url);
+      const body = await res.json();
+      const found = Array.isArray(body) ? body.find((s) => s.id === session.id) : body;
+      assert.equal(found.currentQuestion.prompt, "Which is a stable sort?");
+      assert.equal(found.currentQuestion.modelAnswer, undefined);
+      assert.equal(found.currentQuestion.rubric, undefined);
+      assert.equal(found.currentQuestion.correctIndex, undefined);
+    }
+  } finally {
+    server.close();
+  }
+});
+
+test("GET /api/sessions/:id keeps modelAnswer/rubric once a self-graded question has a pending answer, for resuming", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Algorithms" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["Recursion"]);
+    await addBankQuestions(dir, topic.id, subject.id, [
+      { type: "short_answer", prompt: "Explain recursion.", difficulty: "medium", modelAnswer: "Calls itself.", rubric: ["mentions base case"], misconceptions: [] },
+    ]);
+    const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+    await fetch(`${base}/${session.id}/ready/question`, { method: "POST" });
+    await fetch(`${base}/${session.id}/ready/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answerText: "it calls itself", confidence: 3 }),
+    });
+
+    const res = await fetch(`${base}/${session.id}`);
+    const body = await res.json();
+    assert.equal(body.currentQuestion.modelAnswer, "Calls itself.");
+    assert.deepEqual(body.currentQuestion.rubric, ["mentions base case"]);
+    assert.equal(body.currentQuestion.pendingAnswer.answerText, "it calls itself");
+  } finally {
+    server.close();
+  }
+});
+
 test("POST /api/sessions/:id/ready/question reports an empty bank as ok:false, not an error", async () => {
   const { dir, base, server } = await startApp();
   try {

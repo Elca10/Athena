@@ -15,6 +15,19 @@ import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
 import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView } from "../readySession.js";
 import { submitSessionReflection, skipSessionReflection } from "../reflection.js";
 
+// Scrubs a session's `currentQuestion` before it reaches a client, same as
+// `/ready/question` already did inline — every route here that can hand
+// back a session read from storage (rather than one it just mutated in a
+// shape it already controls) needs this, or a Waiting Ready session's raw
+// answer key goes out with it (readySession.js's `publicQuestionView` doc
+// comment has the detail: resuming a Waiting session is exactly why this
+// matters now). A no-op for a null `currentQuestion` or a Live question,
+// neither of which carries the fields `publicQuestionView` strips.
+function publicSessionView(session) {
+  if (!session.currentQuestion) return session;
+  return { ...session, currentQuestion: publicQuestionView(session.currentQuestion) };
+}
+
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
 export function makeSessionsRouter(appDataDir) {
@@ -22,7 +35,8 @@ export function makeSessionsRouter(appDataDir) {
 
   router.get("/", async (req, res) => {
     const includeArchived = req.query.includeArchived === "true";
-    res.json(await listSessions(appDataDir, { includeArchived }));
+    const sessions = await listSessions(appDataDir, { includeArchived });
+    res.json(sessions.map(publicSessionView));
   });
 
   router.post("/", async (req, res) => {
@@ -45,7 +59,7 @@ export function makeSessionsRouter(appDataDir) {
         mode: req.body?.mode,
         topicIds,
       });
-      res.status(201).json(session);
+      res.status(201).json(publicSessionView(session));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -57,7 +71,7 @@ export function makeSessionsRouter(appDataDir) {
       res.status(404).json({ error: `Session not found: ${req.params.id}` });
       return;
     }
-    res.json(session);
+    res.json(publicSessionView(session));
   });
 
   // Triggers Live mode's next model-generated question (SPEC.md section
@@ -115,9 +129,8 @@ export function makeSessionsRouter(appDataDir) {
   // near-zero-model-usage goal). `generateNextReadyQuestion` already
   // decides whether to serve a question, end a finished session, or
   // report an empty bank; this route's only job is to scrub the served
-  // question's answer-key fields before they reach the client —
-  // `publicQuestionView` keeps `choices` (needed to answer) but drops
-  // `modelAnswer`/`rubric`/`misconceptions`/`correctIndex`/`clozeAnswer`.
+  // question's answer-key fields before they reach the client, same
+  // `publicSessionView` every other session-returning route here uses now.
   // An empty-bank result (`noBank: true`) isn't a caller mistake either,
   // so it's 200, same as a Live model-call failure.
   router.post("/:id/ready/question", async (req, res) => {
@@ -127,9 +140,7 @@ export function makeSessionsRouter(appDataDir) {
     }
     try {
       const result = await generateNextReadyQuestion(appDataDir, req.params.id);
-      if (result.ok && result.session?.currentQuestion) {
-        result.session = { ...result.session, currentQuestion: publicQuestionView(result.session.currentQuestion) };
-      }
+      if (result.ok && result.session) result.session = publicSessionView(result.session);
       res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
@@ -150,13 +161,18 @@ export function makeSessionsRouter(appDataDir) {
       return;
     }
     try {
-      res.json(
-        await submitReadyAnswer(appDataDir, req.params.id, {
-          answerText: req.body?.answerText,
-          selectedIndex: req.body?.selectedIndex,
-          confidence: req.body?.confidence,
-        }),
-      );
+      const result = await submitReadyAnswer(appDataDir, req.params.id, {
+        answerText: req.body?.answerText,
+        selectedIndex: req.body?.selectedIndex,
+        confidence: req.body?.confidence,
+      });
+      // `finalized: false` means the reveal in this very response IS the
+      // first legitimate disclosure of modelAnswer/rubric/misconceptions —
+      // scrubbing them here would contradict the route's own job. Only
+      // `session.currentQuestion` (now carrying `pendingAnswer`, so
+      // `publicSessionView` already keeps them) needs normalizing.
+      result.session = publicSessionView(result.session);
+      res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -171,7 +187,9 @@ export function makeSessionsRouter(appDataDir) {
       return;
     }
     try {
-      res.json(await submitReadySelfGrade(appDataDir, req.params.id, { selfGrades: req.body?.selfGrades }));
+      const result = await submitReadySelfGrade(appDataDir, req.params.id, { selfGrades: req.body?.selfGrades });
+      result.session = publicSessionView(result.session);
+      res.json(result);
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -230,7 +248,7 @@ export function makeSessionsRouter(appDataDir) {
       return;
     }
     try {
-      res.json(await setSessionStatus(appDataDir, req.params.id, status));
+      res.json(publicSessionView(await setSessionStatus(appDataDir, req.params.id, status)));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
@@ -238,7 +256,7 @@ export function makeSessionsRouter(appDataDir) {
 
   router.post("/:id/end", async (req, res) => {
     try {
-      res.json(await endSession(appDataDir, req.params.id));
+      res.json(publicSessionView(await endSession(appDataDir, req.params.id)));
     } catch (err) {
       res.status(404).json({ error: err.message });
     }
@@ -246,7 +264,7 @@ export function makeSessionsRouter(appDataDir) {
 
   router.post("/:id/archive", async (req, res) => {
     try {
-      res.json(await archiveSession(appDataDir, req.params.id));
+      res.json(publicSessionView(await archiveSession(appDataDir, req.params.id)));
     } catch (err) {
       res.status(404).json({ error: err.message });
     }
@@ -254,7 +272,7 @@ export function makeSessionsRouter(appDataDir) {
 
   router.post("/:id/restore", async (req, res) => {
     try {
-      res.json(await restoreSession(appDataDir, req.params.id));
+      res.json(publicSessionView(await restoreSession(appDataDir, req.params.id)));
     } catch (err) {
       res.status(404).json({ error: err.message });
     }

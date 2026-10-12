@@ -105,6 +105,23 @@ test("publicQuestionView strips answer-key fields but keeps choices", () => {
   assert.deepEqual(view, { bankQuestionId: "q1", type: "multiple_choice", prompt: "p", choices: ["a", "b"] });
 });
 
+test("publicQuestionView keeps modelAnswer/rubric/misconceptions once pendingAnswer is set", () => {
+  const question = {
+    bankQuestionId: "q2",
+    type: "short_answer",
+    prompt: "p",
+    modelAnswer: "the answer",
+    rubric: ["point one"],
+    misconceptions: ["mix-up"],
+    pendingAnswer: { answerText: "my answer", confidence: 3, answeredAt: "2026-01-01T00:00:00.000Z" },
+  };
+  const view = publicQuestionView(question);
+  assert.equal(view.modelAnswer, "the answer");
+  assert.deepEqual(view.rubric, ["point one"]);
+  assert.deepEqual(view.misconceptions, ["mix-up"]);
+  assert.deepEqual(view.pendingAnswer, question.pendingAnswer);
+});
+
 // --- gradeAutoGradedAnswer / mapAutoGradeToRating ------------------------
 
 test("gradeAutoGradedAnswer grades multiple_choice by index", () => {
