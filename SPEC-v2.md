@@ -22,7 +22,9 @@ test, fetch/rebase/retest/push loop, issue close/comment, bug tracker in
 the dashboard.
 
 - Stand-in for v1.0: the top bar's "Report a bug" button is hidden; the
-  first users report bugs to the owner directly.
+  first users report bugs to the owner directly. The setup wizard's
+  GitHub (`gh`) step stays in v1.0 so Bug Fixer can drop in without a
+  re-setup — and the owner may still pull Bug Fixer back into v1.
 - Nothing built yet.
 
 ## 2. Deadlines + suggested schedule (v1 section 9, build step 7)
@@ -80,11 +82,6 @@ still covers both OSes in the meantime.
 v1.0 adds a Windows Start Menu/Desktop shortcut to reopen Athena after the
 first install. The macOS equivalent (an app bundle or Dock/Launchpad
 entry) moves here alongside the macOS clean-machine test.
-
-## 8. GitHub CLI setup step
-
-v1.0's setup wizard no longer requires `gh`, which only Bug Fixer needs.
-It comes back with section 1, explaining why a GitHub account is needed.
 
 ## Already out of scope for v1, still out for v2 unless decided otherwise
 
