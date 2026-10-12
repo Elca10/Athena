@@ -1,15 +1,71 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { resolveExecutable, waitForHealth, openBrowser, updateAndStart } from "../bootstrap.mjs";
+import path from "node:path";
+import { resolveSpawnTarget, run, waitForHealth, openBrowser, updateAndStart } from "../bootstrap.mjs";
 
-test("resolveExecutable: appends .cmd for npm/npx on win32 only", () => {
-  assert.equal(resolveExecutable("npm", "win32"), "npm.cmd");
-  assert.equal(resolveExecutable("npx", "win32"), "npx.cmd");
-  assert.equal(resolveExecutable("node", "win32"), "node");
-  assert.equal(resolveExecutable("git", "win32"), "git");
-  assert.equal(resolveExecutable("npm", "darwin"), "npm");
-  assert.equal(resolveExecutable("npm", "linux"), "npm");
+test("resolveSpawnTarget: node/git pass straight through on every platform, no .cmd/.cli resolution", () => {
+  const opts = { platform: "win32", execPath: "C:\\Program Files\\nodejs\\node.exe", existsFn: () => true };
+  assert.deepEqual(resolveSpawnTarget("node", ["x.js"], opts), { command: "node", args: ["x.js"], shell: false });
+  assert.deepEqual(resolveSpawnTarget("git", ["status"], opts), { command: "git", args: ["status"], shell: false });
+  assert.deepEqual(resolveSpawnTarget("npm", ["install"], { platform: "darwin" }), {
+    command: "npm",
+    args: ["install"],
+    shell: false,
+  });
+  assert.deepEqual(resolveSpawnTarget("npm", ["install"], { platform: "linux" }), {
+    command: "npm",
+    args: ["install"],
+    shell: false,
+  });
+});
+
+test("resolveSpawnTarget: npm/npx on win32 run npm-cli.js/npx-cli.js directly via execPath's node.exe, not the .cmd shim", () => {
+  const execPath = "C:\\Program Files\\nodejs\\node.exe";
+  const seenPaths = [];
+  const existsFn = (p) => {
+    seenPaths.push(p);
+    return true;
+  };
+
+  const expectedCliScript = path.win32.join(
+    "C:\\Program Files\\nodejs",
+    "node_modules",
+    "npm",
+    "bin",
+    "npm-cli.js",
+  );
+
+  const target = resolveSpawnTarget("npm", ["install"], { platform: "win32", execPath, existsFn });
+  assert.equal(target.command, execPath);
+  assert.deepEqual(target.args, [expectedCliScript, "install"]);
+  assert.equal(target.shell, false);
+  assert.deepEqual(seenPaths, [expectedCliScript]);
+
+  const npxTarget = resolveSpawnTarget("npx", ["--version"], { platform: "win32", execPath, existsFn });
+  assert.ok(npxTarget.args[0].endsWith(path.win32.join("npm", "bin", "npx-cli.js")));
+});
+
+test("resolveSpawnTarget: falls back to the .cmd shim with shell:true when npm-cli.js isn't where a standard install puts it", () => {
+  const target = resolveSpawnTarget("npm", ["install"], {
+    platform: "win32",
+    execPath: "C:\\Program Files\\nodejs\\node.exe",
+    existsFn: () => false,
+  });
+  assert.deepEqual(target, { command: "npm.cmd", args: ["install"], shell: true });
+});
+
+// Regression test for CVE-2024-27980: on patched Node (>=18.20.2/20.12.2/
+// 21.7.2 — any current LTS), spawning a .cmd/.bat target without
+// shell:true throws EINVAL instead of running it. bootstrap.mjs's own
+// run("npm", ...) path (installAndStart) was never exercised by any test
+// with a *real* npm spawn before this — every existing updateAndStart test
+// injects a fake `install`, so the actual spawn call was unverified on
+// every OS in CI, including windows-latest, until now. `npm --version`
+// touches no network and no disk beyond npm's own startup, so this is safe
+// to run unconditionally in CI on all three OSes.
+test("run(): actually spawns real npm without throwing EINVAL", async () => {
+  await run("npm", ["--version"]);
 });
 
 test("waitForHealth resolves as soon as the endpoint reports ok:true", async () => {

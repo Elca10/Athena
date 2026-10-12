@@ -26,26 +26,55 @@ export const REPO_ROOT = path.resolve(__dirname, "..");
 
 /**
  * Pure function (platform injected for testability, same pattern as
- * dataDir.js's resolveAppDataDir): on Windows, `npm`/`npx` are `.cmd`
- * shims that Node's own `child_process.spawn` only resolves reliably with
- * `shell: true` — which this file deliberately avoids (SPEC.md section 2:
- * "no shell-string exec"). `cross-spawn` normally handles this (see
- * processUtil.js) but isn't available yet here. `git` and `node` are real
- * executables on every OS and need no special-casing.
+ * dataDir.js's resolveAppDataDir): on Windows, `npm`/`npx` are themselves
+ * `.cmd` shims around `npm-cli.js`/`npx-cli.js`. Node's own
+ * `child_process.spawn` used to resolve a `.cmd`/`.bat` target even
+ * without `shell: true`; CVE-2024-27980 closed that off (patched in Node
+ * >=18.20.2/20.12.2/21.7.2 — i.e. any current LTS, including whatever
+ * winget installs) and spawning one directly now throws EINVAL instead.
+ * `shell: true` is deliberately avoided here (SPEC.md section 2: "no
+ * shell-string exec") and `cross-spawn` (processUtil.js) isn't available
+ * yet this early in the install. Fix: run the real `*-cli.js` script
+ * straight through the same `node.exe` already resolved as
+ * `process.execPath` — no shim, no shell, same argv-array safety as every
+ * other command here. Falls back to invoking the `.cmd` shim via
+ * `shell: true` only if that script isn't where a standard install puts
+ * it (a non-standard Node layout) — safe specifically here because every
+ * arg this file ever passes is fixed/internal, never raw user input, so
+ * `shell: true`'s usual re-parsing risk doesn't apply. `git` and `node`
+ * are real executables on every OS and need no special-casing.
  */
-export function resolveExecutable(command, platform = process.platform) {
+export function resolveSpawnTarget(
+  command,
+  args,
+  { platform = process.platform, execPath = process.execPath, existsFn = existsSync } = {},
+) {
   if (platform === "win32" && (command === "npm" || command === "npx")) {
-    return `${command}.cmd`;
+    // path.win32, not the ambient `path` (which follows the HOST platform,
+    // not the injected `platform` above) — needed so this resolves
+    // correctly both for real on Windows and under test on Linux/macOS CI.
+    const cliScript = path.win32.join(
+      path.win32.dirname(execPath),
+      "node_modules",
+      "npm",
+      "bin",
+      `${command}-cli.js`,
+    );
+    if (existsFn(cliScript)) {
+      return { command: execPath, args: [cliScript, ...args], shell: false };
+    }
+    return { command: `${command}.cmd`, args, shell: true };
   }
-  return command;
+  return { command, args, shell: false };
 }
 
 /** Runs a command to completion, streaming its output straight to this
  * process's own stdio so the person running the installer sees progress
  * (npm install output, etc.) rather than a silent hang. */
-function run(command, args, { cwd } = {}) {
+export function run(command, args, { cwd } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(resolveExecutable(command), args, { cwd, stdio: "inherit" });
+    const target = resolveSpawnTarget(command, args);
+    const child = spawn(target.command, target.args, { cwd, stdio: "inherit", shell: target.shell });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
@@ -58,7 +87,8 @@ function run(command, args, { cwd } = {}) {
  * script, and returns immediately — `main()` below still waits for it to
  * report healthy before declaring the install done. */
 function startServerDetached({ cwd, env } = {}) {
-  const child = spawn(resolveExecutable("node"), [path.join(cwd, "server", "src", "index.js")], {
+  const target = resolveSpawnTarget("node", [path.join(cwd, "server", "src", "index.js")]);
+  const child = spawn(target.command, target.args, {
     cwd,
     stdio: "ignore",
     detached: true,

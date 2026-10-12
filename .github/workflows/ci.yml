@@ -15,7 +15,15 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # `release` and `hotfix/**`: promote-release.mjs's normal path only
+    # ever fast-forwards `release` to a commit that already has a
+    # completed CI run under its exact SHA (checked via GitHub's API by
+    # commit, not branch — see isCommitCiGreen), which a `main` push
+    # provides. An urgent hotfix branched straight off `release` (skipping
+    # `main` until after release is fixed) has no such run yet unless its
+    # own push triggers one, and a direct `git push origin <sha>:release`
+    # for the same reason needs its own trigger too.
+    branches: [main, release, "hotfix/**"]
   pull_request:
 
 jobs:
