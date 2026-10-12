@@ -284,6 +284,83 @@ body {
   font-size: 0.85rem;
 }
 
+.bug-report-panel {
+  border: 1px solid #ddd;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.bug-report-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.bug-report-describe,
+.bug-report-preview,
+.bug-report-result {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
+.bug-report-describe textarea {
+  resize: vertical;
+}
+
+.bug-report-describe button,
+.bug-report-result button {
+  align-self: flex-start;
+}
+
+.bug-report-note {
+  font-size: 0.85rem;
+  color: #666;
+  margin: 0;
+}
+
+.bug-report-warning {
+  font-size: 0.9rem;
+  background: #fff6e0;
+  border: 1px solid #e8d6a0;
+  border-radius: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  margin: 0;
+}
+
+.bug-report-preview-field label {
+  display: block;
+  font-size: 0.8rem;
+  color: #666;
+  margin-bottom: 0.2rem;
+}
+
+.bug-report-preview-text {
+  border: 1px solid #eee;
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.6rem;
+  background: #fafafa;
+}
+
+.bug-report-preview-body {
+  white-space: pre-wrap;
+  font-family: inherit;
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.bug-report-preview-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.bug-report-error {
+  color: #a32020;
+  font-size: 0.9rem;
+}
+
 .study-picker {
   max-width: 32rem;
 }

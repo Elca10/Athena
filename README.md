@@ -91,10 +91,22 @@ updates along the way).
 
 ## Reporting a bug
 
-There's no in-app "Report a bug" button yet. For now, if something looks
-wrong or breaks, tell whoever set Athena-Studying up for you, with as
-much detail as you can (what you were doing, what you expected, and what
-happened instead).
+Click **Report a bug** at the top of the dashboard. Describe what went
+wrong — what you were doing, what you expected, and what happened
+instead — then click **Preview report**.
+
+Athena adds a few technical details automatically (its version, your
+operating system, and any recent error messages), with anything personal
+— file paths, your username, your subject and topic names — removed
+first. You'll see the exact text before anything is sent: review it, then
+click **Send**, or **Back** to change your description first.
+
+Sending posts a public GitHub issue (this requires the free GitHub
+account set up during install), visible to anyone along with your GitHub
+username — the preview screen says so too. Once sent, Athena shows you a
+link to the issue it created, or a plain-language explanation if sending
+didn't work (for example, if you're not signed in to GitHub or you're
+offline).
 
 ## Uninstalling
 

@@ -33,10 +33,8 @@ test("renders the top bar actions and the session columns' empty state", async (
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
-  for (const label of ["Report a bug", "Calendar"]) {
-    expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
-  }
-  for (const label of ["Tune Athena", "Archive"]) {
+  expect(screen.queryByRole("button", { name: "Calendar" })).not.toBeInTheDocument();
+  for (const label of ["Report a bug", "Tune Athena", "Archive"]) {
     expect(screen.getByRole("button", { name: label })).toBeEnabled();
   }
 

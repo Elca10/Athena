@@ -312,3 +312,19 @@ export function uploadBinaryContent(subjectId: string, filename: string, content
 export function addPastedNotes(subjectId: string, text: string): Promise<ContentItem> {
   return postJsonBody(`/api/subjects/${subjectId}/content/notes`, { text });
 }
+
+// Mirrors server/src/bugReport.js's two-step flow (SPEC.md section 10/
+// 3.6): /preview never has a side effect — it just returns the exact
+// `{title, body}` a confirmation screen shows, already redacted. /send
+// takes exactly that previewed pair back (never the raw description
+// again) so what gets filed can never diverge from what the user saw.
+export type BugReportPreview = { title: string; body: string };
+export type BugReportSendResult = { ok: true; url: string } | { ok: false; error: string };
+
+export function previewBugReport(description: string): Promise<BugReportPreview> {
+  return postJsonBody(`/api/bug-report/preview`, { description });
+}
+
+export function sendBugReport(preview: BugReportPreview): Promise<BugReportSendResult> {
+  return postJsonBody(`/api/bug-report/send`, preview);
+}

@@ -20,6 +20,7 @@ import {
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
+import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
@@ -38,9 +39,10 @@ import { StudyFlow } from "./StudyFlow";
 // in place and refresh — SPEC.md section 4: archiving keeps the data, it
 // just leaves this dashboard (and the schedule, once that exists) until
 // restored from the Archive view, which already has both Restores wired.
-// "Report a bug" and "Calendar" (SPEC.md section 14: both moved to v2)
-// are hidden entirely rather than shown disabled — v1.0 ship scope has no
-// "Coming soon" stub visible anywhere in the UI.
+// "Report a bug" (SPEC.md section 10/3.6) opens ReportBugPanel — describe,
+// preview the redacted issue text, explicit Send. "Calendar" (SPEC.md
+// section 14: still v2) stays hidden entirely rather than shown disabled
+// — v1.0 ship scope has no "Coming soon" stub visible anywhere in the UI.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -50,6 +52,7 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 export function Dashboard() {
   const [view, setView] = useState<"dashboard" | "archive" | "study">("dashboard");
   const [showTune, setShowTune] = useState(false);
+  const [showBugReport, setShowBugReport] = useState(false);
   const [showNewSubject, setShowNewSubject] = useState(false);
   const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
   const [studySubjectId, setStudySubjectId] = useState<string | null>(null);
@@ -112,6 +115,9 @@ export function Dashboard() {
           <UsageStatusSummary usage={usage} />
         </div>
         <div className="dashboard-header-actions">
+          <button type="button" onClick={() => setShowBugReport((v) => !v)}>
+            Report a bug
+          </button>
           <button type="button" onClick={() => setShowTune((v) => !v)}>
             Tune Athena
           </button>
@@ -120,6 +126,7 @@ export function Dashboard() {
           </button>
         </div>
       </header>
+      {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
       {contentSubjectId && (
         <AddContentPanel
