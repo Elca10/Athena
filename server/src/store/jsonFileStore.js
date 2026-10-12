@@ -23,6 +23,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { recordError } from "../errorLog.js";
 
 const MAX_BACKUPS_PER_FILE = 20;
 let minBackupIntervalMs = 60_000;
@@ -60,7 +61,9 @@ async function backupBeforeOverwrite(fileName, filePath, backupDir) {
       await fs.unlink(path.join(backupDir, mine[i])).catch(() => {});
     }
   } catch (err) {
-    console.error(`backupBeforeOverwrite(${fileName}): best-effort backup failed, continuing with the real write:`, err.message);
+    const message = `backupBeforeOverwrite(${fileName}): best-effort backup failed, continuing with the real write: ${err.message}`;
+    console.error(message);
+    recordError(message);
   }
 }
 

@@ -19,6 +19,8 @@ import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
+import { makeBugReportRouter } from "./routes/bugReport.js";
+import { recordError } from "./errorLog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +57,7 @@ export async function createApp() {
   app.use("/api/sessions", makeSessionsRouter(appDataDir));
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
+  app.use("/api/bug-report", makeBugReportRouter(appDataDir));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));
@@ -64,6 +67,17 @@ export async function createApp() {
     res.sendFile(path.join(distDir, "index.html"), (err) => {
       if (err) next(err);
     });
+  });
+
+  // Last-resort error handler (Express identifies it by its 4-arg
+  // signature): records the error so it can show up in a future bug
+  // report's "recent server errors" diagnostic (errorLog.js), then
+  // answers with a generic 500 — never the raw error message/stack,
+  // which could contain a file path or other local detail, straight to
+  // the browser.
+  app.use((err, _req, res, _next) => {
+    recordError(`${err.message ?? err}`);
+    res.status(500).json({ error: "Something went wrong." });
   });
 
   return { app, appDataDir };
