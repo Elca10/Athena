@@ -21,10 +21,14 @@ issue from the user's account, isolated-worktree fix session, regression
 test, fetch/rebase/retest/push loop, issue close/comment, bug tracker in
 the dashboard.
 
-- Stand-in for v1.0: the top bar's "Report a bug" button is hidden; the
-  first users report bugs to the owner directly. The setup wizard's
-  GitHub (`gh`) step stays in v1.0 so Bug Fixer can drop in without a
-  re-setup — and the owner may still pull Bug Fixer back into v1.
+- v1.0 ships the first half only (decided 2026-10-12): "Report a bug"
+  files a redacted, user-previewed GitHub issue from the user's own
+  account via `gh`. Everything after filing (the fixer session, regression
+  test, push, issue close, bug tracker) stays here. Open design questions
+  for the fixer: the user's account needs push access (collaborator
+  invite) or the fixer opens a PR from a fork instead; and with the
+  `release` channel, a fix pushed to `main` only reaches the user once the
+  owner promotes it.
 - Nothing built yet.
 
 ## 2. Deadlines + suggested schedule (v1 section 9, build step 7)
