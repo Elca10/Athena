@@ -70,10 +70,21 @@ added.
 
 ## 6. Full clean-machine testing on both OSes (v1 build step 8)
 
-v1.0 requires a clean-machine end-to-end test on the first friend's own OS
-(a new macOS user account works as a stand-in on Mac). The other OS's
-clean-machine test moves here, before the app goes to a second friend who
-uses it. CI still covers both OSes in the meantime.
+v1.0 requires a clean-machine end-to-end test on Windows, the first
+friend's OS. The macOS clean-machine test (a new macOS user account works
+as a stand-in) moves here, before the app goes to a friend on a Mac. CI
+still covers both OSes in the meantime.
+
+## 7. macOS relaunch shortcut
+
+v1.0 adds a Windows Start Menu/Desktop shortcut to reopen Athena after the
+first install. The macOS equivalent (an app bundle or Dock/Launchpad
+entry) moves here alongside the macOS clean-machine test.
+
+## 8. GitHub CLI setup step
+
+v1.0's setup wizard no longer requires `gh`, which only Bug Fixer needs.
+It comes back with section 1, explaining why a GitHub account is needed.
 
 ## Already out of scope for v1, still out for v2 unless decided otherwise
 
