@@ -122,12 +122,20 @@ export function getSubjectSummary(id: string): Promise<SubjectSummary> {
   return getJson(`/api/subjects/${id}/summary`);
 }
 
+export function archiveSubject(id: string): Promise<Subject> {
+  return postJson(`/api/subjects/${id}/archive`);
+}
+
 export function restoreSubject(id: string): Promise<Subject> {
   return postJson(`/api/subjects/${id}/restore`);
 }
 
 export function listSessions({ includeArchived = false }: { includeArchived?: boolean } = {}): Promise<Session[]> {
   return getJson(`/api/sessions${includeArchived ? "?includeArchived=true" : ""}`);
+}
+
+export function archiveSession(id: string): Promise<Session> {
+  return postJson(`/api/sessions/${id}/archive`);
 }
 
 export function restoreSession(id: string): Promise<Session> {

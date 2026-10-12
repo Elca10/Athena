@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
@@ -34,7 +34,7 @@ test("renders the top bar actions and the session columns' empty state", async (
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
   for (const label of ["Report a bug", "Calendar"]) {
-    expect(screen.getByRole("button", { name: label })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: label })).not.toBeInTheDocument();
   }
   for (const label of ["Tune Athena", "Archive"]) {
     expect(screen.getByRole("button", { name: label })).toBeEnabled();
@@ -205,10 +205,40 @@ test("renders a real subject card with its mastery/due/bank-size stats once load
   expect(within(card).getByText("2 new · 1 learning · 3 mastered")).toBeInTheDocument();
   expect(within(card).getByText("4 due today")).toBeInTheDocument();
   expect(within(card).getByText("10 ready questions")).toBeInTheDocument();
-  expect(within(card).getByRole("button", { name: "Archive" })).toBeDisabled();
+  expect(within(card).getByRole("button", { name: "Archive" })).toBeEnabled();
   expect(within(card).getByRole("button", { name: "Study" })).toBeEnabled();
   expect(within(card).getByRole("button", { name: "Add content" })).toBeEnabled();
   expect(api.getSubjectSummary).toHaveBeenCalledWith("s1");
+});
+
+test("clicking a subject's Archive button archives it and refreshes", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.archiveSubject).mockResolvedValue({
+    id: "s1",
+    name: "Organic Chemistry",
+    archived: true,
+    createdAt: "2026-01-01",
+  });
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const heading = await screen.findByRole("heading", { name: "Organic Chemistry" });
+  const card = heading.closest("article") as HTMLElement;
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  await user.click(within(card).getByRole("button", { name: "Archive" }));
+
+  expect(api.archiveSubject).toHaveBeenCalledWith("s1");
+  await waitFor(() => expect(screen.queryByRole("heading", { name: "Organic Chemistry" })).not.toBeInTheDocument());
 });
 
 test("clicking Study opens the study flow pre-selecting that subject, and Back to dashboard returns", async () => {
@@ -314,6 +344,47 @@ test("an Active session has no Resume button; a reflection-pending Waiting sessi
 
   expect(await screen.findByText("Waiting on your end-of-session reflection.")).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Resume" })).toHaveLength(1);
+});
+
+test("only a Completed session gets an Archive button, and clicking it archives and refreshes", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  const sessions: api.Session[] = [
+    { id: "active-1", subjectIds: [], mode: "live", status: "active", endedAt: null, archived: false, currentQuestion: null, history: [] },
+    {
+      id: "waiting-1",
+      subjectIds: [],
+      mode: "ready",
+      status: "waiting",
+      endedAt: null,
+      archived: false,
+      currentQuestion: { topicId: "t1", subjectId: "s1", type: "short_answer", prompt: "p", difficulty: "medium", askedAt: "2026-01-01T00:00:00.000Z" },
+      history: [],
+    },
+    { id: "completed-1", subjectIds: [], mode: "live", status: "completed", endedAt: "2026-01-03T00:00:00.000Z", archived: false, currentQuestion: null, history: [{}] },
+  ];
+  vi.mocked(api.listSessions).mockResolvedValue(sessions);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.archiveSession).mockResolvedValue({ ...sessions[2], archived: true });
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const completedHeading = await screen.findByRole("heading", { name: "Completed" });
+  const completedColumn = completedHeading.closest(".dashboard-session-column") as HTMLElement;
+  const archiveButton = within(completedColumn).getByRole("button", { name: "Archive" });
+
+  const activeHeading = screen.getByRole("heading", { name: "Active" });
+  const activeColumn = activeHeading.closest(".dashboard-session-column") as HTMLElement;
+  const waitingHeading = screen.getByRole("heading", { name: "Waiting" });
+  const waitingColumn = waitingHeading.closest(".dashboard-session-column") as HTMLElement;
+  expect(within(activeColumn).queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+  expect(within(waitingColumn).queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+
+  vi.mocked(api.listSessions).mockResolvedValue([sessions[0], sessions[1]]);
+  await user.click(archiveButton);
+
+  expect(api.archiveSession).toHaveBeenCalledWith("completed-1");
+  await waitFor(() => expect(screen.queryByText("1 question answered")).not.toBeInTheDocument());
 });
 
 test("clicking Add content opens the panel for that subject, and Close dismisses it", async () => {

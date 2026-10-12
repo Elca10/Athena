@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import {
+  archiveSession,
+  archiveSubject,
   createSubject,
   getSessionStats,
   getSubjectSummary,
@@ -31,10 +33,14 @@ import { StudyFlow } from "./StudyFlow";
 // and the shared end-of-session reflection prompt). A Waiting session
 // row's "Resume" button opens the same StudyFlow, skipping the mode
 // picker, right back into wherever that session left off (mid-question,
-// mid-self-grade in Ready, or awaiting the reflection prompt).
-// Subjects' and sessions' Archive actions, and the remaining top bar
-// action buttons (Report a bug, Calendar), still need their own flows
-// built, so they stay disabled placeholders.
+// mid-self-grade in Ready, or awaiting the reflection prompt). A
+// subject's "Archive" and a Completed session's "Archive" both archive
+// in place and refresh — SPEC.md section 4: archiving keeps the data, it
+// just leaves this dashboard (and the schedule, once that exists) until
+// restored from the Archive view, which already has both Restores wired.
+// "Report a bug" and "Calendar" (SPEC.md section 14: both moved to v2)
+// are hidden entirely rather than shown disabled — v1.0 ship scope has no
+// "Coming soon" stub visible anywhere in the UI.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -106,14 +112,8 @@ export function Dashboard() {
           <UsageStatusSummary usage={usage} />
         </div>
         <div className="dashboard-header-actions">
-          <button type="button" disabled title="Coming soon">
-            Report a bug
-          </button>
           <button type="button" onClick={() => setShowTune((v) => !v)}>
             Tune Athena
-          </button>
-          <button type="button" disabled title="Coming soon">
-            Calendar
           </button>
           <button type="button" onClick={() => setView("archive")}>
             Archive
@@ -160,6 +160,10 @@ export function Dashboard() {
                 setStudySubjectId(subject.id);
                 setView("study");
               }}
+              onArchive={async () => {
+                await archiveSubject(subject.id);
+                refresh();
+              }}
             />
           ))}
         </section>
@@ -186,6 +190,14 @@ export function Dashboard() {
                           }
                         : undefined
                     }
+                    onArchive={
+                      session.status === "completed"
+                        ? async () => {
+                            await archiveSession(session.id);
+                            refresh();
+                          }
+                        : undefined
+                    }
                   />
                 ))}
               </div>
@@ -198,9 +210,9 @@ export function Dashboard() {
 }
 
 // SPEC.md section 4: "Sessions and subjects can both be archived and
-// restored from the Archive view." Archiving itself isn't wired up
-// anywhere yet (every Archive button elsewhere is still a disabled
-// placeholder), so the only action this view offers is Restore.
+// restored from the Archive view." Archiving itself happens from the main
+// dashboard (a subject's own Archive button; a Completed session's) — the
+// only action this dedicated view offers is the other half, Restore.
 function ArchiveView({ onBack }: { onBack: () => void }) {
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -290,10 +302,12 @@ function SessionRow({
   session,
   subjectName,
   onResume,
+  onArchive,
 }: {
   session: Session;
   subjectName: (id: string) => string;
   onResume?: () => void;
+  onArchive?: () => void;
 }) {
   const subjectLabel = session.subjectIds.map(subjectName).join(", ");
   const modeLabel = session.mode === "live" ? "Live" : "Ready";
@@ -327,6 +341,11 @@ function SessionRow({
           Resume
         </button>
       )}
+      {onArchive && (
+        <button type="button" onClick={onArchive}>
+          Archive
+        </button>
+      )}
     </article>
   );
 }
@@ -336,11 +355,13 @@ function SubjectCard({
   summary,
   onAddContent,
   onStudy,
+  onArchive,
 }: {
   subject: Subject;
   summary: SubjectSummary | undefined;
   onAddContent: () => void;
   onStudy: () => void;
+  onArchive: () => void;
 }) {
   return (
     <article className="subject-card">
@@ -364,7 +385,7 @@ function SubjectCard({
         <button type="button" onClick={onStudy}>
           Study
         </button>
-        <button type="button" disabled title="Coming soon">
+        <button type="button" onClick={onArchive}>
           Archive
         </button>
       </div>
