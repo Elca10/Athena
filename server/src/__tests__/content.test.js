@@ -5,9 +5,51 @@ import { createWriteStream } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import PDFDocument from "pdfkit";
+import AdmZip from "adm-zip";
 import { listContent, addUploadedContent, addPastedNotes, buildPdfParsedText, MAX_BINARY_CONTENT_BYTES } from "../content.js";
 import { appDataSubdirs } from "../dataDir.js";
 import { makeJsonFileStore } from "../store/jsonFileStore.js";
+
+const PRESENTATION_NS =
+  'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ' +
+  'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" ' +
+  'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+
+/** Builds a minimal (but real) .pptx buffer with one slide per entry in
+ * `slideTexts` (falsy for a blank slide, exercising "no extractable
+ * text" the same way `samplePdfBuffer`'s `null` pages do below) — same
+ * zip+XML technique pptxExtract.test.js uses for its own, more detailed
+ * fixtures, trimmed down here since this file only needs a real, valid
+ * deck to drive through `ingest()`, not to exercise pptxExtract.js's own
+ * structural edge cases (covered there). */
+function samplePptxBuffer(slideTexts) {
+  const zip = new AdmZip();
+  const sldIds = [];
+  const rels = [];
+  slideTexts.forEach((text, i) => {
+    const rid = `rId${i + 1}`;
+    sldIds.push(`<p:sldId id="${256 + i}" r:id="${rid}"/>`);
+    rels.push(
+      `<Relationship Id="${rid}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide${i + 1}.xml"/>`,
+    );
+    const body = text
+      ? `<p:sp><p:nvSpPr><p:cNvPr id="2" name="TextBox"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp>`
+      : "";
+    const slideXml =
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+      `<p:sld ${PRESENTATION_NS}><p:cSld><p:spTree>${body}</p:spTree></p:cSld></p:sld>`;
+    zip.addFile(`ppt/slides/slide${i + 1}.xml`, Buffer.from(slideXml, "utf8"));
+  });
+  const presentationXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<p:presentation ${PRESENTATION_NS}><p:sldIdLst>${sldIds.join("")}</p:sldIdLst></p:presentation>`;
+  zip.addFile("ppt/presentation.xml", Buffer.from(presentationXml, "utf8"));
+  const relsXml =
+    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n` +
+    `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels.join("")}</Relationships>`;
+  zip.addFile("ppt/_rels/presentation.xml.rels", Buffer.from(relsXml, "utf8"));
+  return zip.toBuffer();
+}
 
 async function scratchDir() {
   return fs.mkdtemp(path.join(os.tmpdir(), "athena-content-"));
@@ -82,9 +124,10 @@ test("addUploadedContent rejects a missing filename", async () => {
 });
 
 test("addUploadedContent rejects an unsupported file type and stores nothing", async () => {
+  // .docx, not .pptx -- PPTX is a supported binary format now.
   const dir = await scratchDir();
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "slides.pptx", text: "whatever" }),
+    () => addUploadedContent(dir, "subject-1", { filename: "notes.docx", text: "whatever" }),
     /unsupported file type/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -276,6 +319,79 @@ test("addUploadedContent rejects a corrupt .pdf (not a real PDF) and leaves no r
   await assert.rejects(
     () => addUploadedContent(dir, "subject-1", { filename: "fake.pdf", contentBase64: notAPdf.toString("base64") }),
     /couldn't read this pdf/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+  const dirs = appDataSubdirs(dir);
+  assert.deepEqual(await fs.readdir(path.join(dirs.content, "subject-1", "raw")).catch(() => []), []);
+});
+
+test("addUploadedContent accepts a real .pptx, extracts text, and records no unreliable slides", async () => {
+  const dir = await scratchDir();
+  const rawBytes = samplePptxBuffer([
+    "The quick brown fox jumps over the lazy dog and the cat too.",
+    "Slide two has different content about the history of the subject.",
+  ]);
+
+  const record = await addUploadedContent(dir, "subject-1", {
+    filename: "Lecture 1.pptx",
+    contentBase64: rawBytes.toString("base64"),
+  });
+
+  assert.equal(record.extension, ".pptx");
+  assert.equal(record.source, "upload");
+  assert.equal(record.sizeBytes, rawBytes.length);
+  assert.deepEqual(record.unreliablePages, []);
+
+  const dirs = appDataSubdirs(dir);
+  const rawPath = path.join(dirs.content, "subject-1", "raw", `${record.id}.pptx`);
+  const parsedPath = path.join(dirs.content, "subject-1", "parsed", `${record.id}.md`);
+  // Raw file on disk is the exact original binary, not re-encoded/altered.
+  assert.deepEqual(await fs.readFile(rawPath), rawBytes);
+  const parsedText = await fs.readFile(parsedPath, "utf8");
+  assert.match(parsedText, /## Slide 1/);
+  assert.match(parsedText, /quick brown fox/);
+  assert.match(parsedText, /## Slide 2/);
+  assert.match(parsedText, /history of the subject/);
+});
+
+test("addUploadedContent flags a PPTX's unreliable slides without dropping them", async () => {
+  const dir = await scratchDir();
+  const garbled = Array.from({ length: 50 }, (_, i) => `xqvbk${i}`).join(" ");
+  const rawBytes = samplePptxBuffer(["This is a perfectly normal slide with the usual common English words.", garbled]);
+
+  const record = await addUploadedContent(dir, "subject-1", {
+    filename: "Lecture 2.pptx",
+    contentBase64: rawBytes.toString("base64"),
+  });
+
+  assert.deepEqual(record.unreliablePages, [2]);
+  const dirs = appDataSubdirs(dir);
+  const parsedText = await fs.readFile(path.join(dirs.content, "subject-1", "parsed", `${record.id}.md`), "utf8");
+  // The flagged slide's text is still present (not dropped), just marked.
+  assert.match(parsedText, /EXTRACTION UNRELIABLE/);
+  assert.match(parsedText, /xqvbk0/);
+});
+
+test("addUploadedContent rejects a PPTX with no extractable text on any slide, and leaves no raw file behind", async () => {
+  const dir = await scratchDir();
+  const rawBytes = samplePptxBuffer([null, null]); // two blank slides, no text at all
+
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "blank.pptx", contentBase64: rawBytes.toString("base64") }),
+    /no extractable text/i,
+  );
+  assert.deepEqual(await listContent(dir, "subject-1"), []);
+  const dirs = appDataSubdirs(dir);
+  assert.deepEqual(await fs.readdir(path.join(dirs.content, "subject-1", "raw")).catch(() => []), []);
+});
+
+test("addUploadedContent rejects a corrupt .pptx (not a real zip) and leaves no raw file behind", async () => {
+  const dir = await scratchDir();
+  const notAPptx = Buffer.from("this is not a pptx file at all, just plain bytes");
+
+  await assert.rejects(
+    () => addUploadedContent(dir, "subject-1", { filename: "fake.pptx", contentBase64: notAPptx.toString("base64") }),
+    /couldn't read this powerpoint file/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
   const dirs = appDataSubdirs(dir);

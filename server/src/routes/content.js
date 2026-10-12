@@ -27,7 +27,7 @@ export function makeContentRouter(appDataDir) {
       const record = await addUploadedContent(appDataDir, req.params.id, {
         filename: req.body?.filename,
         text: req.body?.text,
-        // Binary uploads (currently just PDF) arrive base64-encoded in the
+        // Binary uploads (currently PDF/PPTX) arrive base64-encoded in the
         // JSON body rather than multipart/form-data — the frontend reads
         // the file and encodes it client-side (AddContentPanel.tsx), which
         // keeps this route's shape uniform with the plain-text path and

@@ -87,13 +87,14 @@ test("POST then GET round-trips an uploaded content record over real HTTP", asyn
 });
 
 test("POST /:id/content with an unsupported extension returns 400 and creates nothing", async () => {
+  // .docx, not .pptx -- PPTX is a supported binary format now.
   const { dir, base, server } = await startApp();
   try {
     const subject = await createSubject(dir, { name: "History" });
     const res = await fetch(base(subject.id), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: "slides.pptx", text: "whatever" }),
+      body: JSON.stringify({ filename: "notes.docx", text: "whatever" }),
     });
     assert.equal(res.status, 400);
     assert.match((await res.json()).error, /unsupported file type/i);

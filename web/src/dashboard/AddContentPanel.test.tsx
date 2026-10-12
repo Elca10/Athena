@@ -34,25 +34,29 @@ test("shows the empty state, then lists content once loaded", async () => {
   expect(api.listContent).toHaveBeenCalledWith("s1");
 });
 
-test("renders existing content items, flagging any with unreliable pages", async () => {
+test("renders existing content items, flagging any with unreliable pages or slides", async () => {
   vi.mocked(api.listContent).mockResolvedValue([
     baseItem({ id: "c1", originalFilename: "clean.md" }),
     baseItem({ id: "c2", originalFilename: "scanned.pdf", extension: ".pdf", unreliablePages: [2, 5] }),
+    baseItem({ id: "c3", originalFilename: "deck.pptx", extension: ".pptx", unreliablePages: [3] }),
   ]);
   render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
 
   expect(await screen.findByText("clean.md")).toBeInTheDocument();
   expect(screen.getByText("scanned.pdf")).toBeInTheDocument();
   expect(screen.getByText(/unreliable on pages 2, 5/)).toBeInTheDocument();
+  expect(screen.getByText("deck.pptx")).toBeInTheDocument();
+  expect(screen.getByText(/unreliable on slide 3/)).toBeInTheDocument();
 });
 
-test("the file input accepts .pdf alongside the plain-text formats", async () => {
+test("the file input accepts .pdf and .pptx alongside the plain-text formats", async () => {
   vi.mocked(api.listContent).mockResolvedValue([]);
   render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
   await screen.findByText("No content added yet.");
 
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
   expect(input.accept).toContain(".pdf");
+  expect(input.accept).toContain(".pptx");
   expect(input.accept).toContain(".txt");
   expect(input.accept).toContain(".md");
 });
@@ -97,6 +101,31 @@ test("uploading a .pdf file reads it as base64 and uses the binary upload path",
   expect(api.uploadTextContent).not.toHaveBeenCalled();
 });
 
+test("uploading a .pptx file reads it as base64 and uses the binary upload path", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listContent).mockResolvedValueOnce([]).mockResolvedValueOnce([
+    baseItem({ originalFilename: "deck.pptx", extension: ".pptx" }),
+  ]);
+  vi.mocked(api.uploadBinaryContent).mockResolvedValue(baseItem({ originalFilename: "deck.pptx", extension: ".pptx" }));
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await screen.findByText("No content added yet.");
+
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  const file = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04])], "deck.pptx", {
+    type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  });
+  await user.upload(input, file);
+
+  expect(await screen.findByText("deck.pptx")).toBeInTheDocument();
+  expect(api.uploadBinaryContent).toHaveBeenCalledTimes(1);
+  const [subjectId, filename, base64] = vi.mocked(api.uploadBinaryContent).mock.calls[0];
+  expect(subjectId).toBe("s1");
+  expect(filename).toBe("deck.pptx");
+  const decodedBytes = Array.from(atob(base64), (c) => c.charCodeAt(0));
+  expect(decodedBytes).toEqual([0x50, 0x4b, 0x03, 0x04]);
+  expect(api.uploadTextContent).not.toHaveBeenCalled();
+});
+
 test("shows the server's own error message when an upload is rejected", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listContent).mockResolvedValue([]);
@@ -113,18 +142,19 @@ test("shows the server's own error message when an upload is rejected", async ()
 
 test("rejects an unsupported extension client-side without calling the API", async () => {
   // The input's own `accept` attribute already stops a real OS file
-  // dialog from offering a .pptx, but drag-and-drop (or "All Files" in
+  // dialog from offering a .docx, but drag-and-drop (or "All Files" in
   // the dialog) can still hand the input a file the accept hint doesn't
   // cover — applyAccept:false reproduces that here, to prove the
   // client-side check in handleFile is real defense, not dead code the
-  // browser's own filtering happens to make unreachable.
+  // browser's own filtering happens to make unreachable. (.docx, not
+  // .pptx — PPTX is a supported binary format now.)
   const user = userEvent.setup({ applyAccept: false });
   vi.mocked(api.listContent).mockResolvedValue([]);
   render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
   await screen.findByText("No content added yet.");
 
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
-  const file = new File(["whatever"], "slides.pptx", { type: "application/octet-stream" });
+  const file = new File(["whatever"], "notes.docx", { type: "application/octet-stream" });
   await user.upload(input, file);
 
   expect(await screen.findByText(/unsupported file type/i)).toBeInTheDocument();

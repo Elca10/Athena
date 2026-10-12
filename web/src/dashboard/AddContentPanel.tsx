@@ -2,15 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { addPastedNotes, listContent, uploadBinaryContent, uploadTextContent, type ContentItem } from "./api";
 
 // Add content (SPEC.md section 7): a native file picker (plain
-// text/markdown, now also PDF — server/src/pdfExtract.js) plus a "paste
-// class notes" text box. Binary formats are read client-side and
-// base64-encoded (see api.ts's uploadBinaryContent); text formats are
-// read and sent as-is. Topic extraction itself (the background model
-// turn) isn't triggered from here — SPEC.md's own "shows progress as an
-// Active session" step for that doesn't exist yet (topics.js's /scan
-// route is still a manual trigger) — this panel only gets content onto
-// disk and recorded, same scope as content.js's own module comment.
-const BINARY_EXTENSIONS = [".pdf"];
+// text/markdown, now also PDF and PPTX — server/src/pdfExtract.js /
+// pptxExtract.js) plus a "paste class notes" text box. Binary formats
+// are read client-side and base64-encoded (see api.ts's
+// uploadBinaryContent); text formats are read and sent as-is. Topic
+// extraction itself (the background model turn) isn't triggered from
+// here — SPEC.md's own "shows progress as an Active session" step for
+// that doesn't exist yet (topics.js's /scan route is still a manual
+// trigger) — this panel only gets content onto disk and recorded, same
+// scope as content.js's own module comment.
+const BINARY_EXTENSIONS = [".pdf", ".pptx"];
 const ACCEPTED_EXTENSIONS = [".txt", ".md", ".markdown", ...BINARY_EXTENSIONS];
 
 function extensionOf(filename: string): string {
@@ -42,9 +43,13 @@ async function readAsBase64(file: File): Promise<string> {
   return btoa(binary);
 }
 
+// `unreliablePages` holds 1-based page numbers for a PDF, slide numbers
+// for a PPTX (same field name for both — see content.js's record
+// comment); word it to match so a PPTX's note doesn't say "page".
 function formatUnreliableNote(item: ContentItem): string | null {
   if (!item.unreliablePages.length) return null;
-  const label = item.unreliablePages.length === 1 ? "page" : "pages";
+  const unit = item.extension === ".pptx" ? "slide" : "page";
+  const label = item.unreliablePages.length === 1 ? unit : `${unit}s`;
   return `⚠️ extraction looked unreliable on ${label} ${item.unreliablePages.join(", ")} — check the source file`;
 }
 

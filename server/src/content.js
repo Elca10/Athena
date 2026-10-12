@@ -2,15 +2,16 @@
 // subject, plus the "paste class notes" text box. Plain text/markdown's
 // local, no-network, no-model extraction step is the identity transform
 // (there's nothing to decode), so raw and parsed end up as the same text,
-// just filed under a deterministic id-based name. PDF support (real
-// extraction via pdfExtract.js, including its garbled-text detection) is
-// wired in below; PPTX/DOCX are still rejected as "not yet supported" —
-// their own extractors are later build-13-step-2 sub-steps. Topic
-// extraction (the one background model turn that reads newly parsed
-// files) is topicExtraction.js, which reads a content item's
-// `topicsExtractedAt` field and `parsedFilePath` below; it reads whatever
-// text ended up in the parsed file regardless of the original format, so
-// nothing there needed to change for PDF support.
+// just filed under a deterministic id-based name. PDF and PPTX support
+// (real extraction via pdfExtract.js / pptxExtract.js, including their
+// shared garbled-text detection) is wired in below via
+// `BINARY_EXTRACTORS`; DOCX is still rejected as "not yet supported" —
+// its own extractor is a later build-13-step-2 sub-step. Topic extraction
+// (the one background model turn that reads newly parsed files) is
+// topicExtraction.js, which reads a content item's `topicsExtractedAt`
+// field and `parsedFilePath` below; it reads whatever text ended up in
+// the parsed file regardless of the original format, so nothing there
+// needed to change for either binary format.
 //
 // Raw/parsed files are named `<id><ext>`, never the user's own filename —
 // sidesteps path-traversal and odd-character handling by construction.
@@ -27,16 +28,42 @@ import { promises as fs } from "node:fs";
 import { appDataSubdirs } from "./dataDir.js";
 import { makeJsonFileStore } from "./store/jsonFileStore.js";
 import { extractPdfPages } from "./pdfExtract.js";
+import { extractPptxSlides } from "./pptxExtract.js";
 
 const FILE_NAME = "content.json";
 
 // Plain-text formats, ingested as-is (identity extraction).
 const TEXT_EXTENSIONS = [".txt", ".md", ".markdown"];
 
-// Binary formats with a real extraction step (below). PPTX/DOCX aren't
-// here yet — they're rejected by the "unsupported file type" check below
-// until their own extractor lands.
-const BINARY_EXTENSIONS = [".pdf"];
+// Binary formats with a real extraction step, keyed by extension. Each
+// extractor returns `{ [unitsKey]: string[], [unreliableKey]: number[] }`
+// (pdfExtract.js's `pages`/`unreliablePageNumbers`, pptxExtract.js's
+// `slides`/`unreliableSlideNumbers`) — `ingestBinary` below reads through
+// this table rather than hard-coding either shape, so adding a format
+// (e.g. DOCX) only means adding an entry here. DOCX isn't here yet —
+// it's rejected by the "unsupported file type" check below until its own
+// extractor lands.
+const BINARY_EXTRACTORS = {
+  ".pdf": {
+    extract: extractPdfPages,
+    unitsKey: "pages",
+    unreliableKey: "unreliablePageNumbers",
+    unitLabel: "Page",
+    formatName: "PDF",
+    // A scanned, image-only PDF has no text layer at all — called out
+    // specifically since it's the common real-world cause.
+    emptyHint: " (it may be a scanned, image-only document)",
+  },
+  ".pptx": {
+    extract: extractPptxSlides,
+    unitsKey: "slides",
+    unreliableKey: "unreliableSlideNumbers",
+    unitLabel: "Slide",
+    formatName: "PowerPoint",
+    emptyHint: "",
+  },
+};
+const BINARY_EXTENSIONS = Object.keys(BINARY_EXTRACTORS);
 
 const SUPPORTED_EXTENSIONS = [...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS];
 
@@ -44,11 +71,12 @@ const SUPPORTED_EXTENSIONS = [...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS];
 // catching an accidental paste of something enormous.
 const MAX_TEXT_CONTENT_BYTES = 2 * 1024 * 1024;
 
-// PDFs run much bigger than plain text (embedded fonts/images), so this
-// gets its own, larger ceiling — 25MB comfortably covers a real lecture
-// slide deck while still catching an accidental upload of something
-// absurd. Kept well under the JSON body limit index.js sets for this
-// route (the base64-encoded payload is ~33% bigger than the raw file).
+// PDFs and PPTX decks run much bigger than plain text (embedded
+// fonts/images/media), so this gets its own, larger ceiling — 25MB
+// comfortably covers a real lecture slide deck while still catching an
+// accidental upload of something absurd. Kept well under the JSON body
+// limit index.js sets for this route (the base64-encoded payload is
+// ~33% bigger than the raw file).
 export const MAX_BINARY_CONTENT_BYTES = 25 * 1024 * 1024;
 
 // A sanity ceiling against unbounded growth (e.g. a scripting accident),
@@ -84,14 +112,21 @@ export async function listContent(appDataDir, subjectId) {
   return all.filter((c) => c.subjectId === subjectId);
 }
 
-/** Builds the parsed markdown for a PDF from `extractPdfPages()`'s
- * per-page strings: one `## Page N` section per page (any
- * `UNRELIABLE_EXTRACTION_MARKER` pdfExtract.js already prepended travels
- * with its page's text), so the model turn that later reads this file
- * sees page boundaries and the same inline flags a human reading it
- * would. Pure, exported for its own test. */
+/** Builds the parsed markdown for a binary content item from its
+ * extractor's per-unit strings (one page for PDF, one slide for PPTX):
+ * one `## <unitLabel> N` section per unit (any `UNRELIABLE_EXTRACTION_
+ * MARKER` the extractor already prepended travels with its unit's
+ * text), so the model turn that later reads this file sees unit
+ * boundaries and the same inline flags a human reading it would. Pure,
+ * exported for its own test. */
+export function buildParsedText(units, unitLabel) {
+  return units.map((text, i) => `## ${unitLabel} ${i + 1}\n\n${text}`.trimEnd()).join("\n\n");
+}
+
+// Kept as a thin wrapper — existing callers/tests already name this one
+// specifically for PDF.
 export function buildPdfParsedText(pages) {
-  return pages.map((text, i) => `## Page ${i + 1}\n\n${text}`.trimEnd()).join("\n\n");
+  return buildParsedText(pages, "Page");
 }
 
 async function ingestBinary(appDataDir, subjectId, { ext, fileBuffer, trimmedName, source }) {
@@ -117,28 +152,27 @@ async function ingestBinary(appDataDir, subjectId, { ext, fileBuffer, trimmedNam
   const parsedPath = path.join(dirs.parsed, `${id}.md`);
   await fs.writeFile(rawPath, fileBuffer);
 
-  // Real extraction only exists for PDF right now (BINARY_EXTENSIONS is
-  // currently just [".pdf"]) — this branch point is where a future PPTX
-  // extractor plugs in.
-  let pages, unreliablePageNumbers;
+  const { extract, unitsKey, unreliableKey, unitLabel, formatName, emptyHint } = BINARY_EXTRACTORS[ext];
+  let result;
   try {
-    ({ pages, unreliablePageNumbers } = await extractPdfPages(rawPath));
+    result = await extract(rawPath);
   } catch (err) {
     // Don't leave an orphan raw file behind for an upload that never
     // became a usable content item.
     await fs.unlink(rawPath).catch(() => {});
-    throw new Error(`Couldn't read this PDF: ${err.message ?? err}`);
+    throw new Error(`Couldn't read this ${formatName} file: ${err.message ?? err}`);
   }
+  const units = result[unitsKey];
+  const unreliableUnitNumbers = result[unreliableKey];
 
-  const parsedText = buildPdfParsedText(pages);
-  // A page with no usable text (e.g. a title slide) is fine; a PDF with
-  // NO extractable text on ANY page — most likely a scanned, image-only
-  // document with no text layer at all — is treated the same as "Content
-  // is empty" for a text upload, rather than silently stored as an
+  const parsedText = buildParsedText(units, unitLabel);
+  // A unit with no usable text (e.g. a title slide) is fine; a file with
+  // NO extractable text on ANY unit is treated the same as "Content is
+  // empty" for a text upload, rather than silently stored as an
   // unusable, permanently-empty content item.
-  if (!pages.some((p) => p.trim())) {
+  if (!units.some((u) => u.trim())) {
     await fs.unlink(rawPath).catch(() => {});
-    throw new Error("No extractable text found in this PDF (it may be a scanned, image-only document)");
+    throw new Error(`No extractable text found in this ${formatName} file${emptyHint}`);
   }
   await fs.writeFile(parsedPath, parsedText, "utf8");
 
@@ -153,13 +187,17 @@ async function ingestBinary(appDataDir, subjectId, { ext, fileBuffer, trimmedNam
     // Set once topic extraction has looked at this item's parsed text
     // (topicExtraction.js) — null means "still queued".
     topicsExtractedAt: null,
-    // 1-based page numbers pdfExtract.js's pageLooksUnreliable flagged as
-    // likely garbled/undecoded — [] (not omitted) when every page looked
-    // fine, so a caller can check `.length` without an existence check.
-    // Flagged pages are still ingested (their text may still be partially
+    // 1-based page/slide numbers pageLooksUnreliable (shared by
+    // pdfExtract.js and pptxExtract.js) flagged as likely garbled/
+    // undecoded — [] (not omitted) when every unit looked fine, so a
+    // caller can check `.length` without an existence check. Flagged
+    // units are still ingested (their text may still be partially
     // useful, and topic extraction already sees the same inline warning
-    // pdfExtract.js prepended) — never silently dropped, just marked.
-    unreliablePages: unreliablePageNumbers,
+    // the extractor prepended) — never silently dropped, just marked.
+    // Named `unreliablePages` (not `unreliableUnits`) for both formats —
+    // this field predates PPTX support and the UI/API already key off
+    // this exact name (see api.ts's ContentItem type).
+    unreliablePages: unreliableUnitNumbers,
   };
   await storeFor(appDataDir).update((current) => [...current, record]);
   return record;
