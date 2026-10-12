@@ -315,3 +315,7 @@ or Ready session → reflection), and a clean-machine test on that friend's
 OS. Bug Fixer (step 6), deadlines/schedule (step 7), the remaining
 Make It Stick rows, the subject detail view, the Athena persona doc, and
 the second OS's clean-machine test move to the v2 spec (`SPEC-v2.md`).
+
+Installed copies auto-update from a `release` branch, not `main`; the
+owner promotes a verified, CI-green `main` commit to `release` to ship an
+update (decided 2026-10-12).
