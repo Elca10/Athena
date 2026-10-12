@@ -163,6 +163,35 @@ export function submitReadySelfGrade(
   return postJsonBody(`/api/sessions/${sessionId}/ready/self-grade`, { selfGrades });
 }
 
+// Mirrors reflection.js's REFLECTION_FIELDS — SPEC.md section 6's
+// end-of-session prompt. Every field is individually optional; the server
+// only rejects a submission where all four come back blank (that's what
+// skipSessionReflection is for instead).
+export type ReflectionAnswers = {
+  learned?: string;
+  surprised?: string;
+  connects?: string;
+  differently?: string;
+};
+
+export type Reflection = ReflectionAnswers & {
+  id: string;
+  sessionId: string;
+  subjectIds: string[];
+  createdAt: string;
+};
+
+export function submitSessionReflection(
+  sessionId: string,
+  answers: ReflectionAnswers,
+): Promise<{ reflection: Reflection; session: Session }> {
+  return postJsonBody(`/api/sessions/${sessionId}/reflection`, answers);
+}
+
+export function skipSessionReflection(sessionId: string): Promise<Session> {
+  return postJson(`/api/sessions/${sessionId}/reflection/skip`);
+}
+
 // Mirrors server/src/sessionStats.js's return shape exactly.
 export type SessionStats = {
   sessionsThisWeek: number;

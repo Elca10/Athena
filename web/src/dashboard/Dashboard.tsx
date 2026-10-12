@@ -303,7 +303,7 @@ function SessionRow({
     detail = "Working…";
   } else if (session.status === "waiting") {
     if (session.reflectionPending) {
-      detail = "Reflection prompt coming soon.";
+      detail = "Waiting on your end-of-session reflection.";
     } else {
       const prompt = session.currentQuestion?.prompt ?? "";
       detail =

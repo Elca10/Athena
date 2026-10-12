@@ -205,7 +205,7 @@ test("shows the no-bank message without crashing when the next topic has nothing
   expect(onExit).toHaveBeenCalled();
 });
 
-test("shows the awaiting-reflection message once every due topic has been asked", async () => {
+test("shows the reflection prompt once every due topic has been asked", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockResolvedValue(baseSession());
   vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
@@ -219,7 +219,67 @@ test("shows the awaiting-reflection message once every due topic has been asked"
   await user.click(screen.getByRole("button", { name: "Start session" }));
 
   expect(await screen.findByText(/everything due right now/)).toBeInTheDocument();
-  expect(screen.getByText(/reflection prompt is coming soon/)).toBeInTheDocument();
+  for (const label of ["What did you learn?", "What surprised you?", "What does this connect to?", "What will you do differently?"]) {
+    expect(screen.getByText(label)).toBeInTheDocument();
+  }
+});
+
+test("Submit reflection stays disabled until at least one field has content, then exits on success", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    done: true,
+    awaitingReflection: true,
+    session: baseSession({ status: "waiting" }),
+    bankTopUps: [],
+  });
+  vi.mocked(api.submitSessionReflection).mockResolvedValue({
+    reflection: {
+      id: "r1",
+      sessionId: "sess-1",
+      subjectIds: ["s1"],
+      learned: "FSRS spaces reviews by confidence.",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    },
+    session: baseSession({ status: "completed" }),
+  });
+  const onExit = vi.fn();
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={onExit} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/everything due right now/);
+
+  const submitButton = screen.getByRole("button", { name: "Submit reflection" });
+  expect(submitButton).toBeDisabled();
+
+  await user.type(screen.getByLabelText("What did you learn?"), "FSRS spaces reviews by confidence.");
+  expect(submitButton).toBeEnabled();
+  await user.click(submitButton);
+
+  expect(api.submitSessionReflection).toHaveBeenCalledWith("sess-1", { learned: "FSRS spaces reviews by confidence." });
+  expect(onExit).toHaveBeenCalled();
+});
+
+test("Skip finalizes the session without requiring any reflection field", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    done: true,
+    awaitingReflection: true,
+    session: baseSession({ status: "waiting" }),
+    bankTopUps: [],
+  });
+  vi.mocked(api.skipSessionReflection).mockResolvedValue(baseSession({ status: "completed" }));
+  const onExit = vi.fn();
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={onExit} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/everything due right now/);
+
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+
+  expect(api.skipSessionReflection).toHaveBeenCalledWith("sess-1");
+  expect(onExit).toHaveBeenCalled();
 });
 
 test("resuming a session with a question already up skips the mode picker and shows it directly", async () => {

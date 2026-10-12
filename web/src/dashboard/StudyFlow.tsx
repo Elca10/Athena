@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import {
   createSession,
   generateNextReadyQuestion,
+  skipSessionReflection,
   submitReadyAnswer,
   submitReadySelfGrade,
+  submitSessionReflection,
+  type ReflectionAnswers,
   type SelfGradeStatus,
   type Session,
   type SessionQuestion,
@@ -20,9 +23,9 @@ import {
 //
 // A session that runs out of due topics moves to "waiting" with
 // `reflectionPending: true` (sessions.js's `promptReflection`) rather than
-// completing outright. This slice doesn't build the reflection prompt yet,
-// so it just says so and leaves the session sitting in the dashboard's
-// Waiting column.
+// completing outright; `ReadySessionScreen`'s `ended` state shows
+// `ReflectionPrompt` at that point (SPEC.md section 6's four prompts —
+// submit or skip, both finalize the session via reflection.js).
 //
 // `resumeSession`, passed by Dashboard.tsx when the user clicks a Waiting
 // session row instead of a subject's Study button, skips the mode picker
@@ -75,7 +78,7 @@ export function StudyFlow({
           <p>Resuming a Live session isn't supported yet.</p>
         </div>
       )}
-      {session && session.mode === "ready" && <ReadySessionScreen session={session} />}
+      {session && session.mode === "ready" && <ReadySessionScreen session={session} onExit={onExit} />}
     </div>
   );
 }
@@ -158,7 +161,7 @@ function revealedFromPendingAnswer(question: SessionQuestion | null): RevealedAn
   return { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions ?? [] };
 }
 
-function ReadySessionScreen({ session: initialSession }: { session: Session }) {
+function ReadySessionScreen({ session: initialSession, onExit }: { session: Session; onExit: () => void }) {
   const [session, setSession] = useState(initialSession);
   // Deliberately NOT read from `session.currentQuestion` while rendering
   // the answer/reveal/result stages: submitReadyAnswer/submitReadySelfGrade
@@ -269,14 +272,7 @@ function ReadySessionScreen({ session: initialSession }: { session: Session }) {
   }
 
   if (ended) {
-    return (
-      <div className="study-session">
-        <p>
-          That's everything due right now. (The end-of-session reflection prompt is coming soon — this session is
-          saved under Waiting until then.)
-        </p>
-      </div>
-    );
+    return <ReflectionPrompt sessionId={session.id} onDone={onExit} />;
   }
 
   if (stuck) {
@@ -409,6 +405,81 @@ function ReadySessionScreen({ session: initialSession }: { session: Session }) {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// SPEC.md section 6's four end-of-session prompts, in the order given
+// there — mirrors reflection.js's REFLECTION_FIELDS exactly.
+const REFLECTION_PROMPTS: { field: keyof ReflectionAnswers; label: string }[] = [
+  { field: "learned", label: "What did you learn?" },
+  { field: "surprised", label: "What surprised you?" },
+  { field: "connects", label: "What does this connect to?" },
+  { field: "differently", label: "What will you do differently?" },
+];
+
+// Every field is optional, but `submitSessionReflection` throws if all of
+// them come back blank (reflection.js: that's what Skip is for) — Submit
+// stays disabled until at least one has real content, so the user gets
+// that feedback before the round trip rather than from a server error.
+function ReflectionPrompt({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
+  const [answers, setAnswers] = useState<ReflectionAnswers>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const hasAnyAnswer = REFLECTION_PROMPTS.some(({ field }) => (answers[field] ?? "").trim());
+
+  function setField(field: keyof ReflectionAnswers, value: string) {
+    setAnswers((prev) => ({ ...prev, [field]: value }));
+  }
+
+  async function submit() {
+    setBusy(true);
+    setError(null);
+    try {
+      await submitSessionReflection(sessionId, answers);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save that reflection.");
+      setBusy(false);
+    }
+  }
+
+  async function skip() {
+    setBusy(true);
+    setError(null);
+    try {
+      await skipSessionReflection(sessionId);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't skip the reflection.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="study-session study-reflection">
+      <p>That's everything due right now. A quick reflection before you go?</p>
+      {error && <div className="study-session-error">{error}</div>}
+      {REFLECTION_PROMPTS.map(({ field, label }) => (
+        <label key={field} className="study-reflection-field">
+          {label}
+          <textarea
+            value={answers[field] ?? ""}
+            onChange={(e) => setField(field, e.target.value)}
+            rows={2}
+            disabled={busy}
+          />
+        </label>
+      ))}
+      <div className="study-reflection-actions">
+        <button type="button" onClick={submit} disabled={busy || !hasAnyAnswer}>
+          Submit reflection
+        </button>
+        <button type="button" onClick={skip} disabled={busy}>
+          Skip
+        </button>
+      </div>
     </div>
   );
 }

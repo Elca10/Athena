@@ -312,7 +312,7 @@ test("an Active session has no Resume button; a reflection-pending Waiting sessi
   mockEmptyUsage();
   render(<Dashboard />);
 
-  expect(await screen.findByText("Reflection prompt coming soon.")).toBeInTheDocument();
+  expect(await screen.findByText("Waiting on your end-of-session reflection.")).toBeInTheDocument();
   expect(screen.getAllByRole("button", { name: "Resume" })).toHaveLength(1);
 });
 

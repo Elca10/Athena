@@ -386,3 +386,19 @@ body {
   color: #666;
   font-size: 0.9rem;
 }
+
+.study-reflection-field {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+.study-reflection-field textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.study-reflection-actions {
+  display: flex;
+  gap: 0.5rem;
+}
