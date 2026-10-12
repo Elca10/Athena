@@ -18,6 +18,7 @@ import {
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
+import { StudyFlow } from "./StudyFlow";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
 // fully wired: session stats (sessions/questions this week, streak,
@@ -25,10 +26,12 @@ import { AddContentPanel } from "./AddContentPanel";
 // usage (the account's Claude usage windows, read live via `claude -p
 // "/usage"` — server/src/usageStatus.js). "Tune Athena" opens
 // TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
-// opens AddContentPanel (SPEC.md section 7). Subjects' Study/Archive
-// actions, sessions' own Archive action, and the remaining top bar
-// action buttons (Report a bug, Calendar) still need their own flows
-// built, so they stay disabled placeholders.
+// opens AddContentPanel (SPEC.md section 7). Each subject's "Study"
+// opens StudyFlow (mode picker + the Ready-mode session screen so far —
+// Live mode's screen is a later build step). Subjects' and sessions'
+// Archive actions, and the remaining top bar action buttons (Report a
+// bug, Calendar), still need their own flows built, so they stay
+// disabled placeholders.
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -36,10 +39,11 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 ];
 
 export function Dashboard() {
-  const [view, setView] = useState<"dashboard" | "archive">("dashboard");
+  const [view, setView] = useState<"dashboard" | "archive" | "study">("dashboard");
   const [showTune, setShowTune] = useState(false);
   const [showNewSubject, setShowNewSubject] = useState(false);
   const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
+  const [studySubjectId, setStudySubjectId] = useState<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
@@ -67,6 +71,20 @@ export function Dashboard() {
       <ArchiveView
         onBack={() => {
           setView("dashboard");
+          refresh();
+        }}
+      />
+    );
+  }
+
+  if (view === "study" && studySubjectId) {
+    return (
+      <StudyFlow
+        subjects={subjects ?? []}
+        initialSubjectId={studySubjectId}
+        onExit={() => {
+          setView("dashboard");
+          setStudySubjectId(null);
           refresh();
         }}
       />
@@ -132,6 +150,10 @@ export function Dashboard() {
               subject={subject}
               summary={summaries[subject.id]}
               onAddContent={() => setContentSubjectId(subject.id)}
+              onStudy={() => {
+                setStudySubjectId(subject.id);
+                setView("study");
+              }}
             />
           ))}
         </section>
@@ -276,10 +298,12 @@ function SubjectCard({
   subject,
   summary,
   onAddContent,
+  onStudy,
 }: {
   subject: Subject;
   summary: SubjectSummary | undefined;
   onAddContent: () => void;
+  onStudy: () => void;
 }) {
   return (
     <article className="subject-card">
@@ -300,7 +324,7 @@ function SubjectCard({
         <button type="button" onClick={onAddContent}>
           Add content
         </button>
-        <button type="button" disabled title="Coming soon">
+        <button type="button" onClick={onStudy}>
           Study
         </button>
         <button type="button" disabled title="Coming soon">

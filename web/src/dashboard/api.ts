@@ -12,8 +12,35 @@ export type SubjectSummary = {
 
 export type SessionStatus = "active" | "waiting" | "completed";
 
+// Mirrors readySession.js's QUESTION_TYPES (questionBank.js) — the subset
+// of fields `publicQuestionView` leaves on a served question. `choices`
+// only appears for multiple_choice; none of the answer-key fields
+// (modelAnswer/rubric/misconceptions/correctIndex/clozeAnswer) are ever
+// present here — those only reach the client in a /ready/answer response,
+// once grading is either done or about to be self-graded.
+export type QuestionType =
+  | "free_recall"
+  | "explain_why"
+  | "apply"
+  | "compare_contrast"
+  | "short_answer"
+  | "cloze"
+  | "multiple_choice"
+  | "worked_problem";
+
+export type SessionQuestion = {
+  topicId: string;
+  subjectId: string;
+  type: QuestionType;
+  prompt: string;
+  difficulty: string;
+  choices?: string[];
+  isGenerationQuestion?: boolean;
+  askedAt: string;
+};
+
 // Mirrors server/src/sessions.js's record shape — only the fields the
-// dashboard's session columns actually display.
+// dashboard's session columns and study screens actually display.
 export type Session = {
   id: string;
   subjectIds: string[];
@@ -21,7 +48,7 @@ export type Session = {
   status: SessionStatus;
   endedAt: string | null;
   archived: boolean;
-  currentQuestion: { prompt: string } | null;
+  currentQuestion: SessionQuestion | null;
   history: unknown[];
 };
 
@@ -82,6 +109,48 @@ export function listSessions({ includeArchived = false }: { includeArchived?: bo
 
 export function restoreSession(id: string): Promise<Session> {
   return postJson(`/api/sessions/${id}/restore`);
+}
+
+export function createSession(subjectIds: string[], mode: "live" | "ready"): Promise<Session> {
+  return postJsonBody("/api/sessions", { subjectIds, mode });
+}
+
+// Mirrors routes/sessions.js's /ready/question shapes. Discriminates on
+// `ok` then `done` — the "no bank yet" outcome (`ok: false`) and the
+// "every topic asked, now awaiting reflection" outcome (`done: true`) are
+// both real, recoverable results, not request errors, same posture
+// server/src/readySession.js documents on `generateNextReadyQuestion`.
+export type ReadyQuestionResult =
+  | { ok: true; done: true; awaitingReflection: true; session: Session; bankTopUps: unknown[] }
+  | { ok: true; done?: false; session: Session }
+  | { ok: false; noBank: true; topicId: string; reason: string };
+
+export function generateNextReadyQuestion(sessionId: string): Promise<ReadyQuestionResult> {
+  return postJson(`/api/sessions/${sessionId}/ready/question`);
+}
+
+// Mirrors readySession.js's `submitReadyAnswer` result: multiple_choice/
+// cloze grade and finalize immediately (`finalized: true`); every other
+// type instead reveals the model answer/rubric for a self-grade step next
+// (`finalized: false`).
+export type ReadyAnswerResult =
+  | { ok: true; finalized: true; isCorrect: boolean; session: Session }
+  | { ok: true; finalized: false; modelAnswer: string; rubric: string[]; misconceptions: string[]; session: Session };
+
+export function submitReadyAnswer(
+  sessionId: string,
+  body: { answerText?: string; selectedIndex?: number; confidence: number },
+): Promise<ReadyAnswerResult> {
+  return postJsonBody(`/api/sessions/${sessionId}/ready/answer`, body);
+}
+
+export type SelfGradeStatus = "got_it" | "partly" | "missed";
+
+export function submitReadySelfGrade(
+  sessionId: string,
+  selfGrades: { status: SelfGradeStatus }[],
+): Promise<{ ok: true; finalized: true; session: Session }> {
+  return postJsonBody(`/api/sessions/${sessionId}/ready/self-grade`, { selfGrades });
 }
 
 // Mirrors server/src/sessionStats.js's return shape exactly.
