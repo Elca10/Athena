@@ -22,6 +22,7 @@ function mockEmptyUsage() {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 test("renders the top bar actions and the session columns' empty state", async () => {
@@ -107,14 +108,81 @@ test("shows a 'couldn't check' message when the usage check itself failed", asyn
   expect(await screen.findByText(/Subscription usage — couldn't check\./)).toBeInTheDocument();
 });
 
-test("shows the empty state once the subjects list resolves to none", async () => {
+test("shows empty-state guidance pointing at the New subject button once the subjects list resolves to none", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
   vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
   mockEmptyUsage();
   render(<Dashboard />);
 
-  expect(await screen.findByText("No subjects yet.")).toBeInTheDocument();
+  expect(await screen.findByText(/No subjects yet/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "New subject" })).toBeEnabled();
+});
+
+test("New subject opens a form that creates a subject and refreshes the list", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValueOnce([]).mockResolvedValue([
+    { id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  vi.mocked(api.createSubject).mockResolvedValue({ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" });
+  render(<Dashboard />);
+
+  await screen.findByText(/No subjects yet/);
+  await user.click(screen.getByRole("button", { name: "New subject" }));
+
+  const nameInput = screen.getByPlaceholderText(/Subject name/);
+  const createButton = screen.getByRole("button", { name: "Create" });
+  expect(createButton).toBeDisabled();
+
+  await user.type(nameInput, "Organic Chemistry");
+  expect(createButton).toBeEnabled();
+  await user.click(createButton);
+
+  expect(api.createSubject).toHaveBeenCalledWith("Organic Chemistry");
+  expect(await screen.findByRole("heading", { name: "Organic Chemistry" })).toBeInTheDocument();
+  expect(screen.queryByPlaceholderText(/Subject name/)).not.toBeInTheDocument();
+});
+
+test("New subject form shows the server's error and stays open on failure", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  vi.mocked(api.createSubject).mockRejectedValue(new Error("Subject name cannot be blank."));
+  render(<Dashboard />);
+
+  await screen.findByText(/No subjects yet/);
+  await user.click(screen.getByRole("button", { name: "New subject" }));
+  await user.type(screen.getByPlaceholderText(/Subject name/), "x");
+  await user.click(screen.getByRole("button", { name: "Create" }));
+
+  expect(await screen.findByText("Subject name cannot be blank.")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText(/Subject name/)).toBeInTheDocument();
+});
+
+test("New subject form Cancel closes it without creating anything", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await screen.findByText(/No subjects yet/);
+  await user.click(screen.getByRole("button", { name: "New subject" }));
+  await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+  expect(screen.queryByPlaceholderText(/Subject name/)).not.toBeInTheDocument();
+  expect(api.createSubject).not.toHaveBeenCalled();
 });
 
 test("renders a real subject card with its mastery/due/bank-size stats once loaded", async () => {

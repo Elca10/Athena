@@ -3,6 +3,7 @@ import {
   checkClaudeCode,
   checkGithub,
   completeSetup,
+  createSubject,
   getGithubConnectState,
   getHealth,
   startGithubConnect,
@@ -60,5 +61,22 @@ describe("completeSetup", () => {
   test("POSTs to /api/setup/complete and throws on failure", async () => {
     mockFetchOnce({}, { ok: false, status: 500 });
     await expect(completeSetup()).rejects.toThrow(/500/);
+  });
+});
+
+describe("createSubject", () => {
+  test("POSTs the name and returns the created subject", async () => {
+    mockFetchOnce({ id: "s1", name: "Organic Chemistry" });
+    await expect(createSubject("Organic Chemistry")).resolves.toEqual({ id: "s1", name: "Organic Chemistry" });
+    expect(fetch).toHaveBeenCalledWith("/api/subjects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Organic Chemistry" }),
+    });
+  });
+
+  test("surfaces the server's own error message on failure", async () => {
+    mockFetchOnce({ error: "Subject name cannot be blank." }, { ok: false, status: 400 });
+    await expect(createSubject("")).rejects.toThrow("Subject name cannot be blank.");
   });
 });

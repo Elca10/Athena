@@ -48,6 +48,22 @@ export async function completeSetup(): Promise<void> {
   if (!res.ok) throw new Error(`POST /api/setup/complete responded ${res.status}`);
 }
 
+// Surfaces the server's own `{error: "..."}` message (routes/subjects.js,
+// e.g. a blank name) rather than a generic status-code string, since this
+// is shown directly to the user in the wizard.
+export async function createSubject(name: string): Promise<{ id: string; name: string }> {
+  const res = await fetch("/api/subjects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error((body && typeof body.error === "string" && body.error) || `POST /api/subjects responded ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function getHealth(): Promise<{ ok: boolean; version: string; setupComplete: boolean }> {
   return getJson("/api/health");
 }

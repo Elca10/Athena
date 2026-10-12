@@ -34,10 +34,10 @@ export function makeSetupRouter(appDataDir) {
     res.json(state);
   });
 
-  // Step 3 (stub — real subject creation lands in build step 2): marks
-  // first-run setup as done so the wizard doesn't show again. The wizard
-  // itself still lets the user create a subject right away where
-  // possible; this just records that the one-time setup flow finished.
+  // Step 3: marks first-run setup as done so the wizard doesn't show
+  // again. Subject creation itself (or skipping it) happens client-side
+  // in the wizard before this is called; this just records that the
+  // one-time setup flow finished.
   setupRouter.post("/complete", async (_req, res) => {
     await markSetupComplete(appDataDir);
     res.json({ ok: true });

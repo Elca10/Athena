@@ -64,6 +64,10 @@ export function listSubjects({ includeArchived = false }: { includeArchived?: bo
   return getJson(`/api/subjects${includeArchived ? "?includeArchived=true" : ""}`);
 }
 
+export function createSubject(name: string): Promise<Subject> {
+  return postJsonBody("/api/subjects", { name });
+}
+
 export function getSubjectSummary(id: string): Promise<SubjectSummary> {
   return getJson(`/api/subjects/${id}/summary`);
 }

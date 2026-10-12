@@ -46,6 +46,15 @@ body {
   color: #a32020;
 }
 
+.setup-first-subject-form {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.setup-first-subject-form input {
+  flex: 1;
+}
+
 .dashboard {
   max-width: 70rem;
   margin: 2rem auto;
@@ -79,6 +88,29 @@ body {
 .dashboard-subjects {
   flex: 1;
   min-width: 0;
+}
+
+.dashboard-subjects-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.new-subject-form {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.new-subject-form input {
+  flex: 1;
+}
+
+.new-subject-form-error {
+  color: #a32020;
+  font-size: 0.9rem;
 }
 
 .dashboard-sessions {

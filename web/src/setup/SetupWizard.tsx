@@ -3,6 +3,7 @@ import {
   checkClaudeCode,
   checkGithub,
   completeSetup,
+  createSubject,
   getGithubConnectState,
   startGithubConnect,
   type ClaudeCodeCheck,
@@ -11,8 +12,8 @@ import {
 } from "./api";
 
 // First-run setup wizard (SPEC.md section 2): three steps — Claude Code,
-// GitHub, then handing off to subject creation (a stub for now; real
-// subject creation lands in build step 2, see routes/setup.js's own note).
+// GitHub, then creating the first subject. Adding content for it happens
+// on the dashboard right after (AddContentPanel), not in the wizard.
 export function SetupWizard({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -166,13 +167,19 @@ function GithubStep({ onBack, onContinue }: { onBack: () => void; onContinue: ()
 }
 
 function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: () => void }) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
 
-  async function handleFinish() {
+  async function finish(createFirst: boolean) {
     setFinishing(true);
+    setError(null);
     try {
+      if (createFirst) await createSubject(name.trim());
       await completeSetup();
       onFinish();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't finish setup.");
     } finally {
       setFinishing(false);
     }
@@ -180,13 +187,32 @@ function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: 
 
   return (
     <section>
-      <p>Subject creation is coming in the next build step. You can finish setup now and add your first subject once it's ready.</p>
+      <p>Create your first subject — you can add course content for it right after, from the dashboard.</p>
+      <form
+        className="setup-first-subject-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          finish(true);
+        }}
+      >
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Subject name, e.g. Organic Chemistry"
+          disabled={finishing}
+        />
+        <button type="submit" disabled={!name.trim() || finishing}>
+          Create and finish
+        </button>
+      </form>
+      {error && <p className="setup-error">{error}</p>}
       <div className="setup-actions">
         <button type="button" onClick={onBack} disabled={finishing}>
           Back
         </button>
-        <button type="button" onClick={handleFinish} disabled={finishing}>
-          Finish setup
+        <button type="button" onClick={() => finish(false)} disabled={finishing}>
+          Skip for now
         </button>
       </div>
     </section>

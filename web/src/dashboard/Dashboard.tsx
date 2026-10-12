@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  createSubject,
   getSessionStats,
   getSubjectSummary,
   getUsageStatus,
@@ -37,6 +38,7 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 export function Dashboard() {
   const [view, setView] = useState<"dashboard" | "archive">("dashboard");
   const [showTune, setShowTune] = useState(false);
+  const [showNewSubject, setShowNewSubject] = useState(false);
   const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
@@ -105,9 +107,25 @@ export function Dashboard() {
       )}
       <div className="dashboard-body">
         <section className="dashboard-subjects">
-          <h2>Subjects</h2>
+          <div className="dashboard-subjects-header">
+            <h2>Subjects</h2>
+            <button type="button" onClick={() => setShowNewSubject(true)}>
+              New subject
+            </button>
+          </div>
+          {showNewSubject && (
+            <NewSubjectForm
+              onClose={() => setShowNewSubject(false)}
+              onCreated={async () => {
+                setShowNewSubject(false);
+                await refresh();
+              }}
+            />
+          )}
           {subjects === null && <div className="dashboard-empty">Loading…</div>}
-          {subjects?.length === 0 && <div className="dashboard-empty">No subjects yet.</div>}
+          {subjects?.length === 0 && !showNewSubject && (
+            <div className="dashboard-empty">No subjects yet — click "New subject" above to add your first one.</div>
+          )}
           {subjects?.map((subject) => (
             <SubjectCard
               key={subject.id}
@@ -290,6 +308,52 @@ function SubjectCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function NewSubjectForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await createSubject(trimmed);
+      onCreated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't create that subject.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      className="new-subject-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Subject name, e.g. Organic Chemistry"
+        autoFocus
+        disabled={submitting}
+      />
+      <button type="submit" disabled={!name.trim() || submitting}>
+        Create
+      </button>
+      <button type="button" onClick={onClose} disabled={submitting}>
+        Cancel
+      </button>
+      {error && <div className="new-subject-form-error">{error}</div>}
+    </form>
   );
 }
 

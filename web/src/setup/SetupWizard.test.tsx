@@ -8,6 +8,7 @@ vi.mock("./api");
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.clearAllMocks();
 });
 
 describe("step 1: Claude Code", () => {
@@ -99,20 +100,56 @@ describe("step 2: GitHub", () => {
   });
 });
 
-describe("step 3: finish", () => {
-  test("Finish setup calls completeSetup then onComplete", async () => {
+describe("step 3: first subject", () => {
+  async function advanceToStep3(user: ReturnType<typeof userEvent.setup>, onComplete = vi.fn()) {
     vi.mocked(api.checkClaudeCode).mockResolvedValue({ installed: true, loggedIn: true });
     vi.mocked(api.checkGithub).mockResolvedValue({ installed: true, authenticated: true });
-    vi.mocked(api.completeSetup).mockResolvedValue(undefined);
-    const onComplete = vi.fn();
-    const user = userEvent.setup();
-
     render(<SetupWizard onComplete={onComplete} />);
     await user.click(await screen.findByRole("button", { name: "Continue" }));
     await user.click(await screen.findByRole("button", { name: "Continue" }));
-    await user.click(await screen.findByRole("button", { name: "Finish setup" }));
+    return onComplete;
+  }
 
+  test("'Create and finish' is disabled until a name is entered, then creates the subject and completes setup", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createSubject).mockResolvedValue({ id: "s1", name: "Organic Chemistry" });
+    vi.mocked(api.completeSetup).mockResolvedValue(undefined);
+    const onComplete = await advanceToStep3(user);
+
+    const createButton = screen.getByRole("button", { name: "Create and finish" });
+    expect(createButton).toBeDisabled();
+
+    await user.type(screen.getByPlaceholderText(/Subject name/), "Organic Chemistry");
+    expect(createButton).toBeEnabled();
+    await user.click(createButton);
+
+    expect(api.createSubject).toHaveBeenCalledWith("Organic Chemistry");
     expect(api.completeSetup).toHaveBeenCalled();
     expect(onComplete).toHaveBeenCalled();
+  });
+
+  test("'Skip for now' completes setup without creating a subject", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.completeSetup).mockResolvedValue(undefined);
+    const onComplete = await advanceToStep3(user);
+
+    await user.click(screen.getByRole("button", { name: "Skip for now" }));
+
+    expect(api.createSubject).not.toHaveBeenCalled();
+    expect(api.completeSetup).toHaveBeenCalled();
+    expect(onComplete).toHaveBeenCalled();
+  });
+
+  test("shows the server's error and does not finish setup if creation fails", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createSubject).mockRejectedValue(new Error("Subject name cannot be blank."));
+    const onComplete = await advanceToStep3(user);
+
+    await user.type(screen.getByPlaceholderText(/Subject name/), "x");
+    await user.click(screen.getByRole("button", { name: "Create and finish" }));
+
+    expect(await screen.findByText("Subject name cannot be blank.")).toBeInTheDocument();
+    expect(api.completeSetup).not.toHaveBeenCalled();
+    expect(onComplete).not.toHaveBeenCalled();
   });
 });
