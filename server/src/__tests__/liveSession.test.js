@@ -7,6 +7,7 @@ import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, recordTopicReview } from "../topics.js";
 import { createSession, getSession, setCurrentQuestion, recordAnswer } from "../sessions.js";
 import { addPreference } from "../preferences.js";
+import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
 import {
   pickNextTopicId,
   buildFirstQuestionPrompt,
@@ -215,6 +216,15 @@ test("runFirstQuestionTurn rejects with a clear error when the claude CLI can't 
       return true;
     },
   );
+});
+
+test("runFirstQuestionTurn sends a large prompt over stdin, not argv (Windows command-line length limit)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const bigPrompt = "p".repeat(45_000);
+  const stdout = await runFirstQuestionTurn(bigPrompt, { env });
+  const result = JSON.parse(stdout);
+  assert.equal(result.stdinLength, bigPrompt.length);
+  assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
 // --- generateNextLiveQuestion (the orchestration) --------------------------
@@ -477,6 +487,15 @@ test("runGradingTurn rejects with a clear error when the claude CLI can't be fou
       return true;
     },
   );
+});
+
+test("runGradingTurn sends a large prompt over stdin, not argv (Windows command-line length limit)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const bigPrompt = "g".repeat(45_000);
+  const stdout = await runGradingTurn(bigPrompt, { env });
+  const result = JSON.parse(stdout);
+  assert.equal(result.stdinLength, bigPrompt.length);
+  assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
 // --- submitLiveAnswer (the orchestration) --------------------------------

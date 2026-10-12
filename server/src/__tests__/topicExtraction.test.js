@@ -7,6 +7,7 @@ import path from "node:path";
 import PDFDocument from "pdfkit";
 import { addUploadedContent, listContent, parsedFilePath } from "../content.js";
 import { listTopics } from "../topics.js";
+import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
 import {
   batchFiles,
   buildExtractionPrompt,
@@ -198,6 +199,15 @@ test("runExtractionTurn rejects with a clear error when the claude CLI can't be 
     assert.ok(err.notFound || /ENOENT/.test(err.message));
     return true;
   });
+});
+
+test("runExtractionTurn sends a large prompt over stdin, not argv (Windows command-line length limit)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const bigPrompt = "e".repeat(45_000);
+  const stdout = await runExtractionTurn(bigPrompt, { env });
+  const result = JSON.parse(stdout);
+  assert.equal(result.stdinLength, bigPrompt.length);
+  assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
 // --- scanSubjectForTopics (the orchestration) -------------------------------

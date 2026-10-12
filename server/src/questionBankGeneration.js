@@ -251,9 +251,10 @@ export function parseBankReply(resultText) {
 /** Test seam for the model call — same convention as
  * topicExtraction.js's `runExtractionTurn`. */
 export async function runBankGenerationTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS, "--", prompt], {
+  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
+    input: prompt,
   });
   if (result.code !== 0) {
     throw new Error(`claude exited with code ${result.code}: ${result.stderr.slice(0, 300)}`);

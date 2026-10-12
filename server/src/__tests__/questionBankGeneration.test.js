@@ -7,6 +7,7 @@ import { addUploadedContent } from "../content.js";
 import { addPlannedTopics, listTopics, markBankGenerated, recordTopicReview } from "../topics.js";
 import { listBankQuestions, addBankQuestions } from "../questionBank.js";
 import { addPreference } from "../preferences.js";
+import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
 import {
   buildBankPrompt,
   parseBankReply,
@@ -254,6 +255,15 @@ test("runBankGenerationTurn rejects with a clear error when the claude CLI can't
     assert.ok(err.notFound || /ENOENT/.test(err.message));
     return true;
   });
+});
+
+test("runBankGenerationTurn sends a large prompt over stdin, not argv (Windows command-line length limit)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const bigPrompt = "b".repeat(45_000);
+  const stdout = await runBankGenerationTurn(bigPrompt, { env });
+  const result = JSON.parse(stdout);
+  assert.equal(result.stdinLength, bigPrompt.length);
+  assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
 // --- scanSubjectForBankGeneration (the orchestration) ------------------------

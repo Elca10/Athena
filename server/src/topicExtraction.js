@@ -194,9 +194,10 @@ export function parseExtractionReply(resultText) {
  * verify the exact argv without ever finding the real CLI.
  */
 export async function runExtractionTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS, "--", prompt], {
+  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
+    input: prompt,
   });
   if (result.code !== 0) {
     throw new Error(`claude exited with code ${result.code}: ${result.stderr.slice(0, 300)}`);

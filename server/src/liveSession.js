@@ -175,9 +175,10 @@ export function parseFirstQuestionReply(resultText) {
  * a scratch PATH, so this module's own test never finds the real CLI.
  */
 export async function runFirstQuestionTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS, "--", prompt], {
+  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
+    input: prompt,
   });
   if (result.code !== 0) {
     throw new Error(`claude exited with code ${result.code}: ${result.stderr.slice(0, 300)}`);
@@ -328,9 +329,10 @@ export function parseGradingReply(resultText) {
 /** Test seam for the grading model call — same convention as
  * `runFirstQuestionTurn`. */
 export async function runGradingTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS, "--", prompt], {
+  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
+    input: prompt,
   });
   if (result.code !== 0) {
     throw new Error(`claude exited with code ${result.code}: ${result.stderr.slice(0, 300)}`);
