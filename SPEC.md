@@ -306,3 +306,12 @@ Rules:
 6. Bug report → issue → fixer → push loop.
 7. Deadlines + suggested-schedule view.
 8. End-to-end test on a clean Mac **and** a clean Windows machine.
+
+## 14. v1.0 ship scope (2026-10-11)
+
+To ship to a first friend, v1.0 is cut down to build steps 1–5, the
+Make It Stick rows already built, the study screens (Study button → Live
+or Ready session → reflection), and a clean-machine test on that friend's
+OS. Bug Fixer (step 6), deadlines/schedule (step 7), the remaining
+Make It Stick rows, the subject detail view, the Athena persona doc, and
+the second OS's clean-machine test move to the v2 spec (`SPEC-v2.md`).

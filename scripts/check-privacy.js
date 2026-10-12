@@ -46,6 +46,7 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const ALLOWED_PATH_PATTERNS = [
   /^README\.md$/,
   /^SPEC\.md$/,
+  /^SPEC-v2\.md$/,
   /^LICENSE(\.[A-Za-z0-9]+)?$/,
   /^\.gitignore$/,
   /^\.gitattributes$/,
