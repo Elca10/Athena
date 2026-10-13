@@ -107,6 +107,7 @@ button:disabled {
 }
 
 .btn-primary:hover {
+  background: var(--accent);
   filter: brightness(1.08);
 }
 
@@ -121,6 +122,7 @@ button:disabled {
 }
 
 .btn-danger:hover {
+  background: var(--danger);
   filter: brightness(1.08);
 }
 
