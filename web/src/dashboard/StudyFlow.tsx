@@ -3,6 +3,7 @@ import {
   createSession,
   generateNextLiveQuestion,
   generateNextReadyQuestion,
+  scanBank,
   skipSessionReflection,
   submitLiveAnswer,
   submitReadyAnswer,
@@ -78,7 +79,9 @@ export function StudyFlow({
       {!session && initialSubjectId && (
         <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
       )}
-      {session && session.mode === "ready" && <ReadySessionScreen session={session} onExit={onExit} />}
+      {session && session.mode === "ready" && (
+        <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => start(session.subjectIds, "live")} />
+      )}
       {session && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
     </div>
   );
@@ -163,7 +166,15 @@ function revealedFromPendingAnswer(question: SessionQuestion | null): RevealedAn
   return { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions ?? [] };
 }
 
-function ReadySessionScreen({ session: initialSession, onExit }: { session: Session; onExit: () => void }) {
+function ReadySessionScreen({
+  session: initialSession,
+  onExit,
+  onSwitchToLive,
+}: {
+  session: Session;
+  onExit: () => void;
+  onSwitchToLive: () => void;
+}) {
   const [session, setSession] = useState(initialSession);
   // Deliberately NOT read from `session.currentQuestion` while rendering
   // the answer/reveal/result stages: submitReadyAnswer/submitReadySelfGrade
@@ -186,6 +197,8 @@ function ReadySessionScreen({ session: initialSession, onExit }: { session: Sess
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
   const [ended, setEnded] = useState(false);
   const [stuck, setStuck] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState<string | null>(null);
 
   function resetQuestionState() {
     setConfidence(null);
@@ -199,6 +212,7 @@ function ReadySessionScreen({ session: initialSession, onExit }: { session: Sess
   async function fetchNext(sessionId: string) {
     setBusy(true);
     setError(null);
+    setStuck(null);
     try {
       const result = await generateNextReadyQuestion(sessionId);
       if (!result.ok) {
@@ -273,6 +287,27 @@ function ReadySessionScreen({ session: initialSession, onExit }: { session: Sess
     }
   }
 
+  // SPEC.md section 5's "empty or thin banks": say so and offer Live or
+  // "generate now" rather than leaving the session dead-ended.
+  // `scanBank`/`scanSubjectForBankGeneration` only ever fills in topics
+  // that don't have a bank yet (`bankGeneratedAt` still null) — scanning
+  // every subject in the session is simplest and safe to repeat; it's a
+  // no-op for a subject whose topics already have one.
+  async function generateBankNow() {
+    setGenerating(true);
+    setGenerateError(null);
+    try {
+      for (const subjectId of session.subjectIds) {
+        await scanBank(subjectId);
+      }
+      await fetchNext(session.id);
+    } catch (err) {
+      setGenerateError(err instanceof Error ? err.message : "Couldn't generate the question bank.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   if (ended) {
     return <ReflectionPrompt sessionId={session.id} onDone={onExit} />;
   }
@@ -281,6 +316,15 @@ function ReadySessionScreen({ session: initialSession, onExit }: { session: Sess
     return (
       <div className="study-session">
         <p>{stuck}</p>
+        {generateError && <div className="study-session-error">{generateError}</div>}
+        <div className="study-session-actions">
+          <button type="button" onClick={generateBankNow} disabled={generating}>
+            {generating ? "Generating…" : "Generate question bank now"}
+          </button>
+          <button type="button" onClick={onSwitchToLive} disabled={generating}>
+            Switch to Live instead
+          </button>
+        </div>
       </div>
     );
   }

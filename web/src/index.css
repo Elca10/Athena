@@ -395,6 +395,11 @@ body {
   margin-bottom: 1rem;
 }
 
+.study-session-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
 .study-question {
   margin-bottom: 1rem;
 }

@@ -306,6 +306,53 @@ test("shows the no-bank message without crashing when the next topic has nothing
   expect(onExit).toHaveBeenCalled();
 });
 
+test("the no-bank screen's Generate now button scans the bank then retries the question", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion)
+    .mockResolvedValueOnce({
+      ok: false,
+      noBank: true,
+      topicId: "t1",
+      reason: 'No bank questions available yet for topic "Cell biology"',
+    })
+    .mockResolvedValueOnce({ ok: true, session: baseSession({ currentQuestion: mcQuestion() }) });
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 1, questionsAdded: 4, errors: [] });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/No bank questions available yet/);
+
+  await user.click(screen.getByRole("button", { name: "Generate question bank now" }));
+
+  expect(api.scanBank).toHaveBeenCalledWith("s1");
+  expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
+});
+
+test("the no-bank screen's Switch to Live instead button starts a live session for the same subjects", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession)
+    .mockResolvedValueOnce(baseSession())
+    .mockResolvedValueOnce(baseSession({ mode: "live" }));
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: false,
+    noBank: true,
+    topicId: "t1",
+    reason: 'No bank questions available yet for topic "Cell biology"',
+  });
+  vi.mocked(api.generateNextLiveQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ mode: "live", currentQuestion: freeRecallQuestion() }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/No bank questions available yet/);
+
+  await user.click(screen.getByRole("button", { name: "Switch to Live instead" }));
+
+  expect(api.createSession).toHaveBeenLastCalledWith(["s1"], "live");
+  expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
+});
+
 test("shows the reflection prompt once every due topic has been asked", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockResolvedValue(baseSession());

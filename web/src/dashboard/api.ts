@@ -330,6 +330,25 @@ export function scanTopics(subjectId: string): Promise<TopicScanResult> {
   return postJson(`/api/subjects/${subjectId}/topics/scan`);
 }
 
+// Mirrors routes/topics.js's /bank/scan response (questionBankGeneration.js's
+// `scanSubjectForBankGeneration`): the background model turn that fills in
+// an initial question bank for any of the subject's topics that don't have
+// one yet (SPEC.md section 5's "empty or thin banks" — this is the
+// "generate now" action). `errors` is non-empty only when a batch's turn
+// failed or came back unparseable; those topics are left unmarked, so a
+// later scan retries them.
+export type BankScanResult = {
+  ok: boolean;
+  skipped: boolean;
+  topicsProcessed: number;
+  questionsAdded: number;
+  errors: string[];
+};
+
+export function scanBank(subjectId: string): Promise<BankScanResult> {
+  return postJson(`/api/subjects/${subjectId}/topics/bank/scan`);
+}
+
 // Mirrors server/src/bugReport.js's two-step flow (SPEC.md section 10/
 // 3.6): /preview never has a side effect — it just returns the exact
 // `{title, body}` a confirmation screen shows, already redacted. /send
