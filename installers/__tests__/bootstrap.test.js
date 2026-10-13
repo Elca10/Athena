@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, copyFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, copyFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { resolveSpawnTarget, run, waitForHealth, openBrowser, updateAndStart } from "../bootstrap.mjs";
@@ -272,7 +272,14 @@ test("updateAndStart: throws if the rollback attempt also fails to start", async
 // network, no npm, no server) — proving main() actually ran. If the guard
 // were broken, nothing would happen at all: no output, exit code 0.
 test("entry-point guard: running a copy of bootstrap.mjs directly for real invokes main()", () => {
-  const scratch = mkdtempSync(path.join(tmpdir(), "athena-bootstrap-direct-"));
+  // realpathSync: on macOS, os.tmpdir() resolves through /tmp, which is
+  // itself a symlink to /private/tmp. process.argv[1] below would keep the
+  // /tmp form the test passed in, while import.meta.url resolves to the
+  // real (/private/tmp) path — a mismatch that has nothing to do with the
+  // fix under test (a real checkout is never installed under /tmp), but
+  // would make even a correctly-fixed guard fail here. Canonicalize first
+  // so both sides agree, same as a normal install's non-symlinked path.
+  const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), "athena-bootstrap-direct-")));
   try {
     mkdirSync(path.join(scratch, "installers"));
     mkdirSync(path.join(scratch, "server", "src"), { recursive: true });
