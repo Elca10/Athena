@@ -12,6 +12,7 @@ import {
   type GithubCheck,
   type GithubConnectState,
 } from "./api";
+import { ThemeToggle } from "../theme/ThemeToggle";
 
 type ConfirmedOs = "windows" | "mac";
 
@@ -28,7 +29,10 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
 
   return (
     <div className="setup-wizard">
-      <h1>Set up Athena-Studying</h1>
+      <div className="setup-header">
+        <h1>Set up Athena-Studying</h1>
+        <ThemeToggle />
+      </div>
       <ol className="setup-steps">
         <li className={step === 1 ? "active" : step > 1 ? "done" : ""}>Computer</li>
         <li className={step === 2 ? "active" : step > 2 ? "done" : ""}>Claude Code</li>
@@ -74,7 +78,7 @@ function OsStep({ onContinue }: { onContinue: (os: ConfirmedOs) => void }) {
   }, []);
 
   return (
-    <section>
+    <section className="setup-step-card">
       <p>Which computer are you setting this up on?</p>
       {detecting && <p>Checking...</p>}
       {!detecting && (
@@ -90,7 +94,12 @@ function OsStep({ onContinue }: { onContinue: (os: ConfirmedOs) => void }) {
         </fieldset>
       )}
       <div className="setup-actions">
-        <button type="button" onClick={() => selected && onContinue(selected)} disabled={!selected || detecting}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => selected && onContinue(selected)}
+          disabled={!selected || detecting}
+        >
           Continue
         </button>
       </div>
@@ -120,7 +129,7 @@ function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; on
   const canContinue = state?.installed === true && state.loggedIn !== false;
 
   return (
-    <section>
+    <section className="setup-step-card">
       <p>Athena-Studying runs on your own Claude Code login — it never uses a separate API key.</p>
       {checking && <p>Checking...</p>}
       {!checking && state && !state.installed && (
@@ -147,13 +156,13 @@ function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; on
       )}
       {!checking && state?.installed && state.loggedIn === true && <p className="setup-ok">Claude Code is installed and logged in.</p>}
       <div className="setup-actions">
-        <button type="button" onClick={onBack}>
+        <button type="button" className="btn-secondary" onClick={onBack}>
           Back
         </button>
-        <button type="button" onClick={runCheck} disabled={checking}>
+        <button type="button" className="btn-secondary" onClick={runCheck} disabled={checking}>
           Check again
         </button>
-        <button type="button" onClick={onContinue} disabled={!canContinue}>
+        <button type="button" className="btn-primary" onClick={onContinue} disabled={!canContinue}>
           Continue
         </button>
       </div>
@@ -207,7 +216,7 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
   const canContinue = state?.installed === true && state.authenticated === true;
 
   return (
-    <section>
+    <section className="setup-step-card">
       <p>
         This needs a free GitHub.com account — only so that if you ever file a bug report, it's posted from your own
         account. Nothing else in the app uses it. Don't have one? Create it at <code>github.com/signup</code>, it only
@@ -230,7 +239,7 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
         </p>
       )}
       {!checking && state?.installed && state.authenticated === false && !connect && (
-        <button type="button" onClick={handleConnect}>
+        <button type="button" className="btn-primary" onClick={handleConnect}>
           Connect GitHub
         </button>
       )}
@@ -244,13 +253,13 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
       )}
       {connect?.status === "error" && <p className="setup-error">GitHub connect failed: {connect.rawOutput}</p>}
       <div className="setup-actions">
-        <button type="button" onClick={onBack}>
+        <button type="button" className="btn-secondary" onClick={onBack}>
           Back
         </button>
-        <button type="button" onClick={runCheck} disabled={checking}>
+        <button type="button" className="btn-secondary" onClick={runCheck} disabled={checking}>
           Check again
         </button>
-        <button type="button" onClick={onContinue} disabled={!canContinue}>
+        <button type="button" className="btn-primary" onClick={onContinue} disabled={!canContinue}>
           Continue
         </button>
       </div>
@@ -278,7 +287,7 @@ function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: 
   }
 
   return (
-    <section>
+    <section className="setup-step-card">
       <p>Create your first subject — you can add course content for it right after, from the dashboard.</p>
       <form
         className="setup-first-subject-form"
@@ -294,16 +303,16 @@ function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: 
           placeholder="Subject name, e.g. Organic Chemistry"
           disabled={finishing}
         />
-        <button type="submit" disabled={!name.trim() || finishing}>
+        <button type="submit" className="btn-primary" disabled={!name.trim() || finishing}>
           Create and finish
         </button>
       </form>
       {error && <p className="setup-error">{error}</p>}
       <div className="setup-actions">
-        <button type="button" onClick={onBack} disabled={finishing}>
+        <button type="button" className="btn-secondary" onClick={onBack} disabled={finishing}>
           Back
         </button>
-        <button type="button" onClick={() => finish(false)} disabled={finishing}>
+        <button type="button" className="btn-secondary" onClick={() => finish(false)} disabled={finishing}>
           Skip for now
         </button>
       </div>

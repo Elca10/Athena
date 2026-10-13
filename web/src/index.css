@@ -173,22 +173,72 @@ select {
   margin: 3rem auto;
 }
 
+.setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* A small step tracker: a dot per step plus a dim uppercase label,
+   matching the guide's "section headings are small, uppercase,
+   letter-spaced, dim" rule rather than inventing a different treatment
+   just for this list. */
 .setup-steps {
   display: flex;
-  gap: 1rem;
+  gap: 1.5rem;
   list-style: none;
   padding: 0;
-  font-size: 0.9rem;
+  margin: 0 0 1.5rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
   color: var(--text-dim);
 }
 
+.setup-steps li {
+  position: relative;
+  padding-left: 1.5rem;
+}
+
+.setup-steps li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-top: -0.3rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
 .setup-steps .active {
-  color: var(--text-h);
-  font-weight: 600;
+  color: var(--accent);
+}
+
+.setup-steps .active::before {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .setup-steps .done {
   color: var(--status-good);
+}
+
+.setup-steps .done::before {
+  border-color: var(--status-good);
+  background: var(--status-good);
+}
+
+.setup-step-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 1.25rem;
 }
 
 .setup-actions {
@@ -211,9 +261,26 @@ select {
 
 .setup-os-options {
   display: flex;
-  gap: 1rem;
+  gap: 0.75rem;
+  border: none;
+  margin: 0;
+  padding: 0;
+}
+
+.setup-os-options label {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 0.5rem;
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+.setup-os-options label:hover {
+  background: var(--row-hover);
 }
 
 .setup-first-subject-form {
