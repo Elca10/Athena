@@ -23,7 +23,7 @@ import { appDataSubdirs, getAppDataDir } from "../server/src/dataDir.js";
 
 function runGit(args, { cwd } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn("git", args, { cwd });
+    const child = spawn("git", args, { cwd, windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => (stdout += chunk));

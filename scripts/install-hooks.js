@@ -24,7 +24,11 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const HOOK_PATH = path.join(REPO_ROOT, ".githooks", "pre-commit");
 
 function main() {
-  execFileSync("git", ["config", "core.hooksPath", ".githooks"], { cwd: REPO_ROOT, stdio: "inherit" });
+  execFileSync("git", ["config", "core.hooksPath", ".githooks"], {
+    cwd: REPO_ROOT,
+    stdio: "inherit",
+    windowsHide: true,
+  });
 
   // Windows filesystems don't have a POSIX executable bit, and Git for
   // Windows's bundled sh.exe doesn't require one to run a hook — but on

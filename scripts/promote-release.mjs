@@ -22,7 +22,7 @@ const REPO = "Elca10/Athena";
 const API_BASE = `https://api.github.com/repos/${REPO}`;
 
 function runGit(args) {
-  return execFileSync("git", args, { encoding: "utf8" }).trim();
+  return execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
 }
 
 async function defaultFetchJson(url) {

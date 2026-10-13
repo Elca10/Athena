@@ -1,6 +1,12 @@
 // Cross-platform process spawning used everywhere this app shells out to an
-// external CLI (`claude`, `gh`, `git`, `npm`). Two deliberate choices, both
-// required by the spec ("no shell-string exec (use argument vectors)"):
+// external CLI (`claude`, `gh`, `git`, `npm`). Three deliberate choices:
+//
+// - `windowsHide: true` on every spawn: this server is started from a
+//   hidden shortcut with no console window of its own, so on Windows every
+//   child process it spawns would otherwise pop open its own blank console
+//   window for the duration of the call (one per button click that shells
+//   out) — reported live as "it spawns a claude terminal that's just blank
+//   and closes shortly".
 //
 // - Always pass an argv array, never a single interpolated command string —
 //   nothing here is vulnerable to shell injection, even though the args in
@@ -90,7 +96,7 @@ export function runCommand(command, args, { timeoutMs = 10_000, cwd, env, input,
   return new Promise((resolve, reject) => {
     let child;
     try {
-      child = spawn(command, args, { cwd, env });
+      child = spawn(command, args, { cwd, env, windowsHide: true });
     } catch (err) {
       reject(err);
       return;
@@ -154,5 +160,5 @@ export function runCommand(command, args, { timeoutMs = 10_000, cwd, env, input,
  * await completion. Callers are responsible for attaching their own
  * listeners via the returned `child`. */
 export function spawnCommand(command, args, { cwd } = {}) {
-  return spawn(command, args, { cwd });
+  return spawn(command, args, { cwd, windowsHide: true });
 }

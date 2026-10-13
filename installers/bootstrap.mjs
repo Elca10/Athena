@@ -74,7 +74,12 @@ export function resolveSpawnTarget(
 export function run(command, args, { cwd } = {}) {
   return new Promise((resolve, reject) => {
     const target = resolveSpawnTarget(command, args);
-    const child = spawn(target.command, target.args, { cwd, stdio: "inherit", shell: target.shell });
+    const child = spawn(target.command, target.args, {
+      cwd,
+      stdio: "inherit",
+      shell: target.shell,
+      windowsHide: true,
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) resolve();
@@ -93,6 +98,7 @@ function startServerDetached({ cwd, env } = {}) {
     stdio: "ignore",
     detached: true,
     env,
+    windowsHide: true,
   });
   child.unref();
   return child;

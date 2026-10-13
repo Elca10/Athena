@@ -139,12 +139,13 @@ function listStagedFiles() {
   const out = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
     cwd: REPO_ROOT,
     encoding: "utf8",
+    windowsHide: true,
   });
   return out.split("\n").filter(Boolean);
 }
 
 function listTrackedFiles() {
-  const out = execFileSync("git", ["ls-files"], { cwd: REPO_ROOT, encoding: "utf8" });
+  const out = execFileSync("git", ["ls-files"], { cwd: REPO_ROOT, encoding: "utf8", windowsHide: true });
   return out.split("\n").filter(Boolean);
 }
 
@@ -170,7 +171,7 @@ function main() {
     let raw;
     try {
       raw = staged
-        ? execFileSync("git", ["show", `:${relPath}`], { cwd: REPO_ROOT })
+        ? execFileSync("git", ["show", `:${relPath}`], { cwd: REPO_ROOT, windowsHide: true })
         : readFileSync(path.join(REPO_ROOT, relPath));
     } catch {
       continue; // file deleted/renamed away by the time we got here — nothing to scan
