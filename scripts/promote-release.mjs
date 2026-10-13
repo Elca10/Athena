@@ -16,6 +16,7 @@
 // priority item 0): a public repo's read endpoints work unauthenticated.
 
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const REPO = "Elca10/Athena";
 const API_BASE = `https://api.github.com/repos/${REPO}`;
@@ -114,6 +115,10 @@ async function main() {
   process.exit(result.promoted ? 0 : 1);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not a bare `file://${...}` template: process.argv[1] is a
+// native OS path, which only pathToFileURL converts the same way Node
+// itself builds import.meta.url — the naive template version happens to
+// work on POSIX but can never match on Windows.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main();
 }

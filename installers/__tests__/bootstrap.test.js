@@ -2,7 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, copyFileSync, rmSync, realpathSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { resolveSpawnTarget, run, waitForHealth, openBrowser, updateAndStart } from "../bootstrap.mjs";
+
+const REPO_ROOT_REAL = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 test("resolveSpawnTarget: node/git pass straight through on every platform, no .cmd/.cli resolution", () => {
   const opts = { platform: "win32", execPath: "C:\\Program Files\\nodejs\\node.exe", existsFn: () => true };
@@ -242,4 +248,76 @@ test("updateAndStart: throws if the rollback attempt also fails to start", async
     /still broken/,
   );
   assert.ok(errors.some((msg) => /also failed to start/.test(msg)));
+});
+
+// Regression test for the Windows `import.meta.url === \`file://${process.argv[1]}\``
+// entry-point bug (found 2026-10-12, same day as the npm.cmd hotfix above):
+// process.argv[1] is a native OS path (backslashes, no file:// prefix on
+// Windows), so that bare template comparison can never match there —
+// main() silently never ran, with zero output, on real Windows, even
+// though it "happened to work" on POSIX. Every test above imports named
+// exports, which never exercises this guard (it only fires when the file
+// is the process's own directly-invoked entry script) — so this exact gap
+// was invisible to every OS in CI, including windows-latest.
+//
+// Can't spawn the real installers/bootstrap.mjs in place for this: a
+// genuine direct run immediately starts real work (install hooks, npm
+// install, starting a real server). Instead, copy bootstrap.mjs and its
+// two dependencies (rollback.mjs, server/src/dataDir.js — both
+// zero-npm-dependency, same constraint bootstrap.mjs itself documents)
+// into a scratch dir that mirrors their real relative layout, but
+// deliberately omit scripts/install-hooks.js. If the guard passes,
+// main()'s first `run("node", [".../scripts/install-hooks.js"])` call
+// fails fast with a real, harmless "Cannot find module" error (no
+// network, no npm, no server) — proving main() actually ran. If the guard
+// were broken, nothing would happen at all: no output, exit code 0.
+test("entry-point guard: running a copy of bootstrap.mjs directly for real invokes main()", () => {
+  // realpathSync: on macOS, os.tmpdir() resolves through /tmp, which is
+  // itself a symlink to /private/tmp. process.argv[1] below would keep the
+  // /tmp form the test passed in, while import.meta.url resolves to the
+  // real (/private/tmp) path — a mismatch that has nothing to do with the
+  // fix under test (a real checkout is never installed under /tmp), but
+  // would make even a correctly-fixed guard fail here. Canonicalize first
+  // so both sides agree, same as a normal install's non-symlinked path.
+  const scratch = realpathSync(mkdtempSync(path.join(tmpdir(), "athena-bootstrap-direct-")));
+  try {
+    mkdirSync(path.join(scratch, "installers"));
+    mkdirSync(path.join(scratch, "server", "src"), { recursive: true });
+    copyFileSync(
+      path.join(REPO_ROOT_REAL, "installers", "bootstrap.mjs"),
+      path.join(scratch, "installers", "bootstrap.mjs"),
+    );
+    copyFileSync(
+      path.join(REPO_ROOT_REAL, "installers", "rollback.mjs"),
+      path.join(scratch, "installers", "rollback.mjs"),
+    );
+    copyFileSync(
+      path.join(REPO_ROOT_REAL, "server", "src", "dataDir.js"),
+      path.join(scratch, "server", "src", "dataDir.js"),
+    );
+    // scripts/install-hooks.js deliberately not created.
+
+    const result = (() => {
+      try {
+        const stdout = execFileSync("node", [path.join(scratch, "installers", "bootstrap.mjs")], {
+          cwd: scratch,
+          encoding: "utf8",
+          timeout: 10_000,
+        });
+        return { code: 0, stdout, stderr: "" };
+      } catch (err) {
+        return {
+          code: typeof err.status === "number" ? err.status : 1,
+          stdout: err.stdout?.toString() ?? "",
+          stderr: err.stderr?.toString() ?? "",
+        };
+      }
+    })();
+
+    assert.equal(result.code, 1, `expected a fast module-not-found failure.\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}`);
+    assert.match(result.stdout, /Installing git hooks/, "main() should have started running");
+    assert.match(result.stderr, /Athena-Studying install failed/);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });

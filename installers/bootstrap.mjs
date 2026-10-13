@@ -17,7 +17,7 @@ import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { getAppDataDir } from "../server/src/dataDir.js";
 import { getCurrentCommit, recordGoodCommit, rollbackToLastGoodCommit } from "./rollback.mjs";
 
@@ -276,7 +276,13 @@ async function main() {
   if (!process.env.ATHENA_NO_OPEN_BROWSER) openBrowser(appUrl);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// pathToFileURL, not a bare `file://${...}` template: process.argv[1] is a
+// native OS path (backslashes, no `file://` prefix on Windows), and only
+// pathToFileURL converts it the same way Node itself builds
+// import.meta.url — the naive template version happens to work on POSIX
+// but can never match on Windows, so this (and therefore the entire
+// installer) never actually ran there at all, silently.
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((err) => {
     console.error(`Athena-Studying install failed: ${err.message}`);
     process.exit(1);
