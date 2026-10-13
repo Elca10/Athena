@@ -151,22 +151,24 @@ export function Dashboard() {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1>Athena</h1>
+        <div className="dashboard-header-top">
+          <h1>Athena</h1>
+          <div className="dashboard-header-actions">
+            <ThemeToggle />
+            <button type="button" onClick={() => setShowBugReport((v) => !v)}>
+              Report a bug
+            </button>
+            <button type="button" onClick={() => setShowTune((v) => !v)}>
+              Tune Athena
+            </button>
+            <button type="button" onClick={() => setView("archive")}>
+              Archive
+            </button>
+          </div>
+        </div>
         <div className="dashboard-stats">
           <SessionStatsSummary stats={stats} />
           <UsageStatusSummary usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
-        </div>
-        <div className="dashboard-header-actions">
-          <ThemeToggle />
-          <button type="button" onClick={() => setShowBugReport((v) => !v)}>
-            Report a bug
-          </button>
-          <button type="button" onClick={() => setShowTune((v) => !v)}>
-            Tune Athena
-          </button>
-          <button type="button" onClick={() => setView("archive")}>
-            Archive
-          </button>
         </div>
       </header>
       {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
@@ -183,7 +185,7 @@ export function Dashboard() {
         <section className="dashboard-subjects">
           <div className="dashboard-subjects-header">
             <h2>Subjects</h2>
-            <button type="button" onClick={() => setShowNewSubject(true)}>
+            <button type="button" className="btn-primary" onClick={() => setShowNewSubject(true)}>
               New subject
             </button>
           </div>
@@ -286,12 +288,14 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1>Archive</h1>
-        <div className="dashboard-header-actions">
-          <ThemeToggle />
-          <button type="button" onClick={onBack}>
-            Back to dashboard
-          </button>
+        <div className="dashboard-header-top">
+          <h1>Archive</h1>
+          <div className="dashboard-header-actions">
+            <ThemeToggle />
+            <button type="button" onClick={onBack}>
+              Back to dashboard
+            </button>
+          </div>
         </div>
       </header>
       <div className="dashboard-body">
@@ -307,6 +311,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
               <div className="subject-card-actions">
                 <button
                   type="button"
+                  className="btn-primary"
                   onClick={async () => {
                     await restoreSubject(subject.id);
                     refresh();
@@ -332,6 +337,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
               </div>
               <button
                 type="button"
+                className="btn-primary"
                 onClick={async () => {
                   await restoreSession(session.id);
                   refresh();
@@ -388,7 +394,7 @@ function SessionRow({
       </div>
       <div className="session-row-detail">{detail}</div>
       {onResume && (
-        <button type="button" onClick={onResume}>
+        <button type="button" className="btn-primary" onClick={onResume}>
           Resume
         </button>
       )}
@@ -430,13 +436,13 @@ function SubjectCard({
         <div className="subject-card-stats">Loading stats…</div>
       )}
       <div className="subject-card-actions">
-        <button type="button" onClick={onAddContent}>
+        <button type="button" className="btn-secondary" onClick={onAddContent}>
           Add content
         </button>
-        <button type="button" onClick={onStudy}>
+        <button type="button" className="btn-primary" onClick={onStudy}>
           Study
         </button>
-        <button type="button" onClick={onArchive}>
+        <button type="button" className="btn-secondary" onClick={onArchive}>
           Archive
         </button>
       </div>
@@ -479,10 +485,10 @@ function NewSubjectForm({ onClose, onCreated }: { onClose: () => void; onCreated
         autoFocus
         disabled={submitting}
       />
-      <button type="submit" disabled={!name.trim() || submitting}>
+      <button type="submit" className="btn-primary" disabled={!name.trim() || submitting}>
         Create
       </button>
-      <button type="button" onClick={onClose} disabled={submitting}>
+      <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>
         Cancel
       </button>
       {error && <div className="new-subject-form-error">{error}</div>}

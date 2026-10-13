@@ -227,16 +227,32 @@ select {
 
 .dashboard {
   max-width: 70rem;
-  margin: 2rem auto;
+  margin: 0 auto;
 }
 
+/* A full-bleed sticky top bar: the -1rem/1rem margin+padding swap cancels
+   out body's own 1rem side padding so the bar's background and border
+   reach the viewport edges while its content stays aligned with the page
+   column below. */
 .dashboard-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0 -1rem 1.5rem;
+  padding: 1rem;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-header-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  margin-bottom: 1.5rem;
 }
 
 .dashboard-header-actions {
@@ -253,6 +269,7 @@ select {
   display: flex;
   gap: 2rem;
   align-items: flex-start;
+  padding-bottom: 2rem;
 }
 
 .dashboard-subjects {
@@ -264,6 +281,24 @@ select {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+/* Section/column headings read as small, dim, uppercase labels rather
+   than page-level headings — only h1 "Athena"/"Archive" is a true title. */
+.dashboard-subjects-header h2,
+.dashboard-session-column h2,
+.dashboard-subjects > h2,
+.dashboard-sessions > h2 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+
+.dashboard-session-column h2 {
   margin-bottom: 0.75rem;
 }
 
@@ -342,6 +377,12 @@ select {
   color: var(--text-dim);
   font-size: 0.9rem;
   margin-top: 0.25rem;
+}
+
+/* Archived sessions have no detail line — the Restore button needs its
+   own breathing room under the header row. */
+.session-row > button {
+  margin-top: 0.5rem;
 }
 
 .tune-panel {
