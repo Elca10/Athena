@@ -1,16 +1,23 @@
 import { useEffect, useRef, useState } from "react";
-import { addPastedNotes, listContent, uploadBinaryContent, uploadTextContent, type ContentItem } from "./api";
+import {
+  addPastedNotes,
+  listContent,
+  scanTopics,
+  uploadBinaryContent,
+  uploadTextContent,
+  type ContentItem,
+} from "./api";
 
 // Add content (SPEC.md section 7): a native file picker (plain
 // text/markdown, now also PDF and PPTX — server/src/pdfExtract.js /
 // pptxExtract.js) plus a "paste class notes" text box. Binary formats
 // are read client-side and base64-encoded (see api.ts's
-// uploadBinaryContent); text formats are read and sent as-is. Topic
-// extraction itself (the background model turn) isn't triggered from
-// here — SPEC.md's own "shows progress as an Active session" step for
-// that doesn't exist yet (topics.js's /scan route is still a manual
-// trigger) — this panel only gets content onto disk and recorded, same
-// scope as content.js's own module comment.
+// uploadBinaryContent); text formats are read and sent as-is. "Done"
+// runs the background topic-extraction turn (topics.js's /scan route)
+// over whatever content hasn't been scanned yet before closing — there's
+// still no Active-session progress UI for this to report into (SPEC.md's
+// "shows progress as an Active session" is a later build step), so it's
+// a plain disable-and-wait with the result/error shown inline.
 const BINARY_EXTENSIONS = [".pdf", ".pptx"];
 const ACCEPTED_EXTENSIONS = [".txt", ".md", ".markdown", ...BINARY_EXTENSIONS];
 
@@ -67,6 +74,7 @@ export function AddContentPanel({
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,12 +126,39 @@ export function AddContentPanel({
     }
   }
 
+  // Closes the panel once any newly-added content has been scanned for
+  // topics. Skips the scan entirely when nothing is unprocessed (e.g. the
+  // user opened the panel and added nothing, or everything in it was
+  // already scanned before) so "Done" doesn't wait on a pointless turn.
+  async function finishAdding() {
+    const hasUnprocessed = items?.some((item) => !item.topicsExtractedAt) ?? false;
+    if (!hasUnprocessed) {
+      onClose();
+      return;
+    }
+    setError(null);
+    setScanning(true);
+    try {
+      const result = await scanTopics(subjectId);
+      if (result.errors.length) {
+        setError(`Looked for topics, but: ${result.errors.join("; ")}`);
+        return;
+      }
+      onContentAdded?.();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't look for topics in your new files.");
+    } finally {
+      setScanning(false);
+    }
+  }
+
   return (
     <section className="content-panel">
       <div className="content-panel-header">
         <h2>Add content — {subjectName}</h2>
-        <button type="button" onClick={onClose}>
-          Close
+        <button type="button" onClick={finishAdding} disabled={scanning}>
+          {scanning ? "Looking for topics…" : "Done"}
         </button>
       </div>
 
@@ -132,7 +167,7 @@ export function AddContentPanel({
           ref={fileInputRef}
           type="file"
           accept={ACCEPTED_EXTENSIONS.join(",")}
-          disabled={busy}
+          disabled={busy || scanning}
           onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = "";
@@ -153,9 +188,9 @@ export function AddContentPanel({
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Paste class notes or a summary of what you learned…"
           rows={3}
-          disabled={busy}
+          disabled={busy || scanning}
         />
-        <button type="submit" disabled={busy || !notes.trim()}>
+        <button type="submit" disabled={busy || scanning || !notes.trim()}>
           Add notes
         </button>
       </form>

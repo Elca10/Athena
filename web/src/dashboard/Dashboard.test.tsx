@@ -385,7 +385,7 @@ test("only a Completed session gets an Archive button, and clicking it archives 
   await waitFor(() => expect(screen.queryByText("1 question answered")).not.toBeInTheDocument());
 });
 
-test("clicking Add content opens the panel for that subject, and Close dismisses it", async () => {
+test("clicking Add content opens the panel for that subject, and Done dismisses it", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
   vi.mocked(api.getSubjectSummary).mockResolvedValue({
@@ -406,8 +406,9 @@ test("clicking Add content opens the panel for that subject, and Close dismisses
   expect(api.listContent).toHaveBeenCalledWith("s1");
 
   const panel = screen.getByRole("heading", { name: "Add content — Organic Chemistry" }).closest("section") as HTMLElement;
-  await user.click(within(panel).getByRole("button", { name: "Close" }));
+  await user.click(within(panel).getByRole("button", { name: "Done" }));
   expect(screen.queryByRole("heading", { name: "Add content — Organic Chemistry" })).not.toBeInTheDocument();
+  expect(api.scanTopics).not.toHaveBeenCalled();
 });
 
 test("renders one card per subject, each fetching its own summary", async () => {

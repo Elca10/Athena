@@ -313,6 +313,23 @@ export function addPastedNotes(subjectId: string, text: string): Promise<Content
   return postJsonBody(`/api/subjects/${subjectId}/content/notes`, { text });
 }
 
+// Mirrors topics.js's /scan response (routes/topics.js, topicExtraction.js):
+// runs the one background model turn that reads newly-added content and
+// seeds planned topics from it. `errors` is non-empty only when a batch's
+// turn failed or came back unparseable — its files are left unprocessed,
+// so a later scan retries them.
+export type TopicScanResult = {
+  ok: boolean;
+  skipped: boolean;
+  topicsAdded: number;
+  filesProcessed: number;
+  errors: string[];
+};
+
+export function scanTopics(subjectId: string): Promise<TopicScanResult> {
+  return postJson(`/api/subjects/${subjectId}/topics/scan`);
+}
+
 // Mirrors server/src/bugReport.js's two-step flow (SPEC.md section 10/
 // 3.6): /preview never has a side effect — it just returns the exact
 // `{title, body}` a confirmation screen shows, already redacted. /send
