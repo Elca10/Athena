@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   archiveSession,
   archiveSubject,
@@ -62,6 +62,27 @@ export function Dashboard() {
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
+  const [usageChecking, setUsageChecking] = useState(false);
+  const usageCheckInFlight = useRef(false);
+
+  // Bug queue #3: `/usage` is free (no inference), but nothing was ever
+  // re-checking it after the initial load, so a tab left open through a
+  // usage window's reset (or through Live-mode turns) showed a stale
+  // percentage forever. `usageCheckInFlight` guards every caller below
+  // (the poll, the visibility trigger, the manual button, and `refresh`'s
+  // own call) against overlapping `/usage` calls piling up behind its
+  // up-to-45s timeout.
+  async function refreshUsage() {
+    if (usageCheckInFlight.current) return;
+    usageCheckInFlight.current = true;
+    setUsageChecking(true);
+    try {
+      setUsage(await getUsageStatus());
+    } finally {
+      usageCheckInFlight.current = false;
+      setUsageChecking(false);
+    }
+  }
 
   async function refresh() {
     const list = await listSubjects();
@@ -70,11 +91,31 @@ export function Dashboard() {
     setSummaries(Object.fromEntries(entries));
     setSessions(await listSessions());
     setStats(await getSessionStats());
-    setUsage(await getUsageStatus());
+    await refreshUsage();
   }
 
   useEffect(() => {
     refresh();
+  }, []);
+
+  // Periodic + manual usage refresh (bug queue #3). Polls every few
+  // minutes while the tab is visible, and checks again immediately when
+  // the tab becomes visible after being hidden, so switching back to
+  // Athena always shows a current reading rather than waiting out the
+  // rest of the interval.
+  useEffect(() => {
+    const USAGE_POLL_MS = 5 * 60 * 1000;
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") refreshUsage();
+    }, USAGE_POLL_MS);
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") refreshUsage();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   const subjectName = (id: string) => subjects?.find((s) => s.id === id)?.name ?? "Unknown subject";
@@ -112,7 +153,7 @@ export function Dashboard() {
         <h1>Athena</h1>
         <div className="dashboard-stats">
           <SessionStatsSummary stats={stats} />
-          <UsageStatusSummary usage={usage} />
+          <UsageStatusSummary usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
         </div>
         <div className="dashboard-header-actions">
           <button type="button" onClick={() => setShowBugReport((v) => !v)}>
@@ -509,8 +550,22 @@ function formatUsageStatus(usage: UsageStatus): string {
   return `Subscription usage — ${formatUsageWindow("session", usage.fiveHour)} · ${formatUsageWindow("week", usage.weekly)}`;
 }
 
-function UsageStatusSummary({ usage }: { usage: UsageStatus | null }) {
+function UsageStatusSummary({
+  usage,
+  checking,
+  onCheckNow,
+}: {
+  usage: UsageStatus | null;
+  checking: boolean;
+  onCheckNow: () => void;
+}) {
   return (
-    <span className="dashboard-stats-usage"> · {usage ? formatUsageStatus(usage) : "Checking subscription usage…"}</span>
+    <span className="dashboard-stats-usage">
+      {" "}
+      · {usage ? formatUsageStatus(usage) : "Checking subscription usage…"}{" "}
+      <button type="button" onClick={onCheckNow} disabled={checking}>
+        {checking ? "Checking…" : "Check now"}
+      </button>
+    </span>
   );
 }

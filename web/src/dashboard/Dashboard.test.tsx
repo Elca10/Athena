@@ -106,6 +106,78 @@ test("shows a 'couldn't check' message when the usage check itself failed", asyn
   expect(await screen.findByText(/Subscription usage — couldn't check\./)).toBeInTheDocument();
 });
 
+test("'Check now' re-checks usage on demand and disables itself while in flight", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  const user = userEvent.setup();
+  render(<Dashboard />);
+  await screen.findByText(/Checking subscription usage…/);
+  expect(api.getUsageStatus).toHaveBeenCalledTimes(1);
+
+  let resolveSecondCheck: (value: typeof EMPTY_USAGE) => void = () => {};
+  vi.mocked(api.getUsageStatus).mockImplementation(
+    () => new Promise((resolve) => (resolveSecondCheck = resolve)),
+  );
+  const checkNow = screen.getByRole("button", { name: "Check now" });
+  await user.click(checkNow);
+
+  expect(await screen.findByRole("button", { name: "Checking…" })).toBeDisabled();
+  expect(api.getUsageStatus).toHaveBeenCalledTimes(2);
+
+  // A second click while the first check is still in flight must not fire
+  // another overlapping `/usage` call (each can take up to 45s).
+  await user.click(screen.getByRole("button", { name: "Checking…" }));
+  expect(api.getUsageStatus).toHaveBeenCalledTimes(2);
+
+  resolveSecondCheck(EMPTY_USAGE);
+  expect(await screen.findByRole("button", { name: "Check now" })).toBeEnabled();
+});
+
+test("polls usage again after a few minutes while the tab stays visible", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    vi.mocked(api.listSubjects).mockResolvedValue([]);
+    vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+    mockEmptyUsage();
+    render(<Dashboard />);
+    await vi.waitFor(() => expect(api.getUsageStatus).toHaveBeenCalledTimes(1));
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(api.getUsageStatus).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(api.getUsageStatus).toHaveBeenCalledTimes(3);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+test("does not poll usage while the tab is hidden, and checks again as soon as it's visible", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  const visibilitySpy = vi.spyOn(document, "visibilityState", "get");
+  try {
+    vi.mocked(api.listSubjects).mockResolvedValue([]);
+    vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+    mockEmptyUsage();
+    render(<Dashboard />);
+    await vi.waitFor(() => expect(api.getUsageStatus).toHaveBeenCalledTimes(1));
+
+    visibilitySpy.mockReturnValue("hidden");
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    expect(api.getUsageStatus).toHaveBeenCalledTimes(1);
+
+    visibilitySpy.mockReturnValue("visible");
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(api.getUsageStatus).toHaveBeenCalledTimes(2));
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("shows empty-state guidance pointing at the New subject button once the subjects list resolves to none", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([]);
   vi.mocked(api.listSessions).mockResolvedValue([]);
