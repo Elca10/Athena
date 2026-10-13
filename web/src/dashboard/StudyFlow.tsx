@@ -138,7 +138,12 @@ function ModePicker({
         </label>
       </fieldset>
       <div className="study-picker-actions">
-        <button type="button" disabled={busy || selected.size === 0} onClick={() => onStart([...selected], mode)}>
+        <button
+          type="button"
+          className="btn-primary"
+          disabled={busy || selected.size === 0}
+          onClick={() => onStart([...selected], mode)}
+        >
           Start session
         </button>
       </div>
@@ -318,10 +323,10 @@ function ReadySessionScreen({
         <p>{stuck}</p>
         {generateError && <div className="study-session-error">{generateError}</div>}
         <div className="study-session-actions">
-          <button type="button" onClick={generateBankNow} disabled={generating}>
+          <button type="button" className="btn-primary" onClick={generateBankNow} disabled={generating}>
             {generating ? "Generating…" : "Generate question bank now"}
           </button>
-          <button type="button" onClick={onSwitchToLive} disabled={generating}>
+          <button type="button" className="btn-secondary" onClick={onSwitchToLive} disabled={generating}>
             Switch to Live instead
           </button>
         </div>
@@ -397,6 +402,7 @@ function ReadySessionScreen({
               )}
               <button
                 type="button"
+                className="btn-primary"
                 onClick={submitAnswer}
                 disabled={busy || (question.type === "multiple_choice" ? selectedIndex === null : !answerText.trim())}
               >
@@ -433,7 +439,12 @@ function ReadySessionScreen({
               {revealed.misconceptions.length > 0 && (
                 <p className="study-reveal-misconceptions">Common mix-ups: {revealed.misconceptions.join("; ")}</p>
               )}
-              <button type="button" onClick={submitSelfGrade} disabled={busy || selfGrades.some((g) => g === null)}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={submitSelfGrade}
+                disabled={busy || selfGrades.some((g) => g === null)}
+              >
                 Submit self-grade
               </button>
             </div>
@@ -444,7 +455,7 @@ function ReadySessionScreen({
               <p>
                 {lastResult.kind === "auto" ? (lastResult.isCorrect ? "Correct!" : "Not quite.") : "Self-grade recorded."}
               </p>
-              <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
+              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
                 Next question
               </button>
             </div>
@@ -545,7 +556,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
     return (
       <div className="study-session">
         <p>{genFailure}</p>
-        <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
+        <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
           Try again
         </button>
       </div>
@@ -594,7 +605,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
                 disabled={busy}
               />
               {answerFailure && <div className="study-session-error">{answerFailure}</div>}
-              <button type="button" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
+              <button type="button" className="btn-primary" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
                 {answerFailure ? "Try again" : "Submit answer"}
               </button>
             </div>
@@ -603,7 +614,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
           {feedback && (
             <div className="study-result">
               <p>{feedback.feedback}</p>
-              <button type="button" onClick={() => fetchNext(session.id)} disabled={busy}>
+              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
                 Next question
               </button>
             </div>
@@ -678,10 +689,10 @@ function ReflectionPrompt({ sessionId, onDone }: { sessionId: string; onDone: ()
         </label>
       ))}
       <div className="study-reflection-actions">
-        <button type="button" onClick={submit} disabled={busy || !hasAnyAnswer}>
+        <button type="button" className="btn-primary" onClick={submit} disabled={busy || !hasAnyAnswer}>
           Submit reflection
         </button>
-        <button type="button" onClick={skip} disabled={busy}>
+        <button type="button" className="btn-secondary" onClick={skip} disabled={busy}>
           Skip
         </button>
       </div>
