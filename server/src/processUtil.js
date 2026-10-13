@@ -15,7 +15,62 @@
 //   array. Verified-on-Linux-only here (this machine); flagged as the one
 //   Windows-specific risk worth a real smoke test if a bug ever points at a
 //   CLI "not found" on a friend's machine.
+import { existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import spawn from "cross-spawn";
+
+/**
+ * Where Claude Code's own Windows installers put `claude` — the native
+ * installer (`%USERPROFILE%\.local\bin`), winget's portable-package links
+ * dir, and npm's global bin. Each of those installers adds its dir to the
+ * *registry* PATH, which a process that was already running at install
+ * time (or was started from a terminal opened before it) never sees — so
+ * a server started that way reports "Claude Code isn't installed" even
+ * after the friend has installed and logged in to it. Uses `path.win32`
+ * explicitly, never the ambient `path`, so the result is correct when
+ * tested with an injected platform on a non-Windows host.
+ */
+export function knownWindowsCliDirs({ homedir = os.homedir(), env = process.env } = {}) {
+  const dirs = [path.win32.join(homedir, ".local", "bin")];
+  const localAppData = env.LOCALAPPDATA || path.win32.join(homedir, "AppData", "Local");
+  dirs.push(path.win32.join(localAppData, "Microsoft", "WinGet", "Links"));
+  const appData = env.APPDATA || path.win32.join(homedir, "AppData", "Roaming");
+  dirs.push(path.win32.join(appData, "npm"));
+  return dirs;
+}
+
+/**
+ * Pure: returns `pathValue` with any of `dirs` that exist (per `existsFn`)
+ * and aren't already on it appended at the end — appended, not prepended,
+ * so whatever the real PATH already resolves always still wins.
+ * Comparison is case-insensitive and ignores a trailing separator, matching
+ * how Windows itself treats PATH entries.
+ */
+export function withExtraPathDirs(pathValue, dirs, { existsFn = existsSync } = {}) {
+  const normalize = (p) => p.replace(/[\\/]+$/, "").toLowerCase();
+  const entries = (pathValue || "").split(";").filter(Boolean);
+  const present = new Set(entries.map(normalize));
+  for (const dir of dirs) {
+    if (!present.has(normalize(dir)) && existsFn(dir)) {
+      entries.push(dir);
+      present.add(normalize(dir));
+    }
+  }
+  return entries.join(";");
+}
+
+/**
+ * On Windows, makes this process's own PATH able to find a `claude`
+ * installed after it started (see `knownWindowsCliDirs`). Idempotent and a
+ * no-op everywhere else. Mutates `process.env` on purpose: every
+ * `runCommand` call that doesn't pass an explicit `env` inherits it, so
+ * the setup check and every later `claude -p` turn agree on what's found.
+ */
+export function ensureKnownCliDirsOnPath({ platform = process.platform } = {}) {
+  if (platform !== "win32") return;
+  process.env.PATH = withExtraPathDirs(process.env.PATH, knownWindowsCliDirs());
+}
 
 /**
  * Runs `command args...` to completion and resolves with

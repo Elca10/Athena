@@ -21,6 +21,7 @@ import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
 import { recordError } from "./errorLog.js";
+import { ensureKnownCliDirsOnPath } from "./processUtil.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -84,6 +85,9 @@ export async function createApp() {
 }
 
 async function main() {
+  // Before anything can shell out to `claude`: a server launched from a
+  // terminal opened before Claude Code was installed has a stale PATH.
+  ensureKnownCliDirsOnPath();
   const { app, appDataDir } = await createApp();
   app.listen(PORT, HOST, () => {
     console.log(`Athena-Studying backend listening on http://${HOST}:${PORT}`);

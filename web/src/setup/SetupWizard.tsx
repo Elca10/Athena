@@ -136,6 +136,7 @@ function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; on
               Install it from <code>claude.ai/code</code>, then check again.
             </>
           )}
+          {state.detail && <> Details: {state.detail}</>}
         </p>
       )}
       {!checking && state?.installed && state.loggedIn === false && (

@@ -4,7 +4,7 @@
 // cost no model inference — `claude -p -- "/usage"` is answered locally by
 // the CLI itself, never a real model turn.
 
-import { runCommand } from "./processUtil.js";
+import { ensureKnownCliDirsOnPath, runCommand } from "./processUtil.js";
 
 /**
  * Detects the OS the server is actually running on (SPEC.md section 2;
@@ -56,9 +56,15 @@ export function interpretClaudeUsageOutput({ code, stdout, stderr }) {
  * into a bug report if the check result is confusing.
  */
 export async function checkClaudeCode({ env } = {}) {
+  // Re-checked on every call (not just at startup) so "Check again" picks
+  // up a Claude Code installed while this server was already running.
+  if (!env) ensureKnownCliDirsOnPath();
   let versionResult;
   try {
-    versionResult = await runCommand("claude", ["--version"], { timeoutMs: 5_000, env });
+    // Generous timeout: the first-ever launch of a freshly installed
+    // claude.exe can take well over 5s while Windows Defender scans it,
+    // and a timeout here would misreport a working install as missing.
+    versionResult = await runCommand("claude", ["--version"], { timeoutMs: 30_000, env });
   } catch (err) {
     if (err.notFound) return { installed: false };
     return { installed: false, detail: `Could not run \`claude --version\`: ${err.message}` };
@@ -72,7 +78,7 @@ export async function checkClaudeCode({ env } = {}) {
     // `--` terminates the flag list so the literal string "/usage" is
     // always read as the prompt, never as an option — see Ada's memory of
     // the `claude -p` "unknown option" bug class this avoids.
-    usageResult = await runCommand("claude", ["-p", "--", "/usage"], { timeoutMs: 20_000, env });
+    usageResult = await runCommand("claude", ["-p", "--", "/usage"], { timeoutMs: 45_000, env });
   } catch (err) {
     return { installed: true, loggedIn: false, detail: `Could not run \`claude -p -- "/usage"\`: ${err.message}` };
   }
