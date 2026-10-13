@@ -22,6 +22,7 @@ import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
+import { ThemeToggle } from "../theme/ThemeToggle";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
 // fully wired: session stats (sessions/questions this week, streak,
@@ -156,6 +157,7 @@ export function Dashboard() {
           <UsageStatusSummary usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
         </div>
         <div className="dashboard-header-actions">
+          <ThemeToggle />
           <button type="button" onClick={() => setShowBugReport((v) => !v)}>
             Report a bug
           </button>
@@ -286,6 +288,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
       <header className="dashboard-header">
         <h1>Archive</h1>
         <div className="dashboard-header-actions">
+          <ThemeToggle />
           <button type="button" onClick={onBack}>
             Back to dashboard
           </button>

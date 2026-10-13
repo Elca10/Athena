@@ -4,6 +4,21 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Athena-Studying</title>
+    <script>
+      // Applies a stored Light/Dark override before first paint, so a
+      // user who picked one doesn't see a flash of the OS-preferred
+      // theme first. Kept in sync by hand with web/src/theme/theme.ts's
+      // readStoredTheme/applyTheme (this has to run before any module
+      // loads, so it can't import that file).
+      (function () {
+        try {
+          var stored = localStorage.getItem("athena-theme");
+          if (stored === "light" || stored === "dark") {
+            document.documentElement.setAttribute("data-theme", stored);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
