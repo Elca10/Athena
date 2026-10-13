@@ -154,64 +154,66 @@ export function AddContentPanel({
   }
 
   return (
-    <section className="content-panel">
-      <div className="content-panel-header">
-        <h2>Add content — {subjectName}</h2>
-        <button type="button" onClick={finishAdding} disabled={scanning}>
-          {scanning ? "Looking for topics…" : "Done"}
-        </button>
-      </div>
+    <div className="modal-backdrop">
+      <section className="content-panel modal">
+        <div className="content-panel-header">
+          <h2>Add content — {subjectName}</h2>
+          <button type="button" className="btn-primary" onClick={finishAdding} disabled={scanning}>
+            {scanning ? "Looking for topics…" : "Done"}
+          </button>
+        </div>
 
-      <div className="content-panel-upload">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept={ACCEPTED_EXTENSIONS.join(",")}
-          disabled={busy || scanning}
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            e.target.value = "";
-            if (file) handleFile(file);
+        <div className="content-panel-upload">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_EXTENSIONS.join(",")}
+            disabled={busy || scanning}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) handleFile(file);
+            }}
+          />
+        </div>
+
+        <form
+          className="content-panel-notes"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitNotes();
           }}
-        />
-      </div>
+        >
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Paste class notes or a summary of what you learned…"
+            rows={3}
+            disabled={busy || scanning}
+          />
+          <button type="submit" className="btn-secondary" disabled={busy || scanning || !notes.trim()}>
+            Add notes
+          </button>
+        </form>
 
-      <form
-        className="content-panel-notes"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submitNotes();
-        }}
-      >
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="Paste class notes or a summary of what you learned…"
-          rows={3}
-          disabled={busy || scanning}
-        />
-        <button type="submit" disabled={busy || scanning || !notes.trim()}>
-          Add notes
-        </button>
-      </form>
+        {error && <div className="content-panel-error">{error}</div>}
 
-      {error && <div className="content-panel-error">{error}</div>}
-
-      {items === null && <div className="dashboard-empty">Loading…</div>}
-      {items?.length === 0 && <div className="dashboard-empty">No content added yet.</div>}
-      {items !== null && items.length > 0 && (
-        <ul className="content-panel-list">
-          {items.map((item) => {
-            const unreliableNote = formatUnreliableNote(item);
-            return (
-              <li key={item.id}>
-                <span>{item.originalFilename}</span>
-                {unreliableNote && <span className="content-panel-unreliable">{unreliableNote}</span>}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </section>
+        {items === null && <div className="dashboard-empty">Loading…</div>}
+        {items?.length === 0 && <div className="dashboard-empty">No content added yet.</div>}
+        {items !== null && items.length > 0 && (
+          <ul className="content-panel-list">
+            {items.map((item) => {
+              const unreliableNote = formatUnreliableNote(item);
+              return (
+                <li key={item.id}>
+                  <span>{item.originalFilename}</span>
+                  {unreliableNote && <span className="content-panel-unreliable">{unreliableNote}</span>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </div>
   );
 }

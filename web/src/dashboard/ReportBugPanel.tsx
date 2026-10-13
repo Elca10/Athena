@@ -38,86 +38,88 @@ export function ReportBugPanel({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <section className="bug-report-panel">
-      <div className="bug-report-panel-header">
-        <h2>Report a bug</h2>
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
-
-      {step === "describe" && (
-        <form
-          className="bug-report-describe"
-          onSubmit={(e) => {
-            e.preventDefault();
-            goToPreview();
-          }}
-        >
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="What went wrong? Be as specific as you can — what you were doing, what you expected, what happened instead…"
-            rows={5}
-            autoFocus
-          />
-          <p className="bug-report-note">
-            Athena will add some technical details automatically (app version, your OS, recent error messages) and show you
-            exactly what will be posted before anything is sent.
-          </p>
-          {error && <div className="bug-report-error">{error}</div>}
-          <button type="submit" disabled={!description.trim()}>
-            Preview report
-          </button>
-        </form>
-      )}
-
-      {step === "preview" && preview && (
-        <div className="bug-report-preview">
-          <p className="bug-report-warning">
-            This will be posted as a <strong>public</strong> GitHub issue on Athena-Studying's repository — anyone can see it,
-            including your GitHub username. Technical details were redacted automatically, but review the text below before
-            sending.
-          </p>
-          <div className="bug-report-preview-field">
-            <label>Title</label>
-            <div className="bug-report-preview-text">{preview.title}</div>
-          </div>
-          <div className="bug-report-preview-field">
-            <label>Body</label>
-            <pre className="bug-report-preview-text bug-report-preview-body">{preview.body}</pre>
-          </div>
-          <div className="bug-report-preview-actions">
-            <button type="button" onClick={() => setStep("describe")}>
-              Back
-            </button>
-            <button type="button" onClick={send}>
-              Send
-            </button>
-          </div>
-        </div>
-      )}
-
-      {step === "sending" && <div className="dashboard-empty">Sending…</div>}
-
-      {step === "result" && result && (
-        <div className="bug-report-result">
-          {result.ok ? (
-            <p>
-              Reported — thank you.{" "}
-              <a href={result.url} target="_blank" rel="noreferrer">
-                View the issue
-              </a>
-              .
-            </p>
-          ) : (
-            <p className="bug-report-error">{result.error}</p>
-          )}
+    <div className="modal-backdrop">
+      <section className="bug-report-panel modal">
+        <div className="bug-report-panel-header">
+          <h2>Report a bug</h2>
           <button type="button" onClick={onClose}>
-            Done
+            Close
           </button>
         </div>
-      )}
-    </section>
+
+        {step === "describe" && (
+          <form
+            className="bug-report-describe"
+            onSubmit={(e) => {
+              e.preventDefault();
+              goToPreview();
+            }}
+          >
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="What went wrong? Be as specific as you can — what you were doing, what you expected, what happened instead…"
+              rows={5}
+              autoFocus
+            />
+            <p className="bug-report-note">
+              Athena will add some technical details automatically (app version, your OS, recent error messages) and show you
+              exactly what will be posted before anything is sent.
+            </p>
+            {error && <div className="bug-report-error">{error}</div>}
+            <button type="submit" className="btn-primary" disabled={!description.trim()}>
+              Preview report
+            </button>
+          </form>
+        )}
+
+        {step === "preview" && preview && (
+          <div className="bug-report-preview">
+            <p className="bug-report-warning">
+              This will be posted as a <strong>public</strong> GitHub issue on Athena-Studying's repository — anyone can see
+              it, including your GitHub username. Technical details were redacted automatically, but review the text below
+              before sending.
+            </p>
+            <div className="bug-report-preview-field">
+              <label>Title</label>
+              <div className="bug-report-preview-text">{preview.title}</div>
+            </div>
+            <div className="bug-report-preview-field">
+              <label>Body</label>
+              <pre className="bug-report-preview-text bug-report-preview-body">{preview.body}</pre>
+            </div>
+            <div className="bug-report-preview-actions">
+              <button type="button" onClick={() => setStep("describe")}>
+                Back
+              </button>
+              <button type="button" className="btn-primary" onClick={send}>
+                Send
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "sending" && <div className="dashboard-empty">Sending…</div>}
+
+        {step === "result" && result && (
+          <div className="bug-report-result">
+            {result.ok ? (
+              <p>
+                Reported — thank you.{" "}
+                <a href={result.url} target="_blank" rel="noreferrer">
+                  View the issue
+                </a>
+                .
+              </p>
+            ) : (
+              <p className="bug-report-error">{result.error}</p>
+            )}
+            <button type="button" className="btn-primary" onClick={onClose}>
+              Done
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
   );
 }

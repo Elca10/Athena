@@ -454,12 +454,34 @@ select {
   margin-top: 0.5rem;
 }
 
-.tune-panel {
+/* Floating overlays (Add content, Report a bug, Tune Athena): a dimmed
+   fixed backdrop centering a `.modal` card — the guide's dedicated
+   10px-radius/drop-shadow treatment reserved for true overlays, distinct
+   from the flat 8px bg-elevated cards used everywhere else on the page. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  padding: 1rem;
+}
+
+.modal {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  max-width: 90vw;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.tune-panel {
+  width: 26rem;
   padding: 1rem;
-  margin-bottom: 1.5rem;
 }
 
 .tune-panel-header {
@@ -504,11 +526,8 @@ select {
 }
 
 .content-panel {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  width: 32rem;
   padding: 1rem;
-  margin-bottom: 1.5rem;
 }
 
 .content-panel-header {
@@ -562,11 +581,8 @@ select {
 }
 
 .bug-report-panel {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  width: 32rem;
   padding: 1rem;
-  margin-bottom: 1.5rem;
 }
 
 .bug-report-panel-header {
