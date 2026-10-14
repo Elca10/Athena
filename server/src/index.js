@@ -20,6 +20,8 @@ import { makeReflectionsRouter } from "./routes/reflections.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
+import { makeUpdateRouter } from "./routes/update.js";
+import { makeUpdateChecker } from "./updateCheck.js";
 import { recordError } from "./errorLog.js";
 import { getAppVersion } from "./bugReport.js";
 import { ensureKnownCliDirsOnPath } from "./processUtil.js";
@@ -34,7 +36,11 @@ export async function createApp() {
   // which an installer re-run can change underneath a still-running server
   // (issue #4: a bug report claimed the newest commit while older code was
   // serving it).
-  const appVersion = getAppVersion(path.resolve(__dirname, "..", ".."));
+  const repoDir = path.resolve(__dirname, "..", "..");
+  const appVersion = getAppVersion(repoDir);
+  // Created here, but only main() starts its periodic `git fetch`, so a
+  // test calling createApp() never reaches out to the real remote.
+  const updateChecker = makeUpdateChecker({ repoDir });
 
   const app = express();
   // Default (100kb) is too small for a base64-encoded PDF upload
@@ -66,6 +72,7 @@ export async function createApp() {
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
   app.use("/api/bug-report", makeBugReportRouter(appDataDir, { appVersion }));
+  app.use("/api/update", makeUpdateRouter(updateChecker));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));
@@ -88,14 +95,15 @@ export async function createApp() {
     res.status(500).json({ error: "Something went wrong." });
   });
 
-  return { app, appDataDir };
+  return { app, appDataDir, updateChecker };
 }
 
 async function main() {
   // Before anything can shell out to `claude`: a server launched from a
   // terminal opened before Claude Code was installed has a stale PATH.
   ensureKnownCliDirsOnPath();
-  const { app, appDataDir } = await createApp();
+  const { app, appDataDir, updateChecker } = await createApp();
+  updateChecker.start();
   app.listen(PORT, HOST, () => {
     console.log(`Athena-Studying backend listening on http://${HOST}:${PORT}`);
     console.log(`App data dir: ${appDataDir}`);
