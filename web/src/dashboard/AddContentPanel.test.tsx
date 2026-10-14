@@ -285,3 +285,50 @@ test("after a failed scan, Close (or Escape) leaves without re-running the scan"
   expect(onClose).toHaveBeenCalledTimes(2);
   expect(api.scanTopics).toHaveBeenCalledTimes(1);
 });
+
+test("Done saves notes still typed in the box instead of dropping them, then reads them", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  vi.mocked(api.listContent)
+    .mockResolvedValueOnce([])
+    .mockResolvedValue([baseItem({ originalFilename: "pasted-notes.md", topicsExtractedAt: null })]);
+  vi.mocked(api.addPastedNotes).mockResolvedValue(baseItem());
+  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 2, filesProcessed: 1, errors: [] });
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 2, questionsAdded: 8, errors: [] });
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  await screen.findByText("No content added yet.");
+
+  await user.type(screen.getByPlaceholderText(/Paste class notes/), "Mitosis has four phases.");
+  await user.click(screen.getByRole("button", { name: "Done" }));
+
+  expect(api.addPastedNotes).toHaveBeenCalledWith("s1", "Mitosis has four phases.");
+  expect(api.scanTopics).toHaveBeenCalledWith("s1");
+  expect(onClose).toHaveBeenCalled();
+});
+
+test("Done reads topics, writes practice questions, then reports what it found", async () => {
+  const user = userEvent.setup();
+  const onFinished = vi.fn();
+  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
+  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 3, filesProcessed: 1, errors: [] });
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 3, questionsAdded: 12, errors: [] });
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} onFinished={onFinished} />);
+  await screen.findByText("lecture1.md");
+  expect(screen.getByText("Not read yet")).toBeInTheDocument();
+
+  await user.click(screen.getByRole("button", { name: "Done" }));
+
+  expect(api.scanBank).toHaveBeenCalledWith("s1");
+  expect(onFinished).toHaveBeenCalledWith("Found 3 new topics in Biology. Ready to study.");
+});
+
+test("Escape doesn't throw away typed-but-unsaved notes", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  await screen.findByText("No content added yet.");
+  await user.type(screen.getByPlaceholderText(/Paste class notes/), "half-written notes");
+  await user.keyboard("{Escape}");
+  expect(onClose).not.toHaveBeenCalled();
+});

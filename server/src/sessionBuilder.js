@@ -10,6 +10,7 @@
 // list before touching the next.
 
 import { listDueTopics, listTopics } from "./topics.js";
+import { listContent } from "./content.js";
 
 /** Most topics one session is built with. A session longer than this
  * risks exactly the fatigue/low-quality-answers problem "desirable
@@ -65,6 +66,13 @@ export async function explainNothingDue(appDataDir, subjectIds, now = new Date()
   const topics = [];
   for (const subjectId of new Set(subjectIds)) topics.push(...(await listTopics(appDataDir, subjectId)));
   if (!topics.length) {
+    let unread = 0;
+    for (const subjectId of new Set(subjectIds)) {
+      unread += (await listContent(appDataDir, subjectId)).filter((item) => !item.topicsExtractedAt).length;
+    }
+    if (unread) {
+      return "Athena hasn't read your content yet. Open Add content on the subject's card and click Done, so it can find the topics to quiz you on.";
+    }
     return "There's nothing to study here yet. Add some course content first (Add content on the subject's card).";
   }
   const nextDue = Math.min(...topics.map((t) => t.fsrs?.due ?? Infinity));

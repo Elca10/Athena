@@ -32,6 +32,9 @@ test("getSubjectSummary on a subject with no topics returns all-zero counts", as
     masteryCounts: { new: 0, learning: 0, mastered: 0 },
     dueCount: 0,
     bankSize: 0,
+    topicCount: 0,
+    contentCount: 0,
+    unreadContentCount: 0,
   });
 });
 
@@ -72,4 +75,16 @@ test("getSubjectSummary is scoped to its own subject, not any other subject's to
   const summaryB = await getSubjectSummary(dir, subjectB.id);
   assert.equal(summaryA.dueCount, 1);
   assert.equal(summaryB.dueCount, 2);
+});
+
+test("getSubjectSummary counts content, and content not yet read for topics", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-summary-content-"));
+  const subject = await createSubject(dir, { name: "Chem" });
+  const { addPastedNotes, markTopicsExtracted } = await import("../content.js");
+  const first = await addPastedNotes(dir, subject.id, { text: "Atoms." });
+  await addPastedNotes(dir, subject.id, { text: "Bonds." });
+  await markTopicsExtracted(dir, [first.id]);
+  const summary = await getSubjectSummary(dir, subject.id);
+  assert.equal(summary.contentCount, 2);
+  assert.equal(summary.unreadContentCount, 1);
 });

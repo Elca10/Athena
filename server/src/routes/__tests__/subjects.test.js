@@ -116,6 +116,12 @@ test("GET /:id/summary returns zeroed stats for a fresh subject with no topics",
       masteryCounts: { new: 0, learning: 0, mastered: 0 },
       dueCount: 0,
       bankSize: 0,
+    topicCount: 0,
+    contentCount: 0,
+    unreadContentCount: 0,
+      topicCount: 0,
+      contentCount: 0,
+      unreadContentCount: 0,
     });
   } finally {
     server.close();

@@ -1014,3 +1014,42 @@ select {
   color: var(--text-dim);
   font-size: 0.85rem;
 }
+
+.content-panel-status {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin: 0.5rem 0;
+}
+
+.content-panel-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.content-panel-item-status {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.subject-card-hint {
+  color: var(--text-h);
+  border-left: 3px solid var(--accent);
+  padding-left: 8px;
+  margin-top: 4px;
+}
+
+.dashboard-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-good);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--text-h);
+}

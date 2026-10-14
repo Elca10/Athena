@@ -6,6 +6,7 @@
 // (section 9) aren't a build step yet, so there's no data to aggregate.
 
 import { listTopics, listDueTopics } from "./topics.js";
+import { listContent } from "./content.js";
 import { listBankQuestions } from "./questionBank.js";
 
 // ts-fsrs's State enum: New=0, Learning=1, Review=2, Relearning=3. "Review"
@@ -31,5 +32,16 @@ export async function getSubjectSummary(appDataDir, subjectId, now = new Date())
   const dueCount = (await listDueTopics(appDataDir, subjectId, now)).length;
   const bankCounts = await Promise.all(topics.map((t) => listBankQuestions(appDataDir, t.id)));
   const bankSize = bankCounts.reduce((sum, questions) => sum + questions.length, 0);
-  return { masteryCounts: computeMasteryCounts(topics), dueCount, bankSize };
+  // Content counts let the dashboard say what to do next: add content, or
+  // finish reading what was added (Close instead of Done leaves it unread).
+  const content = await listContent(appDataDir, subjectId);
+  const unreadContentCount = content.filter((item) => !item.topicsExtractedAt).length;
+  return {
+    masteryCounts: computeMasteryCounts(topics),
+    dueCount,
+    bankSize,
+    topicCount: topics.length,
+    contentCount: content.length,
+    unreadContentCount,
+  };
 }

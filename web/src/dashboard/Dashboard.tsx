@@ -69,6 +69,7 @@ export function Dashboard() {
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageChecking, setUsageChecking] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const usageCheckInFlight = useRef(false);
 
   // Bug queue #3: `/usage` is free (no inference), but nothing was ever
@@ -207,6 +208,14 @@ export function Dashboard() {
           </button>
         </div>
       )}
+      {notice && (
+        <div className="dashboard-notice" role="status">
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)}>
+            Dismiss
+          </button>
+        </div>
+      )}
       {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
       {contentSubjectId && (
@@ -215,6 +224,7 @@ export function Dashboard() {
           subjectName={subjectName(contentSubjectId)}
           onClose={() => setContentSubjectId(null)}
           onContentAdded={refresh}
+          onFinished={setNotice}
         />
       )}
       <div className="dashboard-body">
@@ -467,6 +477,7 @@ function SubjectCard({
           </span>
           <span>{summary.dueCount} due today</span>
           <span>{summary.bankSize} ready questions</span>
+          <NextStepHint summary={summary} />
         </div>
       ) : (
         <div className="subject-card-stats">Loading stats…</div>
@@ -484,6 +495,20 @@ function SubjectCard({
       </div>
     </article>
   );
+}
+
+// What to do next with this subject, when it isn't obvious: a brand-new
+// subject has nothing to study until content is added, and content added
+// but closed without Done hasn't been read for topics yet.
+function NextStepHint({ summary }: { summary: SubjectSummary }) {
+  let hint: string | null = null;
+  if (summary.unreadContentCount > 0) {
+    const n = summary.unreadContentCount;
+    hint = `${n} item${n === 1 ? "" : "s"} not read yet. Open Add content and click Done.`;
+  } else if (summary.contentCount === 0 && summary.topicCount === 0) {
+    hint = "Next: add your course content (slides, PDFs or notes).";
+  }
+  return hint ? <span className="subject-card-hint">{hint}</span> : null;
 }
 
 function NewSubjectForm({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {

@@ -8,6 +8,9 @@ export type SubjectSummary = {
   masteryCounts: { new: number; learning: number; mastered: number };
   dueCount: number;
   bankSize: number;
+  topicCount: number;
+  contentCount: number;
+  unreadContentCount: number;
 };
 
 export type SessionStatus = "active" | "waiting" | "completed";

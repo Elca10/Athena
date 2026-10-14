@@ -748,3 +748,21 @@ test("POST /api/sessions/:id/reflection/skip for an unknown session returns 404"
     server.close();
   }
 });
+
+test("POST /api/sessions on a subject whose content hasn't been read yet says to click Done, not to add content", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Unread" });
+    const { addPastedNotes } = await import("../../content.js");
+    await addPastedNotes(dir, subject.id, { text: "Some notes." });
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "ready" }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /hasn't read your content yet.*click Done/);
+  } finally {
+    server.close();
+  }
+});

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   addPastedNotes,
   listContent,
+  scanBank,
   scanTopics,
   uploadBinaryContent,
   uploadTextContent,
@@ -66,22 +67,34 @@ export function AddContentPanel({
   subjectName,
   onClose,
   onContentAdded,
+  onFinished,
 }: {
   subjectId: string;
   subjectName: string;
   onClose: () => void;
   onContentAdded?: () => void;
+  /** Called with a one-line summary after Done finishes reading content. */
+  onFinished?: (summary: string) => void;
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [scanning, setScanning] = useState(false);
+  const [scanStage, setScanStage] = useState<"topics" | "questions">("topics");
+  const [uploadingName, setUploadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Escape (and the Close button) leave without looking for topics; any
   // new content stays unread until Done is used next time.
-  useEscapeKey(onClose, !busy);
+  // Not while busy, and not with typed-but-unsaved notes (Escape would
+  // silently throw them away).
+  useEscapeKey(onClose, !busy && !scanning && !notes.trim());
+
+  function closePanel() {
+    if (notes.trim() && !window.confirm("Discard the notes you typed but haven't added?")) return;
+    onClose();
+  }
 
   async function refresh() {
     setItems(await listContent(subjectId));
@@ -99,6 +112,7 @@ export function AddContentPanel({
     }
     setError(null);
     setBusy(true);
+    setUploadingName(file.name);
     try {
       if (BINARY_EXTENSIONS.includes(ext)) {
         await uploadBinaryContent(subjectId, file.name, await readAsBase64(file));
@@ -111,6 +125,7 @@ export function AddContentPanel({
       setError(err instanceof Error ? err.message : "Couldn't add that file.");
     } finally {
       setBusy(false);
+      setUploadingName(null);
     }
   }
 
@@ -135,21 +150,55 @@ export function AddContentPanel({
   // topics. Skips the scan entirely when nothing is unprocessed (e.g. the
   // user opened the panel and added nothing, or everything in it was
   // already scanned before) so "Done" doesn't wait on a pointless turn.
+  // Done = save any notes still in the box (they used to be dropped
+  // silently), read new content for topics, then write practice questions
+  // for those topics so a Ready session works straight away, and report
+  // what happened.
   async function finishAdding() {
-    const hasUnprocessed = items?.some((item) => !item.topicsExtractedAt) ?? false;
-    if (!hasUnprocessed) {
+    setError(null);
+    let current = items ?? [];
+    if (notes.trim()) {
+      setBusy(true);
+      try {
+        await addPastedNotes(subjectId, notes.trim());
+        setNotes("");
+        current = await listContent(subjectId);
+        setItems(current);
+        onContentAdded?.();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't add those notes.");
+        return;
+      } finally {
+        setBusy(false);
+      }
+    }
+    const unread = current.filter((item) => !item.topicsExtractedAt).length;
+    if (!unread) {
       onClose();
       return;
     }
-    setError(null);
     setScanning(true);
+    setScanStage("topics");
     try {
-      const result = await scanTopics(subjectId);
-      if (result.errors.length) {
-        setError(`Looked for topics, but: ${result.errors.join("; ")}`);
+      const topics = await scanTopics(subjectId);
+      if (topics.errors.length) {
+        setError(`Looked for topics, but: ${topics.errors.join("; ")}`);
         return;
       }
+      setScanStage("questions");
+      let questionsNote = "";
+      try {
+        const bank = await scanBank(subjectId);
+        if (bank.errors.length) questionsNote = " Some practice questions couldn't be written yet; Athena will offer to try again when you study.";
+      } catch {
+        questionsNote = " Practice questions couldn't be written yet; Athena will offer to try again when you study.";
+      }
       onContentAdded?.();
+      const found =
+        topics.topicsAdded === 0
+          ? `Read ${unread} new item${unread === 1 ? "" : "s"} for ${subjectName}, but found no new topics.`
+          : `Found ${topics.topicsAdded} new topic${topics.topicsAdded === 1 ? "" : "s"} in ${subjectName}. Ready to study.`;
+      onFinished?.(found + questionsNote);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't look for topics in your new files.");
@@ -164,11 +213,11 @@ export function AddContentPanel({
         <div className="content-panel-header">
           <h2 id="content-panel-title">Add content — {subjectName}</h2>
           <div className="content-panel-header-actions">
-            <button type="button" onClick={onClose} disabled={busy}>
+            <button type="button" onClick={closePanel} disabled={busy || scanning}>
               Close
             </button>
             <button type="button" className="btn-primary" onClick={finishAdding} disabled={scanning || busy}>
-              {scanning ? "Looking for topics…" : "Done"}
+              {scanning ? (scanStage === "topics" ? "Finding topics…" : "Writing practice questions…") : "Done"}
             </button>
           </div>
         </div>
@@ -206,6 +255,18 @@ export function AddContentPanel({
           </button>
         </form>
 
+        {uploadingName && (
+          <div className="content-panel-status" role="status">
+            Adding {uploadingName}… (a long PDF or slide deck can take a minute)
+          </div>
+        )}
+        {scanning && (
+          <div className="content-panel-status" role="status">
+            {scanStage === "topics"
+              ? "Athena is reading your content to find the topics. This can take a minute or two."
+              : "Writing practice questions for the new topics. Almost there."}
+          </div>
+        )}
         {error && <div className="content-panel-error">{error}</div>}
 
         {items === null && <div className="dashboard-empty">Loading…</div>}
@@ -216,7 +277,10 @@ export function AddContentPanel({
               const unreliableNote = formatUnreliableNote(item);
               return (
                 <li key={item.id}>
-                  <span>{item.originalFilename}</span>
+                  <span className="content-panel-item">
+                    <span>{item.originalFilename}</span>
+                    <span className="content-panel-item-status">{item.topicsExtractedAt ? "Read" : "Not read yet"}</span>
+                  </span>
                   {unreliableNote && <span className="content-panel-unreliable">{unreliableNote}</span>}
                 </li>
               );
