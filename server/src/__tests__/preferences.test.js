@@ -69,3 +69,10 @@ test("addPreference never collides on id across concurrent adds", async () => {
   assert.equal(ids.size, 15);
   assert.equal((await listPreferences(dir)).length, 15);
 });
+
+test("addPreference rejects the same preference twice (case-insensitive)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-prefs-dup-"));
+  await addPreference(dir, { text: "Harder questions on proofs" });
+  await assert.rejects(addPreference(dir, { text: "  harder questions on proofs " }), /already have that preference/);
+  assert.equal((await listPreferences(dir)).length, 1);
+});

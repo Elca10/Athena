@@ -43,6 +43,10 @@ export async function addPreference(appDataDir, { text }) {
     if (current.length >= MAX_PREFERENCES) {
       throw new Error(`Already at the maximum of ${MAX_PREFERENCES} preferences`);
     }
+    // A repeat adds nothing to the prompt but uses up one of the slots.
+    if (current.some((p) => p.text.toLowerCase() === trimmed.toLowerCase())) {
+      throw new Error("You already have that preference.");
+    }
     return [...current, preference];
   });
   return preference;
