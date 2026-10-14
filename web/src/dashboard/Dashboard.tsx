@@ -122,6 +122,14 @@ export function Dashboard() {
 
   const subjectName = (id: string) => subjects?.find((s) => s.id === id)?.name ?? "Unknown subject";
 
+  // Only one panel at a time: opening one closes any other, so they can
+  // never stack on top of each other.
+  function openPanel(panel: "bug" | "tune" | "content", subjectId?: string) {
+    setShowBugReport(panel === "bug");
+    setShowTune(panel === "tune");
+    setContentSubjectId(panel === "content" ? subjectId ?? null : null);
+  }
+
   if (view === "archive") {
     return (
       <ArchiveView
@@ -155,12 +163,12 @@ export function Dashboard() {
         <div className="dashboard-header-top">
           <h1>Athena</h1>
           <div className="dashboard-header-actions">
-            <UpdateControl onReportBug={() => setShowBugReport(true)} />
+            <UpdateControl onReportBug={() => openPanel("bug")} />
             <ThemeToggle />
-            <button type="button" onClick={() => setShowBugReport((v) => !v)}>
+            <button type="button" onClick={() => openPanel("bug")}>
               Report a bug
             </button>
-            <button type="button" onClick={() => setShowTune((v) => !v)}>
+            <button type="button" onClick={() => openPanel("tune")}>
               Tune Athena
             </button>
             <button type="button" onClick={() => setView("archive")}>
@@ -209,7 +217,7 @@ export function Dashboard() {
               key={subject.id}
               subject={subject}
               summary={summaries[subject.id]}
-              onAddContent={() => setContentSubjectId(subject.id)}
+              onAddContent={() => openPanel("content", subject.id)}
               onStudy={() => {
                 setStudySubjectId(subject.id);
                 setView("study");

@@ -583,6 +583,12 @@ select {
   padding: 1rem;
 }
 
+.content-panel-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .content-panel-header {
   display: flex;
   align-items: center;

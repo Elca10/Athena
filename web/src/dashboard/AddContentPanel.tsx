@@ -7,6 +7,7 @@ import {
   uploadTextContent,
   type ContentItem,
 } from "./api";
+import { useEscapeKey } from "../useEscapeKey";
 
 // Add content (SPEC.md section 7): a native file picker (plain
 // text/markdown, now also PDF and PPTX — server/src/pdfExtract.js /
@@ -77,6 +78,10 @@ export function AddContentPanel({
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Escape (and the Close button) leave without looking for topics; any
+  // new content stays unread until Done is used next time.
+  useEscapeKey(onClose, !busy);
 
   async function refresh() {
     setItems(await listContent(subjectId));
@@ -155,12 +160,17 @@ export function AddContentPanel({
 
   return (
     <div className="modal-backdrop">
-      <section className="content-panel modal">
+      <section className="content-panel modal" role="dialog" aria-modal="true" aria-labelledby="content-panel-title">
         <div className="content-panel-header">
-          <h2>Add content — {subjectName}</h2>
-          <button type="button" className="btn-primary" onClick={finishAdding} disabled={scanning}>
-            {scanning ? "Looking for topics…" : "Done"}
-          </button>
+          <h2 id="content-panel-title">Add content — {subjectName}</h2>
+          <div className="content-panel-header-actions">
+            <button type="button" onClick={onClose} disabled={busy}>
+              Close
+            </button>
+            <button type="button" className="btn-primary" onClick={finishAdding} disabled={scanning || busy}>
+              {scanning ? "Looking for topics…" : "Done"}
+            </button>
+          </div>
         </div>
 
         <div className="content-panel-upload">

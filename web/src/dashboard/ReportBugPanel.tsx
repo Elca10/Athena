@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { previewBugReport, sendBugReport, type BugReportPreview } from "./api";
+import { useEscapeKey } from "../useEscapeKey";
 
 // "Report a bug" (SPEC.md section 10/3.6 — the plain-report-and-file
 // half only; no Bug Fixer in v1.0). Three steps, matching the backend's
@@ -19,6 +20,8 @@ export function ReportBugPanel({ onClose }: { onClose: () => void }) {
   const [preview, setPreview] = useState<BugReportPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
+  // Not while sending: closing then would hide whether it was filed.
+  useEscapeKey(onClose, step !== "sending");
 
   async function goToPreview() {
     setError(null);
@@ -33,16 +36,21 @@ export function ReportBugPanel({ onClose }: { onClose: () => void }) {
   async function send() {
     if (!preview) return;
     setStep("sending");
-    setResult(await sendBugReport(preview));
+    try {
+      setResult(await sendBugReport(preview));
+    } catch {
+      // Without this, a dropped connection left the panel on "Sending…" forever.
+      setResult({ ok: false, error: "Couldn't reach Athena to send the report. Check that it's still running, then try again." });
+    }
     setStep("result");
   }
 
   return (
     <div className="modal-backdrop">
-      <section className="bug-report-panel modal">
+      <section className="bug-report-panel modal" role="dialog" aria-modal="true" aria-labelledby="bug-report-title">
         <div className="bug-report-panel-header">
-          <h2>Report a bug</h2>
-          <button type="button" onClick={onClose}>
+          <h2 id="bug-report-title">Report a bug</h2>
+          <button type="button" onClick={onClose} disabled={step === "sending"}>
             Close
           </button>
         </div>

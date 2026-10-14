@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { addPreference, deletePreference, listPreferences, type Preference } from "./api";
+import { useEscapeKey } from "../useEscapeKey";
 
 // Tune Athena (SPEC.md section 8): plain-language study preferences the
 // user writes, stored verbatim and later included in Athena's prompts
@@ -12,6 +13,7 @@ export function TuneAthenaPanel({ onClose }: { onClose: () => void }) {
   const [preferences, setPreferences] = useState<Preference[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  useEscapeKey(onClose);
 
   async function refresh() {
     setPreferences(await listPreferences());
@@ -46,9 +48,9 @@ export function TuneAthenaPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop">
-      <section className="tune-panel modal">
+      <section className="tune-panel modal" role="dialog" aria-modal="true" aria-labelledby="tune-panel-title">
         <div className="tune-panel-header">
-          <h2>Tune Athena</h2>
+          <h2 id="tune-panel-title">Tune Athena</h2>
           <button type="button" onClick={onClose}>
             Close
           </button>

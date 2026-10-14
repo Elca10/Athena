@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { applyUpdate, getHealth, getUpdateStatus, type UpdateStatus } from "./api";
+import { useEscapeKey } from "../useEscapeKey";
 
 // One-click updates, the UI half (server: routes/update.js, updateApply.js;
 // installers/updater.mjs does the actual update). Renders nothing unless
@@ -31,6 +32,7 @@ export function UpdateControl({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [startError, setStartError] = useState<string | null>(null);
   const mounted = useRef(true);
+  useEscapeKey(() => setPhase({ kind: "idle" }), phase.kind === "confirm" || phase.kind === "message");
 
   async function refreshStatus() {
     try {

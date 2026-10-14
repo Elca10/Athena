@@ -118,3 +118,21 @@ test("a failed preview (e.g. empty description rejected server-side) shows an er
   expect(await screen.findByText("Describe the bug before previewing.")).toBeInTheDocument();
   expect(screen.getByPlaceholderText(/What went wrong/)).toBeInTheDocument();
 });
+
+test("a send that can't reach the server shows an error instead of hanging on Sending…", async () => {
+  vi.mocked(api.previewBugReport).mockResolvedValue({ title: "t", body: "b" });
+  vi.mocked(api.sendBugReport).mockRejectedValue(new Error("Failed to fetch"));
+  render(<ReportBugPanel onClose={() => {}} />);
+  await userEvent.type(screen.getByPlaceholderText(/What went wrong/), "it crashed");
+  await userEvent.click(screen.getByRole("button", { name: "Preview report" }));
+  await userEvent.click(await screen.findByRole("button", { name: "Send" }));
+  expect(await screen.findByText(/Couldn't reach Athena to send the report/)).toBeInTheDocument();
+  expect(screen.queryByText("Sending…")).not.toBeInTheDocument();
+});
+
+test("Escape closes the panel", async () => {
+  const onClose = vi.fn();
+  render(<ReportBugPanel onClose={onClose} />);
+  await userEvent.keyboard("{Escape}");
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

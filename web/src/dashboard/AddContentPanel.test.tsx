@@ -261,3 +261,27 @@ test("shows a thrown scanTopics error inline and keeps the panel open", async ()
   expect(await screen.findByText("fetch failed")).toBeInTheDocument();
   expect(onClose).not.toHaveBeenCalled();
 });
+
+test("after a failed scan, Close (or Escape) leaves without re-running the scan", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
+  vi.mocked(api.scanTopics).mockResolvedValue({
+    ok: true,
+    skipped: false,
+    topicsAdded: 0,
+    filesProcessed: 0,
+    errors: ["1 file(s) not processed: no readable topic list in the reply"],
+  });
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  await screen.findByText("lecture1.md");
+  await user.click(screen.getByRole("button", { name: "Done" }));
+  expect(await screen.findByText(/Looked for topics, but/)).toBeInTheDocument();
+  expect(onClose).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(onClose).toHaveBeenCalledTimes(1);
+  await user.click(screen.getByRole("button", { name: "Close" }));
+  expect(onClose).toHaveBeenCalledTimes(2);
+  expect(api.scanTopics).toHaveBeenCalledTimes(1);
+});
