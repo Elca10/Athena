@@ -214,6 +214,9 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
   if (session.mode !== "live") throw new Error(`generateNextLiveQuestion only applies to live-mode sessions: ${sessionId}`);
   if (session.currentQuestion) throw new Error(`Session already has a current question: ${sessionId}`);
   if (!session.topicIds.length) throw new Error(`Session has no topics to ask about: ${sessionId}`);
+  // Ended early (or finished) and waiting on its reflection: never start a
+  // new model turn for it.
+  if (session.reflectionPending) return { ok: true, done: true, awaitingReflection: true, session };
 
   const topicId = pickNextTopicId(session.topicIds, session.history);
   if (topicId === null) {

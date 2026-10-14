@@ -663,3 +663,15 @@ test("submitLiveAnswer rejects a missing or out-of-range confidence", async () =
     /confidence must be an integer from 1 to 5/,
   );
 });
+
+test("generateNextLiveQuestion never runs a model turn for a session waiting on its reflection (ended early)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-live-pending-"));
+  const { createSession, promptReflection } = await import("../sessions.js");
+  const session = await createSession(dir, { subjectIds: ["s1"], mode: "live", topicIds: ["t1", "t2"] });
+  await promptReflection(dir, session.id);
+  let turns = 0;
+  const result = await generateNextLiveQuestion(dir, session.id, { runTurn: async () => (turns++, "") });
+  assert.equal(result.done, true);
+  assert.equal(result.awaitingReflection, true);
+  assert.equal(turns, 0);
+});

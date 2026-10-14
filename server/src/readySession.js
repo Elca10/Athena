@@ -215,6 +215,7 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
   if (session.mode !== "ready") throw new Error(`generateNextReadyQuestion only applies to ready-mode sessions: ${sessionId}`);
   if (session.currentQuestion) throw new Error(`Session already has a current question: ${sessionId}`);
   if (!session.topicIds.length) throw new Error(`Session has no topics to ask about: ${sessionId}`);
+  if (session.reflectionPending) return { ok: true, done: true, awaitingReflection: true, session, bankTopUps: [] };
 
   const topicId = pickNextTopicId(session.topicIds, session.history);
   if (topicId === null) {

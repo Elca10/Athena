@@ -3,6 +3,7 @@ import {
   archiveSession,
   archiveSubject,
   createSubject,
+  finishSession,
   getSessionStats,
   getSubjectSummary,
   getUsageStatus,
@@ -288,6 +289,20 @@ export function Dashboard() {
                           }
                         : undefined
                     }
+                    onEnd={
+                      session.status === "waiting" && !session.reflectionPending
+                        ? async () => {
+                            if (!window.confirm("End this session? Anything not answered yet won't count.")) return;
+                            const result = await finishSession(session.id).catch(() => null);
+                            if (result?.reflection) {
+                              setResumeSession(result.session);
+                              setView("study");
+                            } else {
+                              refresh();
+                            }
+                          }
+                        : undefined
+                    }
                     onArchive={
                       session.status === "completed"
                         ? async () => {
@@ -405,11 +420,13 @@ function SessionRow({
   session,
   subjectName,
   onResume,
+  onEnd,
   onArchive,
 }: {
   session: Session;
   subjectName: (id: string) => string;
   onResume?: () => void;
+  onEnd?: () => void;
   onArchive?: () => void;
 }) {
   const subjectLabel = session.subjectIds.map(subjectName).join(", ");
@@ -439,10 +456,20 @@ function SessionRow({
         <span className="session-row-mode">{modeLabel}</span>
       </div>
       <div className="session-row-detail">{detail}</div>
-      {onResume && (
-        <button type="button" className="btn-primary" onClick={onResume}>
-          Resume
-        </button>
+      {(onResume || onEnd) && (
+        <div className="session-row-actions">
+          {onResume && (
+            <button type="button" className="btn-primary" onClick={onResume}>
+              Resume
+            </button>
+          )}
+          {/* Ending from here never starts a model turn, unlike Resume. */}
+          {onEnd && (
+            <button type="button" onClick={onEnd}>
+              End
+            </button>
+          )}
+        </div>
       )}
       {onArchive && (
         <button type="button" onClick={onArchive}>

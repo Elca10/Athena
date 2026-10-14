@@ -784,3 +784,28 @@ test("subject cards say what to do next: add content, or finish reading it", asy
   expect(await screen.findByText(/Next: add your course content/)).toBeInTheDocument();
   expect(screen.getByText(/2 items not read yet\. Open Add content and click Done\./)).toBeInTheDocument();
 });
+
+test("a Waiting session can be ended from the dashboard without resuming it", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Biology", archived: false, createdAt: "2026-10-01T00:00:00.000Z" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+    topicCount: 1,
+    contentCount: 1,
+    unreadContentCount: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([
+    { id: "w1", subjectIds: ["s1"], topicIds: ["t1"], mode: "live", status: "waiting", archived: false, currentQuestion: null, history: [], reflectionPending: false } as unknown as api.Session,
+  ]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.finishSession).mockResolvedValue({ reflection: false, session: {} as api.Session });
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await user.click(await screen.findByRole("button", { name: "End" }));
+  expect(api.finishSession).toHaveBeenCalledWith("w1");
+  expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
+});

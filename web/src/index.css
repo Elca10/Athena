@@ -1058,3 +1058,8 @@ select {
   color: var(--text-dim);
   font-size: 0.9rem;
 }
+
+.session-row-actions {
+  display: flex;
+  gap: 8px;
+}

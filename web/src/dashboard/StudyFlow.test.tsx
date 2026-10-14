@@ -567,3 +567,15 @@ test("End session with nothing answered just leaves", async () => {
   await user.click(screen.getByRole("button", { name: "End session" }));
   expect(onExit).toHaveBeenCalled();
 });
+
+test("resuming a session that's waiting on its reflection shows the reflection, with no question fetch (no Live model turn)", async () => {
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({ mode: "live", status: "waiting", reflectionPending: true })}
+      onExit={() => {}}
+    />,
+  );
+  expect(await screen.findByText("What did you learn?")).toBeInTheDocument();
+  expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
+});

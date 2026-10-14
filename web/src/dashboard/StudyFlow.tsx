@@ -252,7 +252,11 @@ function ReadySessionScreen({
     return initialReveal ? initialReveal.rubric.map(() => null) : [];
   });
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
-  const [ended, setEnded] = useState(false);
+  // A session waiting on its reflection (finished, or ended early) shows
+  // the reflection straight away. Fetching a "next question" for it could
+  // serve a new question, or run a Live model turn, for a session the user
+  // already ended.
+  const [ended, setEnded] = useState(initialSession.reflectionPending === true);
   const [stuck, setStuck] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
@@ -561,7 +565,11 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   const [answerText, setAnswerText] = useState("");
   const [answerFailure, setAnswerFailure] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<LiveFeedback | null>(null);
-  const [ended, setEnded] = useState(false);
+  // A session waiting on its reflection (finished, or ended early) shows
+  // the reflection straight away. Fetching a "next question" for it could
+  // serve a new question, or run a Live model turn, for a session the user
+  // already ended.
+  const [ended, setEnded] = useState(initialSession.reflectionPending === true);
 
   async function fetchNext(sessionId: string) {
     setBusy(true);
