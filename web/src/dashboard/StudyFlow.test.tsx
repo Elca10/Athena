@@ -531,3 +531,39 @@ test("a failed question fetch offers Try again instead of 'Loading question…' 
   expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
   expect(screen.queryByText("Loading question…")).not.toBeInTheDocument();
 });
+
+test("End session mid-way goes to the reflection prompt (after confirming)", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ currentQuestion: mcQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.finishSession).mockResolvedValue({ reflection: true, session: baseSession({ reflectionPending: true }) });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText("Which organelle produces ATP?");
+
+  await user.click(screen.getByRole("button", { name: "End session" }));
+  expect(api.finishSession).toHaveBeenCalledWith(baseSession().id);
+  expect(await screen.findByText("What did you learn?")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "End session" })).not.toBeInTheDocument();
+});
+
+test("End session with nothing answered just leaves", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ currentQuestion: mcQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.finishSession).mockResolvedValue({ reflection: false, session: baseSession({ status: "completed" }) });
+  const onExit = vi.fn();
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={onExit} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText("Which organelle produces ATP?");
+  await user.click(screen.getByRole("button", { name: "End session" }));
+  expect(onExit).toHaveBeenCalled();
+});

@@ -3,6 +3,7 @@ import {
   archiveSession,
   createSession,
   endSession,
+  finishSession,
   generateNextLiveQuestion,
   generateNextReadyQuestion,
   scanBank,
@@ -56,6 +57,22 @@ export function StudyFlow({
   const [session, setSession] = useState<Session | null>(resumeSession ?? null);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reflectingId, setReflectingId] = useState<string | null>(null);
+
+  // Stop early: with answers, go to the end-of-session reflection; with
+  // none, just close it. Before this, a session could only end by
+  // answering every topic, so half-done ones piled up in Waiting.
+  async function endEarly() {
+    if (!session) return;
+    if (!window.confirm("End this session now? Anything you haven't answered yet won't count.")) return;
+    try {
+      const result = await finishSession(session.id);
+      if (result.reflection) setReflectingId(session.id);
+      else onExit();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't end the session.");
+    }
+  }
 
   async function start(subjectIds: string[], mode: SessionMode) {
     setStarting(true);
@@ -88,6 +105,11 @@ export function StudyFlow({
           <h1>Study</h1>
           <div className="dashboard-header-actions">
             <ThemeToggle />
+            {session && !reflectingId && (
+              <button type="button" onClick={endEarly}>
+                End session
+              </button>
+            )}
             <button type="button" onClick={onExit}>
               Back to dashboard
             </button>
@@ -98,10 +120,11 @@ export function StudyFlow({
       {!session && initialSubjectId && (
         <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
       )}
-      {session && session.mode === "ready" && (
+      {reflectingId && <ReflectionPrompt sessionId={reflectingId} onDone={onExit} />}
+      {session && !reflectingId && session.mode === "ready" && (
         <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => switchToLive(session)} />
       )}
-      {session && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
+      {session && !reflectingId && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
     </div>
   );
 }
@@ -616,7 +639,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   return (
     <div className="study-session">
       {error && <div className="study-session-error">{error}</div>}
-      {!question && !error && <p>Loading question…</p>}
+      {!question && !error && <p>Athena is writing your next question… This can take up to a minute.</p>}
       {!question && error && (
         <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
           Try again
@@ -657,6 +680,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
                 rows={4}
                 disabled={busy}
               />
+              {busy && <p className="study-working">Athena is grading your answer… This can take up to a minute.</p>}
               {answerFailure && <div className="study-session-error">{answerFailure}</div>}
               <button type="button" className="btn-primary" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
                 {answerFailure ? "Try again" : "Submit answer"}

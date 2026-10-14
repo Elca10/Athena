@@ -137,6 +137,10 @@ export function listSessions({ includeArchived = false }: { includeArchived?: bo
   return getJson(`/api/sessions${includeArchived ? "?includeArchived=true" : ""}`);
 }
 
+export function finishSession(id: string): Promise<{ reflection: boolean; session: Session }> {
+  return postJson(`/api/sessions/${id}/finish`);
+}
+
 export function endSession(id: string): Promise<Session> {
   return postJson(`/api/sessions/${id}/end`);
 }

@@ -6,6 +6,7 @@ import {
   createSession,
   setSessionStatus,
   endSession,
+  promptReflection,
   archiveSession,
   restoreSession,
   STATUSES,
@@ -280,6 +281,28 @@ export function makeSessionsRouter(appDataDir) {
       res.json(publicSessionView(await setSessionStatus(appDataDir, req.params.id, status)));
     } catch (err) {
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  // "End session" in the UI: before this there was no way to stop a
+  // session early, so half-done ones piled up in Waiting. With at least
+  // one answer it goes to the end-of-session reflection like a finished
+  // session; with none it just closes. Whatever question was on screen
+  // and unanswered doesn't count.
+  router.post("/:id/finish", async (req, res) => {
+    const session = await getSession(appDataDir, req.params.id);
+    if (!session) {
+      res.status(404).json({ error: `Session not found: ${req.params.id}` });
+      return;
+    }
+    if (session.status === "completed") {
+      res.json({ reflection: false, session: publicSessionView(session) });
+      return;
+    }
+    if (session.history?.length) {
+      res.json({ reflection: true, session: publicSessionView(await promptReflection(appDataDir, session.id)) });
+    } else {
+      res.json({ reflection: false, session: publicSessionView(await endSession(appDataDir, session.id)) });
     }
   });
 

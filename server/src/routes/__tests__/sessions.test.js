@@ -766,3 +766,25 @@ test("POST /api/sessions on a subject whose content hasn't been read yet says to
     server.close();
   }
 });
+
+test("POST /api/sessions/:id/finish: with answers → reflection prompt; with none → just closed", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const { recordAnswer } = await import("../../sessions.js");
+    const answered = await createSession(dir, { subjectIds: ["s1"], mode: "ready", topicIds: ["t1", "t2"] });
+    await setCurrentQuestion(dir, answered.id, { prompt: "Q1", topicId: "t1" });
+    await recordAnswer(dir, answered.id, { prompt: "Q1", topicId: "t1", rating: "good" });
+    await setCurrentQuestion(dir, answered.id, { prompt: "Q2", topicId: "t2" });
+    let body = await (await fetch(`${base}/${answered.id}/finish`, { method: "POST" })).json();
+    assert.equal(body.reflection, true);
+    assert.equal(body.session.reflectionPending, true);
+    assert.equal(body.session.currentQuestion, null, "the unanswered question is dropped");
+
+    const untouched = await createSession(dir, { subjectIds: ["s1"], mode: "ready", topicIds: ["t1"] });
+    body = await (await fetch(`${base}/${untouched.id}/finish`, { method: "POST" })).json();
+    assert.equal(body.reflection, false);
+    assert.equal(body.session.status, "completed");
+  } finally {
+    server.close();
+  }
+});

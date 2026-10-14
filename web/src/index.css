@@ -1053,3 +1053,8 @@ select {
   background: var(--bg-elevated);
   color: var(--text-h);
 }
+
+.study-working {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
