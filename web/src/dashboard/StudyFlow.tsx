@@ -602,7 +602,8 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   if (genFailure) {
     return (
       <div className="study-session">
-        <p>{genFailure}</p>
+        <p>Athena couldn't get a question from Claude this time. This is usually temporary.</p>
+        <p className="study-failure-detail">Details: {genFailure}</p>
         <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
           Try again
         </button>

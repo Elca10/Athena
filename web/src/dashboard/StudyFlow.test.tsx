@@ -141,7 +141,8 @@ test("Live: a question-generation failure shows the reason with a Try again butt
   await user.click(screen.getByRole("radio", { name: /Live/ }));
   await user.click(screen.getByRole("button", { name: "Start session" }));
 
-  expect(await screen.findByText("claude exited with code 1: rate limited")).toBeInTheDocument();
+  expect(await screen.findByText(/couldn't get a question from Claude/)).toBeInTheDocument();
+  expect(screen.getByText(/claude exited with code 1: rate limited/)).toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "Try again" }));
   expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
 });
