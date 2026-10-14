@@ -290,3 +290,24 @@ export async function markTopicsExtracted(appDataDir, contentIds) {
   const now = new Date().toISOString();
   await storeFor(appDataDir).update((current) => current.map((c) => (idSet.has(c.id) ? { ...c, topicsExtractedAt: now } : c)));
 }
+
+/**
+ * Removes one content item (the user picked the wrong file, or a
+ * duplicate) and its raw + parsed copies. File paths are built from the
+ * stored record's own id/extension, never from request input, so nothing
+ * outside this subject's content dirs can be touched. Topics already
+ * found from it stay: they aren't linked to a single item. Returns the
+ * removed record, or null if there was no such item in this subject.
+ */
+export async function removeContent(appDataDir, subjectId, contentId) {
+  let removed = null;
+  await storeFor(appDataDir).update((current) => {
+    removed = current.find((c) => c.id === contentId && c.subjectId === subjectId) ?? null;
+    return removed ? current.filter((c) => c !== removed) : current;
+  });
+  if (!removed) return null;
+  const dirs = contentDirsFor(appDataDir, subjectId);
+  await fs.unlink(path.join(dirs.raw, `${removed.id}${removed.extension}`)).catch(() => {});
+  await fs.unlink(path.join(dirs.parsed, `${removed.id}.md`)).catch(() => {});
+  return removed;
+}

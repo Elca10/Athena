@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   addPastedNotes,
   listContent,
+  removeContent,
   scanBank,
   scanTopics,
   uploadBinaryContent,
@@ -126,6 +127,22 @@ export function AddContentPanel({
     } finally {
       setBusy(false);
       setUploadingName(null);
+    }
+  }
+
+  async function remove(item: ContentItem) {
+    const extra = item.topicsExtractedAt ? " Topics already found from it will stay." : "";
+    if (!window.confirm(`Remove "${item.originalFilename}"?${extra}`)) return;
+    setError(null);
+    setBusy(true);
+    try {
+      await removeContent(subjectId, item.id);
+      await refresh();
+      onContentAdded?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't remove that item.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -279,7 +296,18 @@ export function AddContentPanel({
                 <li key={item.id}>
                   <span className="content-panel-item">
                     <span>{item.originalFilename}</span>
-                    <span className="content-panel-item-status">{item.topicsExtractedAt ? "Read" : "Not read yet"}</span>
+                    <span className="content-panel-item-side">
+                      <span className="content-panel-item-status">{item.topicsExtractedAt ? "Read" : "Not read yet"}</span>
+                      <button
+                        type="button"
+                        className="content-panel-remove"
+                        onClick={() => remove(item)}
+                        disabled={busy || scanning}
+                        aria-label={`Remove ${item.originalFilename}`}
+                      >
+                        Remove
+                      </button>
+                    </span>
                   </span>
                   {unreliableNote && <span className="content-panel-unreliable">{unreliableNote}</span>}
                 </li>

@@ -344,6 +344,10 @@ export type TopicScanResult = {
   errors: string[];
 };
 
+export function removeContent(subjectId: string, contentId: string): Promise<void> {
+  return deleteJson(`/api/subjects/${subjectId}/content/${contentId}`);
+}
+
 export function scanTopics(subjectId: string): Promise<TopicScanResult> {
   return postJson(`/api/subjects/${subjectId}/topics/scan`);
 }

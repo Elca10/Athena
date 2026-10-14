@@ -419,3 +419,19 @@ test("a PDF upload counts toward the same per-subject item limit as text uploads
     /maximum of 200/i,
   );
 });
+
+test("removeContent deletes the item and its raw + parsed files, only within its own subject", async () => {
+  const { removeContent, contentDirsFor } = await import("../content.js");
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-content-remove-"));
+  const item = await addUploadedContent(dir, "s1", { filename: "wrong.md", text: "oops" });
+  const keep = await addUploadedContent(dir, "s1", { filename: "right.md", text: "keep" });
+  const dirs = contentDirsFor(dir, "s1");
+
+  assert.equal(await removeContent(dir, "other-subject", item.id), null, "another subject can't remove it");
+  assert.equal((await removeContent(dir, "s1", item.id)).id, item.id);
+  assert.deepEqual((await listContent(dir, "s1")).map((c) => c.id), [keep.id]);
+  await assert.rejects(fs.access(path.join(dirs.raw, `${item.id}.md`)));
+  await assert.rejects(fs.access(path.join(dirs.parsed, `${item.id}.md`)));
+  await fs.access(path.join(dirs.parsed, `${keep.id}.md`));
+  assert.equal(await removeContent(dir, "s1", item.id), null);
+});

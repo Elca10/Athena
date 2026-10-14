@@ -332,3 +332,14 @@ test("Escape doesn't throw away typed-but-unsaved notes", async () => {
   await user.keyboard("{Escape}");
   expect(onClose).not.toHaveBeenCalled();
 });
+
+test("an item can be removed (after confirming)", async () => {
+  const user = userEvent.setup();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  vi.mocked(api.listContent).mockResolvedValueOnce([baseItem()]).mockResolvedValue([]);
+  vi.mocked(api.removeContent).mockResolvedValue(undefined);
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await user.click(await screen.findByRole("button", { name: "Remove lecture1.md" }));
+  expect(api.removeContent).toHaveBeenCalledWith("s1", "c1");
+  expect(await screen.findByText("No content added yet.")).toBeInTheDocument();
+});

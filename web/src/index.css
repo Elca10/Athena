@@ -1063,3 +1063,19 @@ select {
   display: flex;
   gap: 8px;
 }
+
+.content-panel-item {
+  align-items: center;
+}
+
+.content-panel-item-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.content-panel-remove {
+  padding: 2px 8px;
+  font-size: 0.8rem;
+}

@@ -1,6 +1,6 @@
 import express from "express";
 import { getSubject } from "../subjects.js";
-import { listContent, addUploadedContent, addPastedNotes } from "../content.js";
+import { listContent, addUploadedContent, addPastedNotes, removeContent } from "../content.js";
 
 // Mounted at /api/subjects/:id/content — needs mergeParams so the :id
 // from the parent mount point reaches this router's own handlers.
@@ -48,6 +48,15 @@ export function makeContentRouter(appDataDir) {
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
+  });
+
+  router.delete("/:contentId", async (req, res) => {
+    const removed = await removeContent(appDataDir, req.params.id, req.params.contentId);
+    if (!removed) {
+      res.status(404).json({ error: "That content item wasn't found." });
+      return;
+    }
+    res.json({ removed: removed.id });
   });
 
   return router;
