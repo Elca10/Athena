@@ -240,7 +240,7 @@ select {
 }
 
 .setup-steps .done {
-  color: var(--status-good);
+  color: var(--text-h);
 }
 
 .setup-steps .done::before {
@@ -261,16 +261,26 @@ select {
   margin-top: 1rem;
 }
 
+/* Status colours mark these with a bar, not as the text colour: amber
+   text on the light background was hard to read (~2:1 contrast). */
+.setup-ok,
+.setup-warning,
+.setup-error {
+  color: var(--text-h);
+  border-left: 3px solid;
+  padding-left: 10px;
+}
+
 .setup-ok {
-  color: var(--status-good);
+  border-left-color: var(--status-good);
 }
 
 .setup-warning {
-  color: var(--status-warning);
+  border-left-color: var(--status-warning);
 }
 
 .setup-error {
-  color: var(--status-critical);
+  border-left-color: var(--status-critical);
 }
 
 .setup-os-options {
