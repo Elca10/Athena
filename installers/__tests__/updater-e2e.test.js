@@ -156,7 +156,12 @@ test("one-click update: applies a real update, rolls back a broken one, never to
     }, { timeoutMs: 15 * 60 * 1000 });
     assert.notEqual(health.pid, lastPid, "a new process must be answering");
     lastPid = health.pid;
-    const status = (await getJson(`${base}/update/status`)).body;
+    // The updater writes its result just AFTER the new server passes its
+    // health check, so on a slow runner it can lag the commit flip.
+    const status = await waitFor("the update result", async () => {
+      const s = (await getJson(`${base}/update/status`)).body;
+      return s.lastUpdate ? s : null;
+    }, { timeoutMs: 60 * 1000 });
     assert.equal(status.lastUpdate.result, "updated");
     assert.equal(status.lastUpdate.from, first);
     assert.deepEqual(userData(), before, "user data must be byte-identical after an update");
