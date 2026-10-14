@@ -90,9 +90,27 @@ just opens your browser; otherwise it starts it up first (checking for
 updates along the way). Your subjects and study data live outside the
 app's folder and are never touched by this.
 
-Updates are only picked up when Athena-Studying *starts*. Closing the
-browser tab leaves it running in the background, so to get an update,
-stop it first (or restart your computer), then reopen it as above:
+## Updating
+
+When a new version is out, an **Update available** button shows up at
+the top of the dashboard (Athena checks every half hour). Click
+**Update now**, confirm, and wait about a minute: Athena restarts by
+itself and the page reloads on the new version. Your subjects, content
+and study progress are kept; a study session you were in the middle of
+waits for you in the **Waiting** list.
+
+- The button is greyed out while Athena is in the middle of something
+  (a Live question, grading, or reading new content). Try again once
+  it's done.
+- If the new version doesn't start properly, Athena puts the previous
+  version back automatically and tells you, so you're never left
+  without a working app. Please use **Report a bug** when that happens.
+
+**If the button doesn't work** (or you're on a version from before it
+existed): stop Athena-Studying, then reopen it as above. Reopening picks
+up the newest version. Closing the browser tab leaves Athena running in
+the background, so stop it first with one of these (or just restart
+your computer):
 
 - **Mac** (Terminal): `lsof -ti tcp:4417 -sTCP:LISTEN | xargs kill`
 - **Windows** (PowerShell): `Get-NetTCPConnection -LocalPort 4417 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess }`
@@ -185,7 +203,16 @@ force-pushes: a plain `git push` with no `--force` is the actual
 enforcement, so a `release` that's somehow diverged (it shouldn't) will
 fail loudly instead of being silently rewritten.
 
+Once `release` moves, every running copy shows **Update available**
+within about half an hour (the server re-checks `release` every 30
+minutes, and on every start). Clicking it runs `installers/updater.mjs`,
+which keeps a log at `<data dir>/logs/updater.log` and writes the outcome
+to `<data dir>/updater/last-update.json`; ask for those if an update
+misbehaves. A copy that can't use the button gets the update the next
+time it starts (shortcut or install command).
+
 For local testing without touching the real channel, both
 `installers/windows.ps1` and `installers/macos.sh` honor an
 `ATHENA_UPDATE_BRANCH` env override (defaults to `release`) for which
-branch they clone/update from.
+branch they clone/update from; the server's update check and the updater
+honor the same variable.
