@@ -10,7 +10,7 @@ import {
   restoreSession,
   STATUSES,
 } from "../sessions.js";
-import { buildSessionTopicIds } from "../sessionBuilder.js";
+import { buildSessionTopicIds, explainNothingDue } from "../sessionBuilder.js";
 import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
 import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView } from "../readySession.js";
 import { submitSessionReflection, skipSessionReflection } from "../reflection.js";
@@ -54,6 +54,12 @@ export function makeSessionsRouter(appDataDir) {
       // was given.
       const requestedTopicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds : [];
       const topicIds = requestedTopicIds.length ? requestedTopicIds : await buildSessionTopicIds(appDataDir, subjectIds);
+      // An empty session can't ask anything; refuse with a reason instead
+      // of creating one that dead-ends on its first question.
+      if (!topicIds.length && subjectIds.length) {
+        res.status(400).json({ error: await explainNothingDue(appDataDir, subjectIds) });
+        return;
+      }
       const session = await createSession(appDataDir, {
         subjectIds,
         mode: req.body?.mode,

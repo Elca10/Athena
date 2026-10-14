@@ -152,7 +152,7 @@ test("waitForWritesIdle waits for a store write in progress", async () => {
 
 test("reconcileInterruptedSessions moves only active sessions to waiting, keeping their question", async () => {
   const dir = await scratchDir();
-  const fresh = await createSession(dir, { subjectIds: ["s1"], mode: "ready" }); // active, no question yet
+  const fresh = await createSession(dir, { subjectIds: ["s1"], mode: "ready", topicIds: ["t1"] }); // active, no question yet
   const waiting = await createSession(dir, { subjectIds: ["s1"], mode: "live" });
   await setCurrentQuestion(dir, waiting.id, { prompt: "What is a mutex?" });
 
@@ -173,4 +173,13 @@ test("reconcileInterruptedSessions doesn't rewrite the file when nothing is acti
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(await reconcileInterruptedSessions(dir), 0);
   assert.equal((await fs.stat(file)).mtimeMs, before.mtimeMs);
+});
+
+test("reconcileInterruptedSessions closes sessions that have no topics at all (they can never ask anything)", async () => {
+  const dir = await scratchDir();
+  const empty = await createSession(dir, { subjectIds: ["s1"], mode: "ready" });
+  assert.equal(await reconcileInterruptedSessions(dir), 1);
+  const closed = await getSession(dir, empty.id);
+  assert.equal(closed.status, "completed");
+  assert.ok(closed.endedAt);
 });

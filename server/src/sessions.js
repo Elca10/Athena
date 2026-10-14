@@ -72,17 +72,27 @@ export async function reconcileInterruptedSessions(appDataDir) {
   const store = storeFor(appDataDir);
   // Read first: a normal start has nothing to fix and must not rewrite (or
   // back up) the file at all.
-  if (!(await store.read()).some((s) => s.status === "active")) return 0;
+  if (!(await store.read()).some(needsReconcile)) return 0;
   let moved = 0;
-  await store.update((current) => {
-    if (!current.some((s) => s.status === "active")) return current;
-    return current.map((s) => {
-      if (s.status !== "active") return s;
+  await store.update((current) =>
+    current.map((s) => {
+      if (!needsReconcile(s)) return s;
       moved++;
+      // Sessions created with no topics at all (possible before the
+      // create route refused them) can never ask anything: close them.
+      if (isEmptySession(s)) return { ...s, status: "completed", endedAt: s.endedAt ?? new Date().toISOString() };
       return { ...s, status: "waiting" };
-    });
-  });
+    }),
+  );
   return moved;
+}
+
+function isEmptySession(s) {
+  return s.status !== "completed" && !(s.topicIds?.length) && !(s.history?.length) && !s.currentQuestion;
+}
+
+function needsReconcile(s) {
+  return s.status === "active" || isEmptySession(s);
 }
 
 async function mutate(appDataDir, id, fn) {

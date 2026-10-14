@@ -9,7 +9,7 @@
 // one topic per subject per pass, rather than draining one subject's due
 // list before touching the next.
 
-import { listDueTopics } from "./topics.js";
+import { listDueTopics, listTopics } from "./topics.js";
 
 /** Most topics one session is built with. A session longer than this
  * risks exactly the fatigue/low-quality-answers problem "desirable
@@ -45,4 +45,29 @@ export async function buildSessionTopicIds(appDataDir, subjectIds, { limit = MAX
     }
   }
   return topicIds;
+}
+
+function formatIn(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 60) return `in ${minutes} minute${minutes === 1 ? "" : "s"}`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 36) return `in about ${hours} hour${hours === 1 ? "" : "s"}`;
+  const days = Math.round(hours / 24);
+  return `in about ${days} days`;
+}
+
+/**
+ * Plain-language reason no session can be built right now, for when
+ * `buildSessionTopicIds` came back empty: either there's nothing to study
+ * yet, or everything has been reviewed and isn't due again until later.
+ */
+export async function explainNothingDue(appDataDir, subjectIds, now = new Date()) {
+  const topics = [];
+  for (const subjectId of new Set(subjectIds)) topics.push(...(await listTopics(appDataDir, subjectId)));
+  if (!topics.length) {
+    return "There's nothing to study here yet. Add some course content first (Add content on the subject's card).";
+  }
+  const nextDue = Math.min(...topics.map((t) => t.fsrs?.due ?? Infinity));
+  if (!Number.isFinite(nextDue)) return "Nothing is due right now. Check back later.";
+  return `You're all caught up: nothing is due right now. The next topic is due ${formatIn(nextDue - now.getTime())}.`;
 }

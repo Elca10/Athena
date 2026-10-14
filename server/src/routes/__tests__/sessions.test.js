@@ -6,7 +6,7 @@ import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
 import { createSession, endSession, setCurrentQuestion, promptReflection } from "../../sessions.js";
-import { addPlannedTopics } from "../../topics.js";
+import { addPlannedTopics, recordTopicReview } from "../../topics.js";
 import { addBankQuestions } from "../../questionBank.js";
 import { makeSessionsRouter } from "../sessions.js";
 
@@ -33,6 +33,7 @@ test("POST /api/sessions creates a session for a real subject", async () => {
   const { dir, base, server } = await startApp();
   try {
     const subject = await createSubject(dir, { name: "Chemistry" });
+    await addPlannedTopics(dir, subject.id, ["Bonding"]);
     const res = await fetch(base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,6 +44,41 @@ test("POST /api/sessions creates a session for a real subject", async () => {
     assert.deepEqual(session.subjectIds, [subject.id]);
     assert.equal(session.status, "active");
     assert.deepEqual(await (await fetch(base)).json(), [session]);
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions refuses (no empty session) when the subject has no topics yet", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Empty" });
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "ready" }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /nothing to study here yet.*Add some course content/i);
+    assert.deepEqual(await (await fetch(base)).json(), [], "no session may be left behind");
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions refuses, saying when the next topic is due, when nothing is due now", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Reviewed" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["Osmosis"]);
+    await recordTopicReview(dir, topic.id, "easy");
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "ready" }),
+    });
+    assert.equal(res.status, 400);
+    assert.match((await res.json()).error, /all caught up.*next topic is due in/i);
   } finally {
     server.close();
   }
