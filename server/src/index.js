@@ -21,9 +21,11 @@ import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
 import { makeUpdateRouter } from "./routes/update.js";
-import { makeUpdateChecker } from "./updateCheck.js";
+import { makeUpdateChecker, updateBranch } from "./updateCheck.js";
+import { makeUpdateApplier } from "./updateApply.js";
 import { recordError } from "./errorLog.js";
 import { getAppVersion } from "./bugReport.js";
+import { reconcileInterruptedSessions } from "./sessions.js";
 import { ensureKnownCliDirsOnPath } from "./processUtil.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -41,6 +43,13 @@ export async function createApp() {
   // Created here, but only main() starts its periodic `git fetch`, so a
   // test calling createApp() never reaches out to the real remote.
   const updateChecker = makeUpdateChecker({ repoDir });
+  const updateApplier = makeUpdateApplier({
+    checker: updateChecker,
+    repoDir,
+    appDataDir,
+    port: PORT,
+    branch: updateBranch(),
+  });
 
   const app = express();
   // Default (100kb) is too small for a base64-encoded PDF upload
@@ -61,6 +70,9 @@ export async function createApp() {
     res.set("Cache-Control", "no-store");
     next();
   });
+  // Before every router: tracks in-flight requests and turns new ones away
+  // while an update is draining (updateApply.js).
+  app.use("/api", updateApplier.middleware);
 
   app.use("/api/health", healthRouter(appDataDir, appVersion));
   app.use("/api/setup", makeSetupRouter(appDataDir));
@@ -72,7 +84,7 @@ export async function createApp() {
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
   app.use("/api/bug-report", makeBugReportRouter(appDataDir, { appVersion }));
-  app.use("/api/update", makeUpdateRouter(updateChecker));
+  app.use("/api/update", makeUpdateRouter(updateChecker, { applier: updateApplier, appDataDir }));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));
@@ -104,9 +116,16 @@ async function main() {
   ensureKnownCliDirsOnPath();
   const { app, appDataDir, updateChecker } = await createApp();
   updateChecker.start();
-  app.listen(PORT, HOST, () => {
+  const server = app.listen(PORT, HOST, async () => {
     console.log(`Athena-Studying backend listening on http://${HOST}:${PORT}`);
     console.log(`App data dir: ${appDataDir}`);
+    // Only once listen succeeded: if another server already held this port,
+    // its sessions may genuinely be mid-turn and must not be touched.
+    const moved = await reconcileInterruptedSessions(appDataDir).catch((err) => {
+      recordError(`reconcileInterruptedSessions: ${err.message}`);
+      return 0;
+    });
+    if (moved) console.log(`Moved ${moved} interrupted session(s) to Waiting.`);
   });
 }
 

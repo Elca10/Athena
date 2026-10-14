@@ -60,6 +60,31 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
   return session;
 }
 
+/**
+ * At server start nothing can be mid-flight, so any "active" session (Athena
+ * was working on it: between questions, or mid model turn) was interrupted
+ * by a restart, an update, a crash or a reboot. Moving it to "waiting" puts
+ * it in the dashboard's Waiting list, whose Resume fetches the next question
+ * (StudyFlow), instead of leaving it stuck under Active with no way back in.
+ * Returns how many sessions were moved.
+ */
+export async function reconcileInterruptedSessions(appDataDir) {
+  const store = storeFor(appDataDir);
+  // Read first: a normal start has nothing to fix and must not rewrite (or
+  // back up) the file at all.
+  if (!(await store.read()).some((s) => s.status === "active")) return 0;
+  let moved = 0;
+  await store.update((current) => {
+    if (!current.some((s) => s.status === "active")) return current;
+    return current.map((s) => {
+      if (s.status !== "active") return s;
+      moved++;
+      return { ...s, status: "waiting" };
+    });
+  });
+  return moved;
+}
+
 async function mutate(appDataDir, id, fn) {
   const sessions = await storeFor(appDataDir).update((current) => {
     const idx = current.findIndex((s) => s.id === id);

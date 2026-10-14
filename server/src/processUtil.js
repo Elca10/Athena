@@ -92,7 +92,29 @@ export function ensureKnownCliDirsOnPath({ platform = process.platform } = {}) {
  * surface gh's device-code prompt to the UI while the process is still
  * running, not just after it exits.
  */
-export function runCommand(command, args, { timeoutMs = 10_000, cwd, env, input, onOutput } = {}) {
+let modelCallsInFlight = 0;
+
+/** How many `claude -p` model turns are running right now (`/usage` is
+ * answered locally and doesn't count). A self-update refuses to start
+ * while this is non-zero (updateApply.js), so a Live turn or a content
+ * scan is never cut off halfway. */
+export function activeModelCalls() {
+  return modelCallsInFlight;
+}
+
+function isModelCall(command, args) {
+  return command === "claude" && args.includes("-p") && !args.includes("/usage");
+}
+
+export function runCommand(command, args, options = {}) {
+  if (!isModelCall(command, args)) return runCommandInner(command, args, options);
+  modelCallsInFlight++;
+  return runCommandInner(command, args, options).finally(() => {
+    modelCallsInFlight--;
+  });
+}
+
+function runCommandInner(command, args, { timeoutMs = 10_000, cwd, env, input, onOutput } = {}) {
   return new Promise((resolve, reject) => {
     let child;
     try {

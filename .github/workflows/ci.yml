@@ -114,3 +114,14 @@ jobs:
 
       - name: Privacy guard (full tree)
         run: node scripts/check-privacy.js
+
+      - name: Run updater (one-click update) tests
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/updater.test.js"
+
+      # The real update path end to end on every OS: real install, real
+      # detached updater, real rollback (updater-e2e.test.js). Last because
+      # it's the slowest step (several real npm installs and web builds).
+      - name: One-click update end-to-end
+        env:
+          ATHENA_E2E: "1"
+        run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/updater-e2e.test.js"

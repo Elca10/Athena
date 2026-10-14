@@ -23,6 +23,9 @@ export function healthRouter(appDataDir, appVersion = Promise.resolve({ commit: 
       // The commit this process started on (index.js), so a caller can
       // tell which code is really answering, not just that something is.
       commit: (await appVersion).commit,
+      // Lets the updater's end-to-end test stop whichever server it ended
+      // up with, cross-platform. Not sensitive on a localhost-only app.
+      pid: process.pid,
       setupComplete: await isSetupComplete(appDataDir),
     });
   });

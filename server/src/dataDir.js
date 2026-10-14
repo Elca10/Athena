@@ -79,6 +79,13 @@ export function appDataSubdirs(baseDir) {
   };
 }
 
+/** Outcome of the last one-click update (installers/updater.mjs writes it,
+ * the server reads it for the UI). Here so both sides agree without the
+ * updater importing anything that needs npm packages. */
+export function lastUpdatePath(baseDir) {
+  return path.join(appDataSubdirs(baseDir).updater, "last-update.json");
+}
+
 export async function ensureAppDataDir(baseDir = getAppDataDir()) {
   const { promises: fs } = await import("node:fs");
   const dirs = appDataSubdirs(baseDir);

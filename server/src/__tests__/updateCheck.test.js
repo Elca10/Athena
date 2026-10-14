@@ -152,7 +152,15 @@ test("GET /api/update/status and POST /api/update/check", async () => {
   const { port } = server.address();
   try {
     const before = await (await fetch(`http://127.0.0.1:${port}/api/update/status`)).json();
-    assert.deepEqual(before, { available: false, current: null, latest: null, checkedAt: null });
+    assert.deepEqual(before, {
+      available: false,
+      current: null,
+      latest: null,
+      checkedAt: null,
+      updating: false,
+      blockedReason: null,
+      lastUpdate: null,
+    });
     const checked = await (await fetch(`http://127.0.0.1:${port}/api/update/check`, { method: "POST" })).json();
     assert.equal(checked.available, true);
     const after = await (await fetch(`http://127.0.0.1:${port}/api/update/status`)).json();

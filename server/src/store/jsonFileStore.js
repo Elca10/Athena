@@ -68,6 +68,18 @@ async function backupBeforeOverwrite(fileName, filePath, backupDir) {
 }
 
 const queues = new Map();
+let writesInFlight = 0;
+
+/** Resolves once no store write is in progress, in any store. The
+ * self-updater (updateApply.js) waits on this, after new requests have
+ * stopped, before the process exits. */
+export async function waitForWritesIdle({ timeoutMs = 30_000, pollMs = 20 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (writesInFlight > 0) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for data to finish saving.");
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
 
 function withLock(key, fn) {
   const prev = queues.get(key) ?? Promise.resolve();
@@ -101,6 +113,15 @@ export function makeJsonFileStore(dir, fileName, defaultValue) {
   }
 
   async function write(value) {
+    writesInFlight++;
+    try {
+      await writeUntracked(value);
+    } finally {
+      writesInFlight--;
+    }
+  }
+
+  async function writeUntracked(value) {
     await fs.mkdir(dir, { recursive: true });
     await backupBeforeOverwrite(fileName, filePath, backupDir);
     const tmpPath = path.join(dir, `.${fileName}.${process.pid}.${randomUUID()}.tmp`);

@@ -109,17 +109,23 @@ function startServerDetached({ cwd, env } = {}) {
  * server/src/routes/health.js) until it answers or `timeoutMs` elapses.
  * `fetchFn`/`delayFn` are injectable so tests can run this against a real
  * ephemeral-port server without a real multi-second sleep.
+ *
+ * `expectCommit`, when given, also requires the answering server to report
+ * that commit, so an OLD server still holding the port can't pass for the
+ * new one (issue #4). A server too old to report `commit` at all is
+ * accepted, so rolling back to such a version still works.
  */
 export async function waitForHealth(
   url,
-  { timeoutMs = 30_000, intervalMs = 300, fetchFn = defaultFetch, delayFn = defaultDelay } = {},
+  { timeoutMs = 30_000, intervalMs = 300, fetchFn = defaultFetch, delayFn = defaultDelay, expectCommit } = {},
 ) {
   const deadline = Date.now() + timeoutMs;
   let lastError;
   while (Date.now() < deadline) {
     try {
       const body = await fetchFn(url);
-      if (body && body.ok === true) return body;
+      const commitMatches = !expectCommit || body?.commit === undefined || body.commit === expectCommit;
+      if (body && body.ok === true && commitMatches) return body;
       lastError = new Error(`Unexpected health response: ${JSON.stringify(body)}`);
     } catch (err) {
       lastError = err;
@@ -177,7 +183,7 @@ export function openBrowser(url, { platform = process.platform, spawnFn = spawn 
  * sequence fails; if the server did start but never became healthy, kills
  * it first so a retry (e.g. after a rollback) doesn't collide on the port.
  */
-export async function installAndStart({ cwd, env, healthUrl }) {
+export async function installAndStart({ cwd, env, healthUrl, expectCommit }) {
   console.log("==> Installing server dependencies...");
   await run("npm", ["install"], { cwd: path.join(cwd, "server") });
 
@@ -201,7 +207,7 @@ export async function installAndStart({ cwd, env, healthUrl }) {
   console.log("==> Starting the Athena-Studying server...");
   const child = startServerDetached({ cwd, env });
   try {
-    await waitForHealth(healthUrl);
+    await waitForHealth(healthUrl, { expectCommit });
   } catch (err) {
     child.kill();
     throw err;
@@ -239,7 +245,7 @@ export async function updateAndStart({
   }
 
   try {
-    const child = await install({ cwd, env, healthUrl });
+    const child = await install({ cwd, env, healthUrl, expectCommit: currentCommit ?? undefined });
     if (currentCommit) await recordGood(currentCommit, appDataDir);
     return { child, rolledBackTo: null };
   } catch (err) {
@@ -255,7 +261,7 @@ export async function updateAndStart({
     log(`==> Rolling back to last known-good version ${lastGood.slice(0, 8)}...`);
     let child;
     try {
-      child = await install({ cwd, env, healthUrl });
+      child = await install({ cwd, env, healthUrl, expectCommit: lastGood });
     } catch (rollbackErr) {
       error(`==> Rollback to ${lastGood.slice(0, 8)} also failed to start: ${rollbackErr.message}`);
       throw rollbackErr;
