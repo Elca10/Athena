@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  archiveSession,
   createSession,
+  endSession,
   generateNextLiveQuestion,
   generateNextReadyQuestion,
   scanBank,
@@ -66,6 +68,19 @@ export function StudyFlow({
     }
   }
 
+  // The Ready session being abandoned (its bank was empty) would otherwise
+  // linger in the session lists. Close it first; if it never got to ask
+  // anything, archive it too, since a "0 questions answered" entry is noise.
+  async function switchToLive(abandoned: Session) {
+    try {
+      await endSession(abandoned.id);
+      if (!abandoned.history.length) await archiveSession(abandoned.id);
+    } catch {
+      // Not worth blocking the switch over; worst case it stays listed.
+    }
+    await start(abandoned.subjectIds, "live");
+  }
+
   return (
     <div className="dashboard">
       <header className="dashboard-header">
@@ -84,7 +99,7 @@ export function StudyFlow({
         <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
       )}
       {session && session.mode === "ready" && (
-        <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => start(session.subjectIds, "live")} />
+        <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => switchToLive(session)} />
       )}
       {session && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
     </div>

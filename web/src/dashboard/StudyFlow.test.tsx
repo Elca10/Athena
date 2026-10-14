@@ -357,6 +357,9 @@ test("the no-bank screen's Switch to Live instead button starts a live session f
 
   expect(api.createSession).toHaveBeenLastCalledWith(["s1"], "live");
   expect(await screen.findByText("Explain photosynthesis in your own words.")).toBeInTheDocument();
+  // The abandoned, never-answered Ready session is closed and tidied away.
+  expect(api.endSession).toHaveBeenCalledWith(baseSession().id);
+  expect(api.archiveSession).toHaveBeenCalledWith(baseSession().id);
 });
 
 test("shows the reflection prompt once every due topic has been asked", async () => {
