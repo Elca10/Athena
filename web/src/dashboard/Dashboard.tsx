@@ -518,6 +518,7 @@ function NewSubjectForm({ onClose, onCreated }: { onClose: () => void; onCreated
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Subject name, e.g. Organic Chemistry"
+        maxLength={100}
         autoFocus
         disabled={submitting}
       />

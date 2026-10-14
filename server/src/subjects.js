@@ -29,9 +29,16 @@ export async function getSubject(appDataDir, id) {
   return subjects.find((s) => s.id === id) ?? null;
 }
 
+/** Long enough for any real course title; a 5,000-character name was
+ * accepted before and broke the dashboard layout. */
+export const MAX_SUBJECT_NAME_LENGTH = 100;
+
 export async function createSubject(appDataDir, { name }) {
-  const trimmed = typeof name === "string" ? name.trim() : "";
+  const trimmed = typeof name === "string" ? name.trim().replace(/\s+/g, " ") : "";
   if (!trimmed) throw new Error("Subject name is required");
+  if (trimmed.length > MAX_SUBJECT_NAME_LENGTH) {
+    throw new Error(`Subject names can be at most ${MAX_SUBJECT_NAME_LENGTH} characters.`);
+  }
 
   const subject = {
     id: randomUUID(),
@@ -39,7 +46,18 @@ export async function createSubject(appDataDir, { name }) {
     archived: false,
     createdAt: new Date().toISOString(),
   };
-  await storeFor(appDataDir).update((current) => [...current, subject]);
+  // Checked inside the update so two quick clicks can't both get through.
+  await storeFor(appDataDir).update((current) => {
+    const clash = current.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
+    if (clash) {
+      throw new Error(
+        clash.archived
+          ? `You already have an archived subject called "${clash.name}". Restore it from the Archive instead.`
+          : `You already have a subject called "${clash.name}".`,
+      );
+    }
+    return [...current, subject];
+  });
   return subject;
 }
 

@@ -330,6 +330,7 @@ function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: 
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Subject name, e.g. Organic Chemistry"
+        maxLength={100}
           disabled={finishing}
         />
         <button type="submit" className="btn-primary" disabled={!name.trim() || finishing}>

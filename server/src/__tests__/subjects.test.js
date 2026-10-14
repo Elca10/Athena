@@ -76,3 +76,18 @@ test("createSubject never collides on id across concurrent creates", async () =>
   assert.equal(ids.size, 15);
   assert.equal((await listSubjects(dir)).length, 15);
 });
+
+test("createSubject rejects a duplicate name (case-insensitive), pointing to Restore for an archived one", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-subjects-dup-"));
+  const bio = await createSubject(dir, { name: "Biology" });
+  await assert.rejects(createSubject(dir, { name: "  biology " }), /already have a subject called "Biology"/);
+  await archiveSubject(dir, bio.id);
+  await assert.rejects(createSubject(dir, { name: "BIOLOGY" }), /archived subject called "Biology".*Restore/);
+  assert.equal((await listSubjects(dir, { includeArchived: true })).length, 1);
+});
+
+test("createSubject caps the name length and collapses inner whitespace", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-subjects-len-"));
+  await assert.rejects(createSubject(dir, { name: "A".repeat(101) }), /at most 100 characters/);
+  assert.equal((await createSubject(dir, { name: "Organic   Chemistry" })).name, "Organic Chemistry");
+});
