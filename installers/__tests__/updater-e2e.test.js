@@ -92,10 +92,11 @@ test("one-click update: applies a real update, rolls back a broken one, never to
     git(REPO_ROOT, "push", "-q", "--no-verify", origin, "HEAD:refs/heads/release");
     execFileSync("git", ["clone", "-q", "--branch", "release", origin, installed]);
     execFileSync("git", ["clone", "-q", "--branch", "release", origin, maintainer]);
+    // core.autocrlf deliberately left at the machine default (true on
+    // Windows runners), the same as a real install.
     for (const dir of [installed, maintainer]) {
       git(dir, "config", "user.email", "test@example.com");
       git(dir, "config", "user.name", "Test");
-      git(dir, "config", "core.autocrlf", "false");
     }
     const first = git(installed, "rev-parse", "HEAD");
 

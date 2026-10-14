@@ -39,8 +39,10 @@ function makeRepos() {
   commitFile(seed, "README.md", "readme\n");
   git(seed, "branch", "-M", "release");
   execFileSync("git", ["clone", "-q", "--bare", seed, origin]);
-  execFileSync("git", ["clone", "-q", "--branch", "release", origin, installed]);
-  execFileSync("git", ["clone", "-q", "--branch", "release", origin, maintainer]);
+  // autocrlf set AT clone time: flipping it after checkout (Windows runners
+  // default to true) makes git see every CRLF-checked-out file as modified.
+  execFileSync("git", ["clone", "-q", "-c", "core.autocrlf=false", "--branch", "release", origin, installed]);
+  execFileSync("git", ["clone", "-q", "-c", "core.autocrlf=false", "--branch", "release", origin, maintainer]);
   configure(installed);
   configure(maintainer);
   const push = (name) => {
