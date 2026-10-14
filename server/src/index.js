@@ -21,6 +21,7 @@ import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
 import { recordError } from "./errorLog.js";
+import { getAppVersion } from "./bugReport.js";
 import { ensureKnownCliDirsOnPath } from "./processUtil.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function createApp() {
   const appDataDir = getAppDataDir();
   await ensureAppDataDir(appDataDir);
+  // Resolved ONCE, at startup: the commit this process is actually running.
+  // Asking git on every request reports whatever the checkout holds NOW,
+  // which an installer re-run can change underneath a still-running server
+  // (issue #4: a bug report claimed the newest commit while older code was
+  // serving it).
+  const appVersion = getAppVersion(path.resolve(__dirname, "..", ".."));
 
   const app = express();
   // Default (100kb) is too small for a base64-encoded PDF upload
@@ -49,7 +56,7 @@ export async function createApp() {
     next();
   });
 
-  app.use("/api/health", healthRouter(appDataDir));
+  app.use("/api/health", healthRouter(appDataDir, appVersion));
   app.use("/api/setup", makeSetupRouter(appDataDir));
   app.use("/api/subjects", makeSubjectsRouter(appDataDir));
   app.use("/api/subjects/:id/content", makeContentRouter(appDataDir));
@@ -58,7 +65,7 @@ export async function createApp() {
   app.use("/api/sessions", makeSessionsRouter(appDataDir));
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
-  app.use("/api/bug-report", makeBugReportRouter(appDataDir));
+  app.use("/api/bug-report", makeBugReportRouter(appDataDir, { appVersion }));
 
   const distDir = path.resolve(__dirname, "..", "..", "web", "dist");
   app.use(express.static(distDir));

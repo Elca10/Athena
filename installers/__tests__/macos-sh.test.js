@@ -17,7 +17,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import http from "node:http";
+import { promisify } from "node:util";
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -203,6 +205,87 @@ test("an existing checkout left on main switches cleanly to release (ship queue 
       "release",
       "should be on a real local release branch, not detached",
     );
+    assert.ok(existsSync(marker), "bootstrap.mjs stub should have run");
+  } finally {
+    cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
+    rmSync(marker, { force: true });
+  }
+});
+
+// Async variant: the "already running" tests serve a health endpoint from
+// THIS process, which execFileSync would block from ever answering.
+async function runInstallerAsync(env) {
+  try {
+    const { stdout, stderr } = await promisify(execFile)(BASH_PATH, [SCRIPT_PATH], {
+      encoding: "utf8",
+      env: { HOME: env.HOME ?? tmpdir(), ...env },
+    });
+    return { code: 0, stdout, stderr };
+  } catch (err) {
+    return { code: typeof err.code === "number" ? err.code : 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
+  }
+}
+
+function listen(server) {
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve(server.address().port)));
+}
+
+test("re-running while a server is already up leaves the checkout alone and skips bootstrap (issue #4)", async () => {
+  const fakeBin = makeFakeBin(["git", "node", "curl", "grep"]);
+  const fixtureRepo = makeFixtureRepo();
+  const installDir = path.join(mkdtempSync(path.join(tmpdir(), "athena-install-")), "checkout");
+  const marker = path.join(tmpdir(), `athena-marker-${process.pid}-${Date.now()}`);
+  const health = http.createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: true, version: "0.1.0", setupComplete: true }));
+  });
+  const port = await listen(health);
+  try {
+    execFileSync("git", ["clone", "--quiet", "--branch", "release", fixtureRepo, installDir]);
+    const before = execFileSync("git", ["-C", installDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    writeFileSync(path.join(fixtureRepo, "NOTE.txt"), "an update the running server must not be swapped under\n");
+    execFileSync("git", ["add", "-A"], { cwd: fixtureRepo });
+    execFileSync("git", ["commit", "-q", "-m", "update"], { cwd: fixtureRepo });
+
+    const result = await runInstallerAsync({
+      PATH: fakeBin,
+      ATHENA_REPO_URL: fixtureRepo,
+      ATHENA_INSTALL_DIR: installDir,
+      ATHENA_TEST_MARKER: marker,
+      ATHENA_PORT: String(port),
+      ATHENA_NO_OPEN_BROWSER: "1",
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /already running/i);
+    assert.match(result.stdout, /stop it first/i);
+    assert.equal(execFileSync("git", ["-C", installDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(), before);
+    assert.ok(!existsSync(marker), "bootstrap must not run under a live server");
+  } finally {
+    health.close();
+    cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
+    rmSync(marker, { force: true });
+  }
+});
+
+test("with curl available but nothing listening, it installs normally", async () => {
+  const fakeBin = makeFakeBin(["git", "node", "curl", "grep"]);
+  const fixtureRepo = makeFixtureRepo();
+  const installDir = path.join(mkdtempSync(path.join(tmpdir(), "athena-install-")), "checkout");
+  const marker = path.join(tmpdir(), `athena-marker-${process.pid}-${Date.now()}`);
+  // Grab a free port, then close it so the health check gets a refusal.
+  const probe = http.createServer();
+  const port = await listen(probe);
+  await new Promise((resolve) => probe.close(resolve));
+  try {
+    const result = await runInstallerAsync({
+      PATH: fakeBin,
+      ATHENA_REPO_URL: fixtureRepo,
+      ATHENA_INSTALL_DIR: installDir,
+      ATHENA_TEST_MARKER: marker,
+      ATHENA_PORT: String(port),
+    });
+    assert.equal(result.code, 0, result.stderr);
+    assert.doesNotMatch(result.stdout, /already running/i);
     assert.ok(existsSync(marker), "bootstrap.mjs stub should have run");
   } finally {
     cleanup(fakeBin, fixtureRepo, path.dirname(installDir));

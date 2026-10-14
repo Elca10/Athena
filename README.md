@@ -87,7 +87,15 @@ curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/release/installers/ma
 
 It's safe to run any time — if Athena-Studying is already running, it
 just opens your browser; otherwise it starts it up first (checking for
-updates along the way).
+updates along the way). Your subjects and study data live outside the
+app's folder and are never touched by this.
+
+Updates are only picked up when Athena-Studying *starts*. Closing the
+browser tab leaves it running in the background, so to get an update,
+stop it first (or restart your computer), then reopen it as above:
+
+- **Mac** (Terminal): `lsof -ti tcp:4417 -sTCP:LISTEN | xargs kill`
+- **Windows** (PowerShell): `Get-NetTCPConnection -LocalPort 4417 -State Listen | ForEach-Object { Stop-Process -Id $_.OwningProcess }`
 
 ## Reporting a bug
 

@@ -6,12 +6,12 @@ import { buildBugReportPreview, fileBugReportIssue } from "../bugReport.js";
 // never diverge from the body the user approved — /send takes exactly the
 // `{title, body}` /preview returned, rather than re-deriving it from the
 // raw description a second time.
-export function makeBugReportRouter(appDataDir) {
+export function makeBugReportRouter(appDataDir, { appVersion } = {}) {
   const router = express.Router();
 
   router.post("/preview", async (req, res) => {
     try {
-      const preview = await buildBugReportPreview(appDataDir, { description: req.body?.description });
+      const preview = await buildBugReportPreview(appDataDir, { description: req.body?.description, appVersion });
       res.json(preview);
     } catch (err) {
       res.status(400).json({ error: err.message });

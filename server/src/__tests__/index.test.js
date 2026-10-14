@@ -57,6 +57,22 @@ test("GET /api/health reports ok and an unset-up app", async () => {
   }
 });
 
+test("GET /api/health names the commit this process started on (issue #4)", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const repoRoot = path.resolve(path.dirname(INDEX_PATH), "..", "..");
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repoRoot, encoding: "utf8" }).trim();
+  const { createApp } = await import("../index.js");
+  const { app } = await createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+  try {
+    const body = await (await fetch(`http://127.0.0.1:${port}/api/health`)).json();
+    assert.equal(body.commit, head);
+  } finally {
+    server.close();
+  }
+});
+
 test("GET /api/setup/os reports a real detected OS (windows, mac, or other)", async () => {
   const { createApp } = await import("../index.js");
   const { app } = await createApp();

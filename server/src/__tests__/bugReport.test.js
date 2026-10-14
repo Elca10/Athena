@@ -90,6 +90,19 @@ test("buildBugReportPreview's body includes app version, OS, and redacted recent
   clearRecentErrors();
 });
 
+test("buildBugReportPreview prefers a given startup appVersion over the live checkout (issue #4)", async () => {
+  // The server resolves its version once at startup; a later installer
+  // run can move the checkout under it, and the report must still name
+  // the code that's actually running.
+  const dir = await scratchDataDir();
+  const { body } = await buildBugReportPreview(dir, {
+    description: "it crashed",
+    cwd: dir,
+    appVersion: Promise.resolve({ packageVersion: "9.9.9", commit: "abcdef0123456789" }),
+  });
+  assert.match(body, /9\.9\.9 \(commit abcdef01\)/);
+});
+
 test("buildBugReportPreview's body says 'None captured' when there are no recent errors", async () => {
   const dir = await scratchDataDir();
   clearRecentErrors();

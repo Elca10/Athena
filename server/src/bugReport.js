@@ -100,15 +100,17 @@ function buildBody({ redactedDescription, appVersion, osSummary, redactedErrors 
  * Builds the exact `{title, body}` a preview shows the user — nothing
  * here has any side effect (no network, no `gh` call). `cwd` defaults to
  * this process's own cwd (the repo checkout root when run normally, per
- * installers/bootstrap.mjs's startServerDetached).
+ * installers/bootstrap.mjs's startServerDetached). `appVersion` (a value or
+ * promise from getAppVersion) wins when given: the server passes the one it
+ * resolved at startup, so the report names the code actually running.
  */
-export async function buildBugReportPreview(appDataDir, { description, cwd = process.cwd() } = {}) {
+export async function buildBugReportPreview(appDataDir, { description, cwd = process.cwd(), appVersion: startupVersion } = {}) {
   const trimmed = String(description ?? "").trim();
   if (!trimmed) {
     throw new Error("Describe the bug before previewing.");
   }
 
-  const [appVersion, knownNames] = await Promise.all([getAppVersion(cwd), getKnownNames(appDataDir)]);
+  const [appVersion, knownNames] = await Promise.all([startupVersion ?? getAppVersion(cwd), getKnownNames(appDataDir)]);
   const osSummary = getOsSummary();
   const recentErrors = getRecentErrorLines();
 

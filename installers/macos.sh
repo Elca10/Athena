@@ -11,6 +11,7 @@
 # unit-testable the normal way, unlike this file.
 #
 # Overridable via env for testing: ATHENA_REPO_URL, ATHENA_INSTALL_DIR,
+# ATHENA_PORT (must match the port the server binds), ATHENA_NO_OPEN_BROWSER,
 # ATHENA_UPDATE_BRANCH (which branch installs track and auto-update from —
 # defaults to `release` so nothing pushed straight to `main` reaches an
 # installed copy until the maintainer promotes it; see
@@ -22,6 +23,8 @@ REPO_URL="${ATHENA_REPO_URL:-https://github.com/Elca10/Athena.git}"
 INSTALL_DIR="${ATHENA_INSTALL_DIR:-$HOME/Athena-Studying}"
 BRANCH="${ATHENA_UPDATE_BRANCH:-release}"
 MIN_NODE_MAJOR=18
+PORT="${ATHENA_PORT:-4417}"
+APP_URL="http://127.0.0.1:$PORT/"
 
 log() { printf '==> %s\n' "$1"; }
 fail() { printf 'Athena-Studying install failed: %s\n' "$1" >&2; exit 1; }
@@ -57,6 +60,17 @@ ensure_node() {
   fi
 }
 
+# One-shot health check, same contract as windows.ps1's Test-AthenaHealthy.
+# Re-running this command while a server is already up must not update the
+# checkout or run npm install underneath it: the old process keeps serving,
+# the new one can't bind the port, and the health check then passes against
+# the OLD server, leaving it running against changed files on disk
+# (issue #4). No curl means we can't tell, so carry on as a fresh start.
+already_running() {
+  have curl || return 1
+  curl -fsS --max-time 2 "${APP_URL}api/health" 2>/dev/null | grep -q '"ok":true'
+}
+
 clone_or_update() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     log "Found an existing checkout at $INSTALL_DIR, updating..."
@@ -81,6 +95,13 @@ clone_or_update() {
 }
 
 main() {
+  if already_running; then
+    log "Athena-Studying is already running: $APP_URL"
+    log "To update it, stop it first, then run this command again. To stop it:"
+    log "  lsof -ti tcp:$PORT -sTCP:LISTEN | xargs kill    (or just restart your Mac)"
+    if [ -z "${ATHENA_NO_OPEN_BROWSER:-}" ] && have open; then open "$APP_URL" || true; fi
+    exit 0
+  fi
   ensure_git
   ensure_node
   clone_or_update

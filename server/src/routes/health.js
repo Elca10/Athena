@@ -7,7 +7,7 @@ import { isSetupComplete } from "../setupState.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(path.join(__dirname, "..", "..", "package.json"), "utf8"));
 
-export function healthRouter(appDataDir) {
+export function healthRouter(appDataDir, appVersion = Promise.resolve({ commit: null })) {
   const router = express.Router();
 
   // Polled by the frontend AND by the auto-updater's startup health check
@@ -20,6 +20,9 @@ export function healthRouter(appDataDir) {
     res.json({
       ok: true,
       version: pkg.version,
+      // The commit this process started on (index.js), so a caller can
+      // tell which code is really answering, not just that something is.
+      commit: (await appVersion).commit,
       setupComplete: await isSetupComplete(appDataDir),
     });
   });
