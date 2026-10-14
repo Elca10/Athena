@@ -295,7 +295,7 @@ function ReadySessionScreen({
   }
 
   useEffect(() => {
-    if (!activeQuestion) fetchNext(session.id);
+    if (!activeQuestion && !ended) fetchNext(session.id);
     // Runs once per mounted session — `session.id` never changes for the
     // life of this screen, and every later question fetch is triggered by
     // a user action (Next), not this effect.
@@ -599,7 +599,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   }
 
   useEffect(() => {
-    if (!activeQuestion) fetchNext(session.id);
+    if (!activeQuestion && !ended) fetchNext(session.id);
     // Same "runs once per mounted session" reasoning as ReadySessionScreen's
     // identical effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
