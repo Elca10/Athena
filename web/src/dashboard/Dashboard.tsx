@@ -60,6 +60,9 @@ export function Dashboard() {
   const [studySubjectId, setStudySubjectId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
+  // Archived ones too, only so a session of an archived subject can still
+  // be labelled by name instead of "Unknown subject".
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
   const [summaries, setSummaries] = useState<Record<string, SubjectSummary>>({});
   const [sessions, setSessions] = useState<Session[] | null>(null);
   const [stats, setStats] = useState<SessionStats | null>(null);
@@ -87,7 +90,9 @@ export function Dashboard() {
   }
 
   async function refresh() {
-    const list = await listSubjects();
+    const everything = await listSubjects({ includeArchived: true });
+    const list = everything.filter((s) => !s.archived);
+    setAllSubjects(everything);
     setSubjects(list);
     const entries = await Promise.all(list.map(async (s) => [s.id, await getSubjectSummary(s.id)] as const));
     setSummaries(Object.fromEntries(entries));
@@ -120,7 +125,11 @@ export function Dashboard() {
     };
   }, []);
 
-  const subjectName = (id: string) => subjects?.find((s) => s.id === id)?.name ?? "Unknown subject";
+  const subjectName = (id: string) => {
+    const subject = allSubjects.find((s) => s.id === id);
+    if (!subject) return "Unknown subject";
+    return subject.archived ? `${subject.name} (archived)` : subject.name;
+  };
 
   // Only one panel at a time: opening one closes any other, so they can
   // never stack on top of each other.

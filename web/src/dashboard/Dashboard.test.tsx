@@ -688,3 +688,33 @@ test("Archive button switches to the Archive view, listing archived subjects and
   await user.click(screen.getByRole("button", { name: "Back to dashboard" }));
   expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
 });
+
+test("a session of an archived subject is labelled with its name, not 'Unknown subject'", async () => {
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Biology", archived: false, createdAt: "2026-10-01T00:00:00.000Z" },
+    { id: "s2", name: "Old Course", archived: true, createdAt: "2026-09-01T00:00:00.000Z" },
+  ]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({ masteryCounts: { new: 0, learning: 0, mastered: 0 }, dueCount: 0, bankSize: 0 });
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "x1",
+      subjectIds: ["s2"],
+      topicIds: [],
+      mode: "ready",
+      status: "completed",
+      archived: false,
+      currentQuestion: null,
+      history: [],
+      reflectionPending: false,
+    } as unknown as api.Session,
+  ]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  expect(await screen.findByText("Old Course (archived)")).toBeInTheDocument();
+  expect(screen.queryByText("Unknown subject")).not.toBeInTheDocument();
+  expect(screen.getByRole("heading", { name: "Biology" })).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { name: "Old Course" })).not.toBeInTheDocument();
+  expect(api.listSubjects).toHaveBeenCalledWith({ includeArchived: true });
+});

@@ -17,6 +17,7 @@ import {
   type SessionQuestion,
   type Subject,
 } from "./api";
+import { ThemeToggle } from "../theme/ThemeToggle";
 
 // The Study flow (SPEC.md section 4's Study button; section 5's session
 // screen): the mode picker, Ready mode's bank-backed session loop
@@ -68,11 +69,14 @@ export function StudyFlow({
   return (
     <div className="dashboard">
       <header className="dashboard-header">
-        <h1>Study</h1>
-        <div className="dashboard-header-actions">
-          <button type="button" onClick={onExit}>
-            Back to dashboard
-          </button>
+        <div className="dashboard-header-top">
+          <h1>Study</h1>
+          <div className="dashboard-header-actions">
+            <ThemeToggle />
+            <button type="button" onClick={onExit}>
+              Back to dashboard
+            </button>
+          </div>
         </div>
       </header>
       {error && <div className="study-picker-error">{error}</div>}

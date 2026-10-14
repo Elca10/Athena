@@ -62,6 +62,14 @@
   --danger: #d64545;
 }
 
+/* Without this, `width: 100%` plus padding overflows its container (the
+   reflection and answer boxes poked out of their cards). */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 body {
   font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
@@ -422,6 +430,7 @@ select {
 
 .subject-card-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -763,7 +772,8 @@ select {
 .study-picker-error {
   color: var(--danger);
   font-size: 0.9rem;
-  margin-bottom: 1rem;
+  max-width: 32rem;
+  margin: 0 auto 1rem;
 }
 
 .study-session {
@@ -839,7 +849,11 @@ select {
   border-radius: 999px;
 }
 
-.study-confidence-selected {
+/* :hover repeated on purpose: the generic `button:hover` would otherwise
+   win while the pointer is still on the button just clicked, so a fresh
+   selection looked unselected. */
+.study-confidence-selected,
+.study-confidence-selected:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
@@ -888,10 +902,15 @@ select {
   gap: 0.4rem;
 }
 
-.study-reveal-selected {
+.study-reveal-selected,
+.study-reveal-selected:hover {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
+}
+
+.study-reveal-rubric-options button {
+  white-space: nowrap;
 }
 
 .study-reveal-misconceptions {
@@ -904,6 +923,15 @@ select {
   margin: 0 0 0.75rem;
   color: var(--text-h);
   font-weight: 600;
+}
+
+.study-result p.study-result-answer,
+.study-result p.study-result-explanation {
+  font-weight: 400;
+}
+
+.study-result p.study-result-explanation {
+  color: var(--text);
 }
 
 .study-reflection {
@@ -935,4 +963,12 @@ select {
 .study-reflection-actions {
   display: flex;
   gap: 0.5rem;
+}
+
+/* Narrow windows: one column instead of two cramped ones. */
+@media (max-width: 720px) {
+  .dashboard-body {
+    flex-direction: column;
+    align-items: stretch;
+  }
 }
