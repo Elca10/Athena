@@ -191,7 +191,14 @@ export function generateNextReadyQuestion(sessionId: string): Promise<ReadyQuest
 // type instead reveals the model answer/rubric for a self-grade step next
 // (`finalized: false`).
 export type ReadyAnswerResult =
-  | { ok: true; finalized: true; isCorrect: boolean; session: Session }
+  | {
+      ok: true;
+      finalized: true;
+      isCorrect: boolean;
+      correctAnswer: string | null;
+      modelAnswer: string | null;
+      session: Session;
+    }
   | { ok: true; finalized: false; modelAnswer: string; rubric: string[]; misconceptions: string[]; session: Session };
 
 export function submitReadyAnswer(

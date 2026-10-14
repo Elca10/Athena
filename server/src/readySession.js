@@ -300,7 +300,10 @@ export async function submitReadyAnswer(appDataDir, sessionId, { answerText, sel
       answeredAt: new Date().toISOString(),
     };
     const updated = await recordAnswer(appDataDir, sessionId, entry);
-    return { ok: true, finalized: true, isCorrect, session: updated };
+    // Graded now, so the answer key is no longer a secret: send the right
+    // answer (and the explanation) so a miss can actually teach something.
+    const correctAnswer = question.type === "multiple_choice" ? question.choices?.[question.correctIndex] ?? null : question.clozeAnswer ?? null;
+    return { ok: true, finalized: true, isCorrect, correctAnswer, modelAnswer: question.modelAnswer ?? null, session: updated };
   }
 
   const trimmedAnswer = typeof answerText === "string" ? answerText.trim() : "";

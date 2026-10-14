@@ -340,6 +340,7 @@ test("submitReadyAnswer finalizes a correct multiple_choice answer as good", asy
   assert.equal(result.session.status, "active");
   assert.equal(result.session.history[0].rating, "good");
   assert.equal(result.session.history[0].selectedIndex, 1);
+  assert.equal(result.correctAnswer, "b", "the right choice's text comes back once graded");
 
   const topicAfter = await getTopicById(dir, topic.id);
   assert.equal(topicAfter.fsrs.reps, 1);
@@ -358,6 +359,8 @@ test("submitReadyAnswer finalizes an incorrect cloze answer as again", async () 
   assert.equal(result.isCorrect, false);
   assert.equal(result.session.history[0].rating, "again");
   assert.equal(result.session.history[0].answerText, "loop");
+  assert.equal(result.correctAnswer, "function", "a miss reveals the right answer");
+  assert.equal(result.modelAnswer, "function");
 });
 
 test("submitReadyAnswer rejects a multiple_choice submission with no selectedIndex", async () => {

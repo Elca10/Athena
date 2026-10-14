@@ -152,7 +152,17 @@ function ModePicker({
 }
 
 type RevealedAnswer = { modelAnswer: string; rubric: string[]; misconceptions: string[] };
-type LastResult = { kind: "auto"; isCorrect: boolean } | { kind: "self" };
+type LastResult =
+  | { kind: "auto"; isCorrect: boolean; correctAnswer: string | null; explanation: string | null }
+  | { kind: "self" };
+
+// The explanation only adds something when it isn't just the answer again
+// (a bank's modelAnswer for a fill-in is often the bare word).
+function explanationFor(correctAnswer: string | null, modelAnswer: string | null): string | null {
+  if (!modelAnswer) return null;
+  const norm = (s: string) => s.trim().toLowerCase().replace(/[.!]+$/, "");
+  return correctAnswer && norm(modelAnswer) === norm(correctAnswer) ? null : modelAnswer;
+}
 
 const SELF_GRADE_OPTIONS: { status: SelfGradeStatus; label: string }[] = [
   { status: "got_it", label: "Got it" },
@@ -262,7 +272,12 @@ function ReadySessionScreen({
       });
       setSession(result.session);
       if (result.finalized) {
-        setLastResult({ kind: "auto", isCorrect: result.isCorrect });
+        setLastResult({
+          kind: "auto",
+          isCorrect: result.isCorrect,
+          correctAnswer: result.correctAnswer ?? null,
+          explanation: explanationFor(result.correctAnswer ?? null, result.modelAnswer ?? null),
+        });
       } else {
         setRevealed({ modelAnswer: result.modelAnswer, rubric: result.rubric, misconceptions: result.misconceptions });
         setSelfGrades(result.rubric.map(() => null));
@@ -452,9 +467,17 @@ function ReadySessionScreen({
 
           {lastResult && (
             <div className="study-result">
-              <p>
+              <p className="study-result-verdict">
                 {lastResult.kind === "auto" ? (lastResult.isCorrect ? "Correct!" : "Not quite.") : "Self-grade recorded."}
               </p>
+              {lastResult.kind === "auto" && !lastResult.isCorrect && lastResult.correctAnswer && (
+                <p className="study-result-answer">
+                  The answer: <strong>{lastResult.correctAnswer}</strong>
+                </p>
+              )}
+              {lastResult.kind === "auto" && lastResult.explanation && (
+                <p className="study-result-explanation">{lastResult.explanation}</p>
+              )}
               <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
                 Next question
               </button>

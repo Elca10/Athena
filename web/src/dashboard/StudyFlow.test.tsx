@@ -193,6 +193,8 @@ test("multiple-choice: confidence must be picked before the answer appears, and 
     ok: true,
     finalized: true,
     isCorrect: true,
+    correctAnswer: "Mitochondria",
+    modelAnswer: "Mitochondria.",
     session: baseSession({ status: "active", history: [{}] }),
   });
   render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
@@ -273,6 +275,8 @@ test("clicking Next question fetches and shows the next served question", async 
     ok: true,
     finalized: true,
     isCorrect: false,
+    correctAnswer: "Mitochondria",
+    modelAnswer: "Mitochondria run cellular respiration, which makes most of the cell's ATP.",
     session: baseSession({ status: "active", history: [{}] }),
   });
   render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
@@ -283,6 +287,8 @@ test("clicking Next question fetches and shows the next served question", async 
   await user.click(screen.getByRole("radio", { name: "Nucleus" }));
   await user.click(screen.getByRole("button", { name: "Submit answer" }));
   expect(await screen.findByText("Not quite.")).toBeInTheDocument();
+  expect(screen.getByText("Mitochondria")).toBeInTheDocument();
+  expect(screen.getByText(/run cellular respiration/)).toBeInTheDocument();
 
   await user.click(screen.getByRole("button", { name: "Next question" }));
   expect(await screen.findByText("What pigment absorbs light?")).toBeInTheDocument();
