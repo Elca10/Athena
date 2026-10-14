@@ -326,6 +326,9 @@ select {
 
 .dashboard-header-actions {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.5rem;
 }
 
@@ -477,6 +480,56 @@ select {
   max-width: 90vw;
   max-height: 85vh;
   overflow-y: auto;
+}
+
+/* One-click updates (update/UpdateControl.tsx): a quiet pill in the top
+   bar, only when an update exists; its dialogs reuse .modal. */
+.update-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 3px 3px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 0.9rem;
+  color: var(--text-h);
+}
+
+.update-pill button {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+}
+
+.update-reason {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.update-modal {
+  width: 26rem;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.update-modal h2,
+.update-modal p {
+  margin: 0;
+}
+
+.update-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.update-error {
+  color: var(--danger);
 }
 
 .tune-panel {

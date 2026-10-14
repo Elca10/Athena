@@ -22,6 +22,7 @@ import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
+import { UpdateControl } from "../update/UpdateControl";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
 // The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
@@ -154,6 +155,7 @@ export function Dashboard() {
         <div className="dashboard-header-top">
           <h1>Athena</h1>
           <div className="dashboard-header-actions">
+            <UpdateControl onReportBug={() => setShowBugReport(true)} />
             <ThemeToggle />
             <button type="button" onClick={() => setShowBugReport((v) => !v)}>
               Report a bug
