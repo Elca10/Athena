@@ -218,3 +218,21 @@ test("entry-point guard: running index.js directly for real invokes main() and s
     await fs.rm(scratch, { recursive: true, force: true });
   }
 });
+
+test("an error thrown inside an async route is a 500, not a crash (Express 5 forwards rejections)", async () => {
+  const { createApp } = await import("../index.js");
+  const { app, appDataDir } = await createApp();
+  const prefsPath = path.join(appDataDir, "db", "preferences.json");
+  await fs.writeFile(prefsPath, "{not json");
+  const server = app.listen(0);
+  const { port } = server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/preferences`);
+    assert.equal(res.status, 500);
+    assert.deepEqual(await res.json(), { error: "Something went wrong." });
+    assert.equal((await fetch(`http://127.0.0.1:${port}/api/health`)).status, 200, "the server must still be up");
+  } finally {
+    server.close();
+    await fs.rm(prefsPath, { force: true });
+  }
+});
