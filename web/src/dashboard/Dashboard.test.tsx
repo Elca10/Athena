@@ -718,3 +718,17 @@ test("a session of an archived subject is labelled with its name, not 'Unknown s
   expect(screen.queryByRole("heading", { name: "Old Course" })).not.toBeInTheDocument();
   expect(api.listSubjects).toHaveBeenCalledWith({ includeArchived: true });
 });
+
+test("a failed dashboard load says so and retries, instead of 'Loading…' forever", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockRejectedValueOnce(new Error("Failed to fetch")).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  expect(await screen.findByText(/Couldn't load your dashboard/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+  expect(await screen.findByText(/No subjects yet/)).toBeInTheDocument();
+  expect(screen.queryByText(/Couldn't load your dashboard/)).not.toBeInTheDocument();
+});

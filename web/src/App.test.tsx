@@ -26,3 +26,14 @@ test("shows the dashboard when setup is already complete", async () => {
   render(<App />);
   expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
 });
+
+test("an unreachable server shows a message with Try again, not 'Loading...' forever", async () => {
+  vi.mocked(api.getHealth)
+    .mockRejectedValueOnce(new Error("Failed to fetch"))
+    .mockResolvedValue({ ok: true, version: "0.1.0", setupComplete: false });
+  vi.mocked(api.detectOs).mockResolvedValue({ detected: "mac" });
+  render(<App />);
+  expect(await screen.findByText(/Couldn't reach Athena/)).toBeInTheDocument();
+  screen.getByRole("button", { name: "Try again" }).click();
+  expect(await screen.findByText("Set up Athena-Studying")).toBeInTheDocument();
+});

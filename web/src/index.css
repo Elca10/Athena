@@ -972,3 +972,22 @@ select {
     align-items: stretch;
   }
 }
+
+.dashboard-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 1rem;
+  padding: 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  color: var(--danger);
+}
+
+.app-unreachable {
+  max-width: 32rem;
+  margin: 4rem auto;
+  text-align: center;
+}

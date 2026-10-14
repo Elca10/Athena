@@ -358,7 +358,12 @@ function ReadySessionScreen({
   return (
     <div className="study-session">
       {error && <div className="study-session-error">{error}</div>}
-      {!question && <p>Loading question…</p>}
+      {!question && !error && <p>Loading question…</p>}
+      {!question && error && (
+        <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
+          Try again
+        </button>
+      )}
       {question && (
         <>
           <div className="study-question">
@@ -595,7 +600,12 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   return (
     <div className="study-session">
       {error && <div className="study-session-error">{error}</div>}
-      {!question && <p>Loading question…</p>}
+      {!question && !error && <p>Loading question…</p>}
+      {!question && error && (
+        <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
+          Try again
+        </button>
+      )}
       {question && (
         <>
           <div className="study-question">

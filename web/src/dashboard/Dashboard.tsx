@@ -68,6 +68,7 @@ export function Dashboard() {
   const [stats, setStats] = useState<SessionStats | null>(null);
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageChecking, setUsageChecking] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const usageCheckInFlight = useRef(false);
 
   // Bug queue #3: `/usage` is free (no inference), but nothing was ever
@@ -89,16 +90,24 @@ export function Dashboard() {
     }
   }
 
+  // A failed load (e.g. Athena restarting) used to leave "Loading…" on
+  // screen forever; now it says so and offers a retry.
   async function refresh() {
-    const everything = await listSubjects({ includeArchived: true });
-    const list = everything.filter((s) => !s.archived);
-    setAllSubjects(everything);
-    setSubjects(list);
-    const entries = await Promise.all(list.map(async (s) => [s.id, await getSubjectSummary(s.id)] as const));
-    setSummaries(Object.fromEntries(entries));
-    setSessions(await listSessions());
-    setStats(await getSessionStats());
-    await refreshUsage();
+    try {
+      const everything = await listSubjects({ includeArchived: true });
+      const list = everything.filter((s) => !s.archived);
+      setAllSubjects(everything);
+      setSubjects(list);
+      const entries = await Promise.all(list.map(async (s) => [s.id, await getSubjectSummary(s.id)] as const));
+      setSummaries(Object.fromEntries(entries));
+      setSessions(await listSessions());
+      setStats(await getSessionStats());
+      setLoadError(null);
+    } catch {
+      setLoadError("Couldn't load your dashboard. Athena may be restarting. Wait a moment, then try again.");
+      return;
+    }
+    await refreshUsage().catch(() => {});
   }
 
   useEffect(() => {
@@ -190,6 +199,14 @@ export function Dashboard() {
           <UsageStatusSummary usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
         </div>
       </header>
+      {loadError && (
+        <div className="dashboard-load-error" role="alert">
+          <span>{loadError}</span>
+          <button type="button" onClick={refresh}>
+            Try again
+          </button>
+        </div>
+      )}
       {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
       {contentSubjectId && (

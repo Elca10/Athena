@@ -513,3 +513,17 @@ test("surfaces the server's error message if starting the session fails", async 
   await user.click(screen.getByRole("button", { name: "Start session" }));
   expect(await screen.findByText("subjectIds must be a non-empty array")).toBeInTheDocument();
 });
+
+test("a failed question fetch offers Try again instead of 'Loading question…' forever", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion)
+    .mockRejectedValueOnce(new Error("POST /api/sessions/sess-1/ready/question responded 500"))
+    .mockResolvedValueOnce({ ok: true, session: baseSession({ currentQuestion: mcQuestion(), status: "waiting" }) });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  await user.click(await screen.findByRole("button", { name: "Try again" }));
+  expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
+  expect(screen.queryByText("Loading question…")).not.toBeInTheDocument();
+});
