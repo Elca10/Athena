@@ -42,7 +42,9 @@ test("POST /api/sessions creates a session for a real subject", async () => {
     assert.equal(res.status, 201);
     const session = await res.json();
     assert.deepEqual(session.subjectIds, [subject.id]);
-    assert.equal(session.status, "active");
+    // Stored as "active", but nothing is running for it, so the API
+    // presents it as resumable "waiting" (routes/sessions.js presentStatus).
+    assert.equal(session.status, "waiting");
     assert.deepEqual(await (await fetch(base)).json(), [session]);
   } finally {
     server.close();
@@ -166,7 +168,19 @@ test("GET /api/sessions/:id finds a real session", async () => {
     const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" });
     const res = await fetch(`${base}/${session.id}`);
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), session);
+    assert.deepEqual(await res.json(), { ...session, status: "waiting" });
+  } finally {
+    server.close();
+  }
+});
+
+test("an 'active' session with no turn running is listed as resumable 'waiting' (not stuck as Working…)", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const session = await createSession(dir, { subjectIds: ["subject-1"], mode: "live", topicIds: ["t1"] });
+    assert.equal(session.status, "active", "sanity: stored as active");
+    const [listed] = await (await fetch(base)).json();
+    assert.equal(listed.status, "waiting");
   } finally {
     server.close();
   }
@@ -545,7 +559,7 @@ test("full Ready round trip over HTTP: multiple_choice answer finalizes in one c
     assert.equal(body.ok, true);
     assert.equal(body.finalized, true);
     assert.equal(body.isCorrect, true);
-    assert.equal(body.session.status, "active");
+    assert.equal(body.session.status, "waiting"); // between questions: resumable
   } finally {
     server.close();
   }
@@ -581,7 +595,7 @@ test("full Ready round trip over HTTP: self-graded answer needs /self-grade to f
     assert.equal(selfGradeRes.status, 200);
     const selfGradeBody = await selfGradeRes.json();
     assert.equal(selfGradeBody.ok, true);
-    assert.equal(selfGradeBody.session.status, "active");
+    assert.equal(selfGradeBody.session.status, "waiting"); // between questions: resumable
     assert.equal(selfGradeBody.session.history[0].rating, "hard");
   } finally {
     server.close();

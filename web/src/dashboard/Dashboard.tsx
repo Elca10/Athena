@@ -416,7 +416,7 @@ function SessionRow({
       detail =
         prompt.length > MAX_PROMPT_PREVIEW
           ? `${prompt.slice(0, MAX_PROMPT_PREVIEW)}…`
-          : prompt || "Waiting for your answer.";
+          : prompt || "Paused — resume to pick up where you left off.";
     }
   } else {
     detail = `${session.history.length} question${session.history.length === 1 ? "" : "s"} answered`;

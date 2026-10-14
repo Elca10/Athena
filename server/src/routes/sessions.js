@@ -24,8 +24,31 @@ import { submitSessionReflection, skipSessionReflection } from "../reflection.js
 // matters now). A no-op for a null `currentQuestion` or a Live question,
 // neither of which carries the fields `publicQuestionView` strips.
 function publicSessionView(session) {
-  if (!session.currentQuestion) return session;
-  return { ...session, currentQuestion: publicQuestionView(session.currentQuestion) };
+  const view = presentStatus(session);
+  if (!view.currentQuestion) return view;
+  return { ...view, currentQuestion: publicQuestionView(view.currentQuestion) };
+}
+
+// Sessions with a Live model turn running right now. "active" in storage
+// also covers sessions merely BETWEEN questions (after an answer, after a
+// failed turn, before the first question), where nothing is running and
+// the user just left. Shown as "active" those sat in the dashboard's
+// Active column as "Working…" with no way back in, so they're presented
+// as "waiting" (resumable) unless a turn really is in flight.
+const turnsInFlight = new Set();
+
+function presentStatus(session) {
+  if (session.status !== "active" || turnsInFlight.has(session.id)) return session;
+  return { ...session, status: "waiting" };
+}
+
+async function duringTurn(sessionId, fn) {
+  turnsInFlight.add(sessionId);
+  try {
+    return await fn();
+  } finally {
+    turnsInFlight.delete(sessionId);
+  }
 }
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
@@ -99,7 +122,7 @@ export function makeSessionsRouter(appDataDir) {
       return;
     }
     try {
-      res.json(await generateNextLiveQuestion(appDataDir, req.params.id));
+      res.json(await duringTurn(req.params.id, () => generateNextLiveQuestion(appDataDir, req.params.id)));
     } catch (err) {
       res.status(400).json({ error: err.message });
     }
