@@ -314,8 +314,10 @@ test("clicking a subject's Archive button archives it and refreshes", async () =
   const heading = await screen.findByRole("heading", { name: "Organic Chemistry" });
   const card = heading.closest("article") as HTMLElement;
   vi.mocked(api.listSubjects).mockResolvedValue([]);
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   await user.click(within(card).getByRole("button", { name: "Archive" }));
 
+  expect(confirm).toHaveBeenCalled();
   expect(api.archiveSubject).toHaveBeenCalledWith("s1");
   await waitFor(() => expect(screen.queryByRole("heading", { name: "Organic Chemistry" })).not.toBeInTheDocument());
 });

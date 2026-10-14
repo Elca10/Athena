@@ -260,6 +260,7 @@ export function Dashboard() {
                 setView("study");
               }}
               onArchive={async () => {
+                if (!window.confirm(`Archive "${subject.name}"? It leaves the dashboard; you can restore it from the Archive.`)) return;
                 await archiveSubject(subject.id);
                 refresh();
               }}

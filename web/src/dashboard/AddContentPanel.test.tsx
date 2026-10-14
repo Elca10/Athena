@@ -343,3 +343,23 @@ test("an item can be removed (after confirming)", async () => {
   expect(api.removeContent).toHaveBeenCalledWith("s1", "c1");
   expect(await screen.findByText("No content added yet.")).toBeInTheDocument();
 });
+
+test("several files can be picked at once; one bad file doesn't stop the others", async () => {
+  const user = userEvent.setup({ applyAccept: false });
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  vi.mocked(api.uploadTextContent).mockResolvedValue(baseItem());
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await screen.findByText("No content added yet.");
+
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  expect(input.multiple).toBe(true);
+  await user.upload(input, [
+    new File(["one"], "week1.md", { type: "text/markdown" }),
+    new File(["x"], "photo.jpg", { type: "image/jpeg" }),
+    new File(["two"], "week2.txt", { type: "text/plain" }),
+  ]);
+
+  expect(await screen.findByText(/photo\.jpg: unsupported file type/)).toBeInTheDocument();
+  expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "week1.md", "one");
+  expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "week2.txt", "two");
+});

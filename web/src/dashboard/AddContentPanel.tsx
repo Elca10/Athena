@@ -105,28 +105,36 @@ export function AddContentPanel({
     refresh();
   }, [subjectId]);
 
-  async function handleFile(file: File) {
-    const ext = extensionOf(file.name);
-    if (!ACCEPTED_EXTENSIONS.includes(ext)) {
-      setError(`Unsupported file type "${ext || "(no extension)"}" — only ${ACCEPTED_EXTENSIONS.join(", ")} are supported right now`);
-      return;
-    }
+  // Several files can be picked at once; they're added one after another,
+  // and one bad file doesn't stop the rest.
+  async function handleFiles(files: File[]) {
     setError(null);
     setBusy(true);
-    setUploadingName(file.name);
+    const problems: string[] = [];
     try {
-      if (BINARY_EXTENSIONS.includes(ext)) {
-        await uploadBinaryContent(subjectId, file.name, await readAsBase64(file));
-      } else {
-        await uploadTextContent(subjectId, file.name, await readAsText(file));
+      for (const [index, file] of files.entries()) {
+        const ext = extensionOf(file.name);
+        if (!ACCEPTED_EXTENSIONS.includes(ext)) {
+          problems.push(`${file.name}: unsupported file type (only ${ACCEPTED_EXTENSIONS.join(", ")})`);
+          continue;
+        }
+        setUploadingName(files.length > 1 ? `${file.name} (${index + 1} of ${files.length})` : file.name);
+        try {
+          if (BINARY_EXTENSIONS.includes(ext)) {
+            await uploadBinaryContent(subjectId, file.name, await readAsBase64(file));
+          } else {
+            await uploadTextContent(subjectId, file.name, await readAsText(file));
+          }
+        } catch (err) {
+          problems.push(`${file.name}: ${err instanceof Error ? err.message : "couldn't add it"}`);
+        }
       }
       await refresh();
       onContentAdded?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't add that file.");
     } finally {
       setBusy(false);
       setUploadingName(null);
+      if (problems.length) setError(problems.join(" · "));
     }
   }
 
@@ -243,12 +251,13 @@ export function AddContentPanel({
           <input
             ref={fileInputRef}
             type="file"
+            multiple
             accept={ACCEPTED_EXTENSIONS.join(",")}
             disabled={busy || scanning}
             onChange={(e) => {
-              const file = e.target.files?.[0];
+              const files = Array.from(e.target.files ?? []);
               e.target.value = "";
-              if (file) handleFile(file);
+              if (files.length) handleFiles(files);
             }}
           />
         </div>
