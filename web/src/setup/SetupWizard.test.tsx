@@ -214,6 +214,21 @@ describe("step 4: first subject", () => {
     expect(onComplete).toHaveBeenCalled();
   });
 
+  test("retrying after setup failed to finish doesn't create the subject twice", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createSubject).mockResolvedValue({ id: "s1", name: "Physics" });
+    vi.mocked(api.completeSetup).mockRejectedValueOnce(new Error("Couldn't save.")).mockResolvedValue(undefined);
+    const onComplete = await advanceToStep4(user);
+
+    await user.type(screen.getByPlaceholderText(/Subject name/), "Physics");
+    await user.click(screen.getByRole("button", { name: "Create and finish" }));
+    expect(await screen.findByText("Couldn't save.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Create and finish" }));
+
+    expect(api.createSubject).toHaveBeenCalledTimes(1);
+    expect(onComplete).toHaveBeenCalled();
+  });
+
   test("shows the server's error and does not finish setup if creation fails", async () => {
     const user = userEvent.setup();
     vi.mocked(api.createSubject).mockRejectedValue(new Error("Subject name cannot be blank."));
@@ -225,5 +240,34 @@ describe("step 4: first subject", () => {
     expect(await screen.findByText("Subject name cannot be blank.")).toBeInTheDocument();
     expect(api.completeSetup).not.toHaveBeenCalled();
     expect(onComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe("check failures", () => {
+  test("a Claude Code check that can't run says so instead of showing nothing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.checkClaudeCode).mockRejectedValue(new Error("Failed to fetch"));
+    await advancePastOs(user);
+    expect(await screen.findByText(/The check itself couldn't run/)).toBeInTheDocument();
+  });
+
+  test("not logged in shows `claude` as code, with no literal backticks", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.checkClaudeCode).mockResolvedValue({ installed: true, loggedIn: false });
+    await advancePastOs(user);
+    const message = await screen.findByText(/installed but not logged in/);
+    expect(message.textContent).not.toContain("`");
+    expect(message.querySelector("code")?.textContent).toBe("claude");
+  });
+
+  test("a GitHub connect that fails to start shows an error instead of doing nothing", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.checkClaudeCode).mockResolvedValue({ installed: true, loggedIn: true });
+    vi.mocked(api.checkGithub).mockResolvedValue({ installed: true, authenticated: false });
+    vi.mocked(api.startGithubConnect).mockRejectedValue(new Error("Failed to fetch"));
+    await advancePastOs(user);
+    await user.click(await screen.findByRole("button", { name: "Continue" }));
+    await user.click(await screen.findByRole("button", { name: "Connect GitHub" }));
+    expect(await screen.findByText(/Couldn't start the GitHub login/)).toBeInTheDocument();
   });
 });

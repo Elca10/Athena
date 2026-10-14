@@ -107,14 +107,20 @@ function OsStep({ onContinue }: { onContinue: (os: ConfirmedOs) => void }) {
   );
 }
 
+const CHECK_FAILED = "The check itself couldn't run. Make sure Athena is still running, then click Check again.";
+
 function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack: () => void; onContinue: () => void }) {
   const [state, setState] = useState<ClaudeCodeCheck | null>(null);
   const [checking, setChecking] = useState(false);
+  const [checkError, setCheckError] = useState<string | null>(null);
 
   async function runCheck() {
     setChecking(true);
+    setCheckError(null);
     try {
       setState(await checkClaudeCode());
+    } catch {
+      setCheckError(CHECK_FAILED);
     } finally {
       setChecking(false);
     }
@@ -132,6 +138,7 @@ function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; on
     <section className="setup-step-card">
       <p>Athena-Studying runs on your own Claude Code login — it never uses a separate API key.</p>
       {checking && <p>Checking...</p>}
+      {!checking && checkError && <p className="setup-error">{checkError}</p>}
       {!checking && state && !state.installed && (
         <p className="setup-error">
           Claude Code isn't installed, or couldn't be run.{" "}
@@ -149,7 +156,10 @@ function ClaudeCodeStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; on
         </p>
       )}
       {!checking && state?.installed && state.loggedIn === false && (
-        <p className="setup-error">Claude Code is installed but not logged in. Run `claude` and log in, then check again.</p>
+        <p className="setup-error">
+          Claude Code is installed but not logged in. Open {os === "windows" ? "PowerShell" : "Terminal"}, run{" "}
+          <code>claude</code> and log in, then check again.
+        </p>
       )}
       {!checking && state?.installed && state.loggedIn === null && (
         <p className="setup-warning">Couldn't confirm login status ({state.detail}). You can continue if you know you're logged in.</p>
@@ -174,12 +184,16 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
   const [state, setState] = useState<GithubCheck | null>(null);
   const [checking, setChecking] = useState(false);
   const [connect, setConnect] = useState<GithubConnectState | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function runCheck() {
     setChecking(true);
+    setCheckError(null);
     try {
       setState(await checkGithub());
+    } catch {
+      setCheckError(CHECK_FAILED);
     } finally {
       setChecking(false);
     }
@@ -197,11 +211,19 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
     }
   }
 
+  // Failures used to be swallowed, so the button just did nothing.
   async function handleConnect() {
-    const { id } = await startGithubConnect();
-    stopPolling();
-    await pollOnce(id);
-    pollRef.current = setInterval(() => pollOnce(id), 1500);
+    setCheckError(null);
+    try {
+      const { id } = await startGithubConnect();
+      stopPolling();
+      await pollOnce(id);
+      pollRef.current = setInterval(() => pollOnce(id).catch(() => {}), 1500);
+    } catch {
+      stopPolling();
+      setConnect(null);
+      setCheckError("Couldn't start the GitHub login. Make sure Athena is still running, then try again.");
+    }
   }
 
   async function pollOnce(id: string) {
@@ -223,6 +245,7 @@ function GithubStep({ os, onBack, onContinue }: { os: ConfirmedOs | null; onBack
         takes a minute.
       </p>
       {checking && <p>Checking...</p>}
+      {!checking && checkError && <p className="setup-error">{checkError}</p>}
       {!checking && state && !state.installed && (
         <p className="setup-error">
           The GitHub CLI (<code>gh</code>) isn't installed.{" "}
@@ -271,12 +294,18 @@ function FirstSubjectStep({ onBack, onFinish }: { onBack: () => void; onFinish: 
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
+  // If creating worked but finishing didn't, a retry must not create the
+  // same subject a second time.
+  const created = useRef<string | null>(null);
 
   async function finish(createFirst: boolean) {
     setFinishing(true);
     setError(null);
     try {
-      if (createFirst) await createSubject(name.trim());
+      if (createFirst && created.current !== name.trim()) {
+        await createSubject(name.trim());
+        created.current = name.trim();
+      }
       await completeSetup();
       onFinish();
     } catch (err) {
