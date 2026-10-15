@@ -578,7 +578,7 @@ test("Done with unread content closes the panel at once and reads it in the back
   expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
   expect(api.scanBank).toHaveBeenCalledWith("s1");
   expect(screen.queryByText(/Reading your new content/)).not.toBeInTheDocument();
-}, 15_000);
+});
 
 test("going to Study mid-read still shows the reading progress, a warning in the picker, and the result", async () => {
   const user = userEvent.setup();
@@ -628,7 +628,7 @@ test("going to Study mid-read still shows the reading progress, a warning in the
   expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
   expect(screen.queryByText(/Still reading your new content/)).not.toBeInTheDocument();
   expect(screen.queryByText(/won't be in a session started now/)).not.toBeInTheDocument();
-}, 15_000);
+});
 
 test("if reading the new content fails, the dashboard says so as an error with how to retry", async () => {
   const user = userEvent.setup();
@@ -671,7 +671,7 @@ test("if reading the new content fails, the dashboard says so as an error with h
   expect(alert).toHaveTextContent(/Open Add content and click Done to try again/);
   expect(await screen.findByText(/1 item not read yet/)).toBeInTheDocument();
   expect(api.scanBank).not.toHaveBeenCalled();
-}, 15_000);
+});
 
 test("renders one card per subject, each fetching its own summary", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([
