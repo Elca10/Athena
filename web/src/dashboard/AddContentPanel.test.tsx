@@ -187,139 +187,73 @@ test("Add notes is disabled for blank input", async () => {
   expect(screen.getByRole("button", { name: "Add notes" })).toBeDisabled();
 });
 
-test("Done closes immediately when there's nothing unscanned, without calling scanTopics", async () => {
+test("Done closes without handing anything off when there's nothing unread", async () => {
   const user = userEvent.setup();
   const onClose = vi.fn();
-  vi.mocked(api.listContent).mockResolvedValue([]);
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
-  await screen.findByText("No content added yet.");
-
-  await user.click(screen.getByRole("button", { name: "Done" }));
-  expect(onClose).toHaveBeenCalled();
-  expect(api.scanTopics).not.toHaveBeenCalled();
-});
-
-test("Done scans unprocessed content for topics before closing", async () => {
-  const user = userEvent.setup();
-  const onClose = vi.fn();
-  const onContentAdded = vi.fn();
-  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
-  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 3, filesProcessed: 1, errors: [] });
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} onContentAdded={onContentAdded} />);
-  await screen.findByText("lecture1.md");
-
-  await user.click(screen.getByRole("button", { name: "Done" }));
-
-  expect(api.scanTopics).toHaveBeenCalledWith("s1");
-  expect(onContentAdded).toHaveBeenCalled();
-  expect(onClose).toHaveBeenCalled();
-});
-
-test("Done skips the scan when every item already has topics extracted", async () => {
-  const user = userEvent.setup();
-  const onClose = vi.fn();
+  const onDone = vi.fn();
   vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: "2026-01-01T00:00:00.000Z" })]);
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} onDone={onDone} />);
   await screen.findByText("lecture1.md");
 
   await user.click(screen.getByRole("button", { name: "Done" }));
-
-  expect(api.scanTopics).not.toHaveBeenCalled();
   expect(onClose).toHaveBeenCalled();
+  expect(onDone).not.toHaveBeenCalled();
 });
 
-test("shows a scan error inline and keeps the panel open instead of closing", async () => {
+// The bug: Done used to keep this modal open (blocking the whole app)
+// for the minute or two the topic and question turns take. Now it hands
+// the reading off to the dashboard and closes at once.
+test("Done with unread content hands off and closes straight away, without waiting on any model turn", async () => {
   const user = userEvent.setup();
   const onClose = vi.fn();
+  const onDone = vi.fn();
   vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
-  vi.mocked(api.scanTopics).mockResolvedValue({
-    ok: false,
-    skipped: false,
-    topicsAdded: 0,
-    filesProcessed: 0,
-    errors: ["1 file(s) not processed: the reply was empty"],
-  });
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} onDone={onDone} />);
   await screen.findByText("lecture1.md");
 
   await user.click(screen.getByRole("button", { name: "Done" }));
 
-  expect(await screen.findByText(/the reply was empty/)).toBeInTheDocument();
-  expect(onClose).not.toHaveBeenCalled();
+  expect(onDone).toHaveBeenCalledTimes(1);
+  expect(onClose).toHaveBeenCalled();
+  expect(api.scanTopics).not.toHaveBeenCalled();
+  expect(api.scanBank).not.toHaveBeenCalled();
 });
 
-test("shows a thrown scanTopics error inline and keeps the panel open", async () => {
+test("Done saves notes still typed in the box instead of dropping them, then hands them off", async () => {
   const user = userEvent.setup();
   const onClose = vi.fn();
-  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
-  vi.mocked(api.scanTopics).mockRejectedValue(new Error("fetch failed"));
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
-  await screen.findByText("lecture1.md");
-
-  await user.click(screen.getByRole("button", { name: "Done" }));
-
-  expect(await screen.findByText("fetch failed")).toBeInTheDocument();
-  expect(onClose).not.toHaveBeenCalled();
-});
-
-test("after a failed scan, Close (or Escape) leaves without re-running the scan", async () => {
-  const user = userEvent.setup();
-  const onClose = vi.fn();
-  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
-  vi.mocked(api.scanTopics).mockResolvedValue({
-    ok: true,
-    skipped: false,
-    topicsAdded: 0,
-    filesProcessed: 0,
-    errors: ["1 file(s) not processed: no readable topic list in the reply"],
-  });
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
-  await screen.findByText("lecture1.md");
-  await user.click(screen.getByRole("button", { name: "Done" }));
-  expect(await screen.findByText(/Looked for topics, but/)).toBeInTheDocument();
-  expect(onClose).not.toHaveBeenCalled();
-
-  await user.keyboard("{Escape}");
-  expect(onClose).toHaveBeenCalledTimes(1);
-  await user.click(screen.getByRole("button", { name: "Close" }));
-  expect(onClose).toHaveBeenCalledTimes(2);
-  expect(api.scanTopics).toHaveBeenCalledTimes(1);
-});
-
-test("Done saves notes still typed in the box instead of dropping them, then reads them", async () => {
-  const user = userEvent.setup();
-  const onClose = vi.fn();
+  const onDone = vi.fn();
   vi.mocked(api.listContent)
     .mockResolvedValueOnce([])
     .mockResolvedValue([baseItem({ originalFilename: "pasted-notes.md", topicsExtractedAt: null })]);
   vi.mocked(api.addPastedNotes).mockResolvedValue(baseItem());
-  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 2, filesProcessed: 1, errors: [] });
-  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 2, questionsAdded: 8, errors: [] });
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} />);
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} onDone={onDone} />);
   await screen.findByText("No content added yet.");
 
   await user.type(screen.getByPlaceholderText(/Paste class notes/), "Mitosis has four phases.");
   await user.click(screen.getByRole("button", { name: "Done" }));
 
   expect(api.addPastedNotes).toHaveBeenCalledWith("s1", "Mitosis has four phases.");
-  expect(api.scanTopics).toHaveBeenCalledWith("s1");
+  expect(onDone).toHaveBeenCalled();
   expect(onClose).toHaveBeenCalled();
 });
 
-test("Done reads topics, writes practice questions, then reports what it found", async () => {
+test("if typed notes can't be saved, Done keeps the panel open with the error", async () => {
   const user = userEvent.setup();
-  const onFinished = vi.fn();
-  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: null })]);
-  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 3, filesProcessed: 1, errors: [] });
-  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 3, questionsAdded: 12, errors: [] });
-  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} onFinished={onFinished} />);
-  await screen.findByText("lecture1.md");
-  expect(screen.getByText("Not read yet")).toBeInTheDocument();
+  const onClose = vi.fn();
+  const onDone = vi.fn();
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  vi.mocked(api.addPastedNotes).mockRejectedValue(new Error("Athena isn't responding"));
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={onClose} onDone={onDone} />);
+  await screen.findByText("No content added yet.");
 
+  await user.type(screen.getByPlaceholderText(/Paste class notes/), "Mitosis has four phases.");
   await user.click(screen.getByRole("button", { name: "Done" }));
 
-  expect(api.scanBank).toHaveBeenCalledWith("s1");
-  expect(onFinished).toHaveBeenCalledWith("Found 3 new topics in Biology. Ready to study.");
+  expect(await screen.findByText("Athena isn't responding")).toBeInTheDocument();
+  expect(screen.getByPlaceholderText(/Paste class notes/)).toHaveValue("Mitosis has four phases.");
+  expect(onDone).not.toHaveBeenCalled();
+  expect(onClose).not.toHaveBeenCalled();
 });
 
 test("Escape doesn't throw away typed-but-unsaved notes", async () => {

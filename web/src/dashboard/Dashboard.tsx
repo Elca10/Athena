@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
+import { readNewContent, type ReadStage } from "./readNewContent";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
 import { UpdateControl } from "../update/UpdateControl";
@@ -70,8 +71,13 @@ export function Dashboard() {
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageChecking, setUsageChecking] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; ok: boolean } | null>(null);
   const usageCheckInFlight = useRef(false);
+  // Subjects whose new content is being read in the background (after
+  // Add content's Done), and which stage each is on.
+  const [reading, setReading] = useState<Record<string, ReadStage>>({});
+  const readingNow = useRef(new Set<string>());
+  const readAgain = useRef(new Set<string>());
 
   // Bug queue #3: `/usage` is free (no inference), but nothing was ever
   // re-checking it after the initial load, so a tab left open through a
@@ -135,6 +141,39 @@ export function Dashboard() {
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
+
+  // Done in Add content closes the panel straight away and lands here.
+  // If that subject is already being read (Done again after adding more),
+  // the server would skip an overlapping scan, so run one more pass once
+  // the current one finishes instead of dropping the new content.
+  async function startReading(subjectId: string) {
+    if (readingNow.current.has(subjectId)) {
+      readAgain.current.add(subjectId);
+      return;
+    }
+    readingNow.current.add(subjectId);
+    const messages: string[] = [];
+    let allOk = true;
+    try {
+      do {
+        readAgain.current.delete(subjectId);
+        const outcome = await readNewContent(subjectId, subjectName(subjectId), (stage) =>
+          setReading((r) => ({ ...r, [subjectId]: stage })),
+        );
+        if (outcome.message) messages.push(outcome.message);
+        allOk &&= outcome.ok;
+        refresh();
+      } while (readAgain.current.has(subjectId));
+    } finally {
+      readingNow.current.delete(subjectId);
+      setReading((r) => {
+        const next = { ...r };
+        delete next[subjectId];
+        return next;
+      });
+    }
+    if (messages.length) setNotice({ text: messages.join(" "), ok: allOk });
+  }
 
   const subjectName = (id: string) => {
     const subject = allSubjects.find((s) => s.id === id);
@@ -210,8 +249,8 @@ export function Dashboard() {
         </div>
       )}
       {notice && (
-        <div className="dashboard-notice" role="status">
-          <span>{notice}</span>
+        <div className={notice.ok ? "dashboard-notice" : "dashboard-notice dashboard-notice-error"} role={notice.ok ? "status" : "alert"}>
+          <span>{notice.text}</span>
           <button type="button" onClick={() => setNotice(null)}>
             Dismiss
           </button>
@@ -225,7 +264,7 @@ export function Dashboard() {
           subjectName={subjectName(contentSubjectId)}
           onClose={() => setContentSubjectId(null)}
           onContentAdded={refresh}
-          onFinished={setNotice}
+          onDone={() => startReading(contentSubjectId)}
         />
       )}
       <div className="dashboard-body">
@@ -254,6 +293,7 @@ export function Dashboard() {
               key={subject.id}
               subject={subject}
               summary={summaries[subject.id]}
+              readingStage={reading[subject.id]}
               onAddContent={() => openPanel("content", subject.id)}
               onStudy={() => {
                 setStudySubjectId(subject.id);
@@ -484,12 +524,14 @@ function SessionRow({
 function SubjectCard({
   subject,
   summary,
+  readingStage,
   onAddContent,
   onStudy,
   onArchive,
 }: {
   subject: Subject;
   summary: SubjectSummary | undefined;
+  readingStage?: ReadStage;
   onAddContent: () => void;
   onStudy: () => void;
   onArchive: () => void;
@@ -505,7 +547,15 @@ function SubjectCard({
           </span>
           <span>{summary.dueCount} due today</span>
           <span>{summary.bankSize} ready questions</span>
-          <NextStepHint summary={summary} />
+          {readingStage ? (
+            <span className="subject-card-hint" role="status">
+              {readingStage === "topics"
+                ? "Reading your new content for topics… This can take a minute or two; you can keep using Athena."
+                : "Writing practice questions for the new topics… Almost there."}
+            </span>
+          ) : (
+            <NextStepHint summary={summary} />
+          )}
         </div>
       ) : (
         <div className="subject-card-stats">Loading stats…</div>

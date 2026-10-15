@@ -1054,6 +1054,15 @@ select {
   color: var(--text-h);
 }
 
+.dashboard-notice-error {
+  border-left-color: var(--danger);
+}
+
+/* A long notice squeezed Dismiss until it wrapped mid-word. */
+.dashboard-notice button {
+  flex-shrink: 0;
+}
+
 .study-working {
   color: var(--text-dim);
   font-size: 0.9rem;

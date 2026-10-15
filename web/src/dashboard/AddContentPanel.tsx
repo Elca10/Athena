@@ -3,8 +3,6 @@ import {
   addPastedNotes,
   listContent,
   removeContent,
-  scanBank,
-  scanTopics,
   uploadBinaryContent,
   uploadTextContent,
   type ContentItem,
@@ -16,11 +14,11 @@ import { useEscapeKey } from "../useEscapeKey";
 // pptxExtract.js) plus a "paste class notes" text box. Binary formats
 // are read client-side and base64-encoded (see api.ts's
 // uploadBinaryContent); text formats are read and sent as-is. "Done"
-// runs the background topic-extraction turn (topics.js's /scan route)
-// over whatever content hasn't been scanned yet before closing — there's
-// still no Active-session progress UI for this to report into (SPEC.md's
-// "shows progress as an Active session" is a later build step), so it's
-// a plain disable-and-wait with the result/error shown inline.
+// saves any notes still in the box, closes the panel, and hands the slow
+// part (reading for topics, writing practice questions — see
+// readNewContent.ts) to the dashboard via onDone, which shows progress and
+// the result there. The panel used to stay open, blocking everything, for
+// the minute or two those model turns take.
 const BINARY_EXTENSIONS = [".pdf", ".pptx"];
 const ACCEPTED_EXTENSIONS = [".txt", ".md", ".markdown", ...BINARY_EXTENSIONS];
 
@@ -68,20 +66,18 @@ export function AddContentPanel({
   subjectName,
   onClose,
   onContentAdded,
-  onFinished,
+  onDone,
 }: {
   subjectId: string;
   subjectName: string;
   onClose: () => void;
   onContentAdded?: () => void;
-  /** Called with a one-line summary after Done finishes reading content. */
-  onFinished?: (summary: string) => void;
+  /** Called (just before closing) when Done leaves unread content to read. */
+  onDone?: () => void;
 }) {
   const [items, setItems] = useState<ContentItem[] | null>(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [scanStage, setScanStage] = useState<"topics" | "questions">("topics");
   const [uploadingName, setUploadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -90,7 +86,7 @@ export function AddContentPanel({
   // new content stays unread until Done is used next time.
   // Not while busy, and not with typed-but-unsaved notes (Escape would
   // silently throw them away).
-  useEscapeKey(onClose, !busy && !scanning && !notes.trim());
+  useEscapeKey(onClose, !busy && !notes.trim());
 
   function closePanel() {
     if (notes.trim() && !window.confirm("Discard the notes you typed but haven't added?")) return;
@@ -171,14 +167,10 @@ export function AddContentPanel({
     }
   }
 
-  // Closes the panel once any newly-added content has been scanned for
-  // topics. Skips the scan entirely when nothing is unprocessed (e.g. the
-  // user opened the panel and added nothing, or everything in it was
-  // already scanned before) so "Done" doesn't wait on a pointless turn.
   // Done = save any notes still in the box (they used to be dropped
-  // silently), read new content for topics, then write practice questions
-  // for those topics so a Ready session works straight away, and report
-  // what happened.
+  // silently), then close. If anything is unread, the dashboard reads it
+  // in the background (onDone) — skipped when nothing is, so Done on an
+  // untouched panel doesn't start a pointless turn.
   async function finishAdding() {
     setError(null);
     let current = items ?? [];
@@ -197,39 +189,8 @@ export function AddContentPanel({
         setBusy(false);
       }
     }
-    const unread = current.filter((item) => !item.topicsExtractedAt).length;
-    if (!unread) {
-      onClose();
-      return;
-    }
-    setScanning(true);
-    setScanStage("topics");
-    try {
-      const topics = await scanTopics(subjectId);
-      if (topics.errors.length) {
-        setError(`Looked for topics, but: ${topics.errors.join("; ")}`);
-        return;
-      }
-      setScanStage("questions");
-      let questionsNote = "";
-      try {
-        const bank = await scanBank(subjectId);
-        if (bank.errors.length) questionsNote = " Some practice questions couldn't be written yet; Athena will offer to try again when you study.";
-      } catch {
-        questionsNote = " Practice questions couldn't be written yet; Athena will offer to try again when you study.";
-      }
-      onContentAdded?.();
-      const found =
-        topics.topicsAdded === 0
-          ? `Read ${unread} new item${unread === 1 ? "" : "s"} for ${subjectName}, but found no new topics.`
-          : `Found ${topics.topicsAdded} new topic${topics.topicsAdded === 1 ? "" : "s"} in ${subjectName}. Ready to study.`;
-      onFinished?.(found + questionsNote);
-      onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't look for topics in your new files.");
-    } finally {
-      setScanning(false);
-    }
+    if (current.some((item) => !item.topicsExtractedAt)) onDone?.();
+    onClose();
   }
 
   return (
@@ -238,11 +199,11 @@ export function AddContentPanel({
         <div className="content-panel-header">
           <h2 id="content-panel-title">Add content — {subjectName}</h2>
           <div className="content-panel-header-actions">
-            <button type="button" onClick={closePanel} disabled={busy || scanning}>
+            <button type="button" onClick={closePanel} disabled={busy}>
               Close
             </button>
-            <button type="button" className="btn-primary" onClick={finishAdding} disabled={scanning || busy}>
-              {scanning ? (scanStage === "topics" ? "Finding topics…" : "Writing practice questions…") : "Done"}
+            <button type="button" className="btn-primary" onClick={finishAdding} disabled={busy}>
+              Done
             </button>
           </div>
         </div>
@@ -253,7 +214,7 @@ export function AddContentPanel({
             type="file"
             multiple
             accept={ACCEPTED_EXTENSIONS.join(",")}
-            disabled={busy || scanning}
+            disabled={busy}
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
               e.target.value = "";
@@ -274,9 +235,9 @@ export function AddContentPanel({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Paste class notes or a summary of what you learned…"
             rows={3}
-            disabled={busy || scanning}
+            disabled={busy}
           />
-          <button type="submit" className="btn-secondary" disabled={busy || scanning || !notes.trim()}>
+          <button type="submit" className="btn-secondary" disabled={busy || !notes.trim()}>
             Add notes
           </button>
         </form>
@@ -284,13 +245,6 @@ export function AddContentPanel({
         {uploadingName && (
           <div className="content-panel-status" role="status">
             Adding {uploadingName}… (a long PDF or slide deck can take a minute)
-          </div>
-        )}
-        {scanning && (
-          <div className="content-panel-status" role="status">
-            {scanStage === "topics"
-              ? "Athena is reading your content to find the topics. This can take a minute or two."
-              : "Writing practice questions for the new topics. Almost there."}
           </div>
         )}
         {error && <div className="content-panel-error">{error}</div>}
@@ -311,7 +265,7 @@ export function AddContentPanel({
                         type="button"
                         className="content-panel-remove"
                         onClick={() => remove(item)}
-                        disabled={busy || scanning}
+                        disabled={busy}
                         aria-label={`Remove ${item.originalFilename}`}
                       >
                         Remove

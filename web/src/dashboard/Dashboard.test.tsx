@@ -503,6 +503,104 @@ test("clicking Add content opens the panel for that subject, and Done dismisses 
   expect(api.scanTopics).not.toHaveBeenCalled();
 });
 
+// The bug: Done used to keep the Add content modal open (blocking the
+// whole app) while topics and questions were written. Now it closes at
+// once, the subject card shows progress, the rest of the dashboard stays
+// usable, and the result arrives as a notice.
+test("Done with unread content closes the panel at once and reads it in the background", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+    topicCount: 0,
+    contentCount: 1,
+    unreadContentCount: 1,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.listContent).mockResolvedValue([
+    {
+      id: "c1",
+      subjectId: "s1",
+      originalFilename: "lecture1.pdf",
+      extension: ".pdf",
+      source: "upload",
+      sizeBytes: 10,
+      addedAt: "2026-01-01T00:00:00.000Z",
+      topicsExtractedAt: null,
+      unreliablePages: [],
+    },
+  ]);
+  let finishTopics: (r: api.TopicScanResult) => void = () => {};
+  vi.mocked(api.scanTopics).mockReturnValue(new Promise((resolve) => (finishTopics = resolve)));
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 2, questionsAdded: 8, errors: [] });
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await screen.findByRole("heading", { name: "Organic Chemistry" });
+  await user.click(screen.getByRole("button", { name: "Add content" }));
+  const panel = (await screen.findByRole("heading", { name: "Add content — Organic Chemistry" })).closest("section") as HTMLElement;
+  await within(panel).findByText("lecture1.pdf");
+  await user.click(within(panel).getByRole("button", { name: "Done" }));
+
+  // Closed while the topic turn is still running, and the dashboard is usable.
+  expect(screen.queryByRole("heading", { name: "Add content — Organic Chemistry" })).not.toBeInTheDocument();
+  expect(await screen.findByText(/Reading your new content for topics/)).toBeInTheDocument();
+  expect(api.scanTopics).toHaveBeenCalledWith("s1");
+  expect(screen.getByRole("button", { name: "Tune Athena" })).toBeEnabled();
+  expect(screen.queryByText(/not read yet/)).not.toBeInTheDocument();
+
+  finishTopics({ ok: true, skipped: false, topicsAdded: 2, filesProcessed: 1, errors: [] });
+  expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
+  expect(api.scanBank).toHaveBeenCalledWith("s1");
+  expect(screen.queryByText(/Reading your new content/)).not.toBeInTheDocument();
+});
+
+test("if reading the new content fails, the dashboard says so as an error with how to retry", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+    topicCount: 0,
+    contentCount: 1,
+    unreadContentCount: 1,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.listContent).mockResolvedValue([
+    {
+      id: "c1",
+      subjectId: "s1",
+      originalFilename: "lecture1.pdf",
+      extension: ".pdf",
+      source: "upload",
+      sizeBytes: 10,
+      addedAt: "2026-01-01T00:00:00.000Z",
+      topicsExtractedAt: null,
+      unreliablePages: [],
+    },
+  ]);
+  vi.mocked(api.scanTopics).mockRejectedValue(new Error("fetch failed"));
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await screen.findByRole("heading", { name: "Organic Chemistry" });
+  await user.click(screen.getByRole("button", { name: "Add content" }));
+  const panel = (await screen.findByRole("heading", { name: "Add content — Organic Chemistry" })).closest("section") as HTMLElement;
+  await within(panel).findByText("lecture1.pdf");
+  await user.click(within(panel).getByRole("button", { name: "Done" }));
+
+  const alert = await screen.findByRole("alert");
+  expect(alert).toHaveTextContent(/fetch failed/);
+  expect(alert).toHaveTextContent(/Open Add content and click Done to try again/);
+  expect(await screen.findByText(/1 item not read yet/)).toBeInTheDocument();
+  expect(api.scanBank).not.toHaveBeenCalled();
+});
+
 test("renders one card per subject, each fetching its own summary", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([
     { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" },
