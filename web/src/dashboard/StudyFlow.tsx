@@ -301,7 +301,9 @@ function useElapsedSeconds(active: boolean): number | null {
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement) return !["radio", "checkbox", "button"].includes(target.type);
+  return target.isContentEditable || ["TEXTAREA", "SELECT"].includes(target.tagName);
 }
 
 // Keys 1–5 pick the confidence level while it's being asked (not while
@@ -315,8 +317,8 @@ function useConfidenceKeys(enabled: boolean, onPick: (level: number) => void) {
       if (e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
       const level = Number(e.key);
       if (level >= 1 && level <= 5) {
-        // Picking a level mounts the (autofocused) answer box; without this
-        // the same keystroke also lands in it as text.
+        // Picking a level moves focus (to Submit); without this the same
+        // keystroke could also land wherever focus ends up.
         e.preventDefault();
         onPickRef.current(level);
       }
@@ -335,6 +337,44 @@ function submitOnEnter(submit: () => void, multiline: boolean) {
     e.preventDefault();
     submit();
   };
+}
+
+// Issue #7: confidence is rated AFTER answering and before any feedback,
+// i.e. confidence in the answer just given. That's the order calibration
+// research uses (answer, rate, then see the result: the "hypercorrection"
+// effect, where confident errors get corrected best). Asking before the
+// answer only measured a guess about the topic.
+function ConfidencePicker({
+  value,
+  onPick,
+  disabled,
+  groupRef,
+}: {
+  value: number | null;
+  onPick: (level: number) => void;
+  disabled: boolean;
+  groupRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  return (
+    <div className="study-confidence">
+      <p>
+        How confident are you in your answer? <span className="study-key-hint">(1 = guessing, 5 = certain; or press 1–5)</span>
+      </p>
+      <div className="study-confidence-options" ref={groupRef}>
+        {[1, 2, 3, 4, 5].map((level) => (
+          <button
+            key={level}
+            type="button"
+            className={value === level ? "study-confidence-selected" : ""}
+            onClick={() => onPick(level)}
+            disabled={disabled}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function ReadySessionScreen({
@@ -488,7 +528,19 @@ function ReadySessionScreen({
     }
   }
 
-  useConfidenceKeys(!!activeQuestion && !revealed && !lastResult && !busy, setConfidence);
+  const confidenceRef = useRef<HTMLDivElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  const hasAnswer = activeQuestion?.type === "multiple_choice" ? selectedIndex !== null : !!answerText.trim();
+  function pickConfidence(level: number) {
+    setConfidence(level);
+    // Next step is Submit; focus it once it's enabled (after this render).
+    if (hasAnswer) setTimeout(() => submitRef.current?.focus());
+  }
+  function submitOrAskConfidence() {
+    if (confidence === null) confidenceRef.current?.querySelector("button")?.focus();
+    else submitAnswer();
+  }
+  useConfidenceKeys(!!activeQuestion && !revealed && !lastResult && !busy, pickConfidence);
 
   if (ended) {
     return <ReflectionPrompt sessionId={session.id} history={session.history} onDone={onExit} />;
@@ -533,27 +585,6 @@ function ReadySessionScreen({
           </div>
 
           {!revealed && !lastResult && (
-            <div className="study-confidence">
-              <p>
-                How confident are you, before answering? <span className="study-key-hint">(or press 1–5)</span>
-              </p>
-              <div className="study-confidence-options">
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    className={confidence === level ? "study-confidence-selected" : ""}
-                    onClick={() => setConfidence(level)}
-                    disabled={busy}
-                  >
-                    {level}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!revealed && !lastResult && confidence !== null && (
             <div className="study-answer">
               {question.type === "multiple_choice" ? (
                 <div className="study-answer-choices">
@@ -578,7 +609,7 @@ function ReadySessionScreen({
                   placeholder="Fill in the blank…"
                   disabled={busy}
                   autoFocus
-                  onKeyDown={submitOnEnter(submitAnswer, false)}
+                  onKeyDown={submitOnEnter(submitOrAskConfidence, false)}
                 />
               ) : (
                 <textarea
@@ -588,14 +619,18 @@ function ReadySessionScreen({
                   rows={4}
                   disabled={busy}
                   autoFocus
-                  onKeyDown={submitOnEnter(submitAnswer, true)}
+                  onKeyDown={submitOnEnter(submitOrAskConfidence, true)}
                 />
               )}
+              <ConfidencePicker value={confidence} onPick={pickConfidence} disabled={busy} groupRef={confidenceRef} />
               <button
+                ref={submitRef}
                 type="button"
                 className="btn-primary"
                 onClick={submitAnswer}
-                disabled={busy || (question.type === "multiple_choice" ? selectedIndex === null : !answerText.trim())}
+                disabled={
+                  busy || confidence === null || (question.type === "multiple_choice" ? selectedIndex === null : !answerText.trim())
+                }
               >
                 Submit answer
               </button>
@@ -751,7 +786,17 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
     }
   }
 
-  useConfidenceKeys(!!activeQuestion && !feedback && !busy, setConfidence);
+  const confidenceRef = useRef<HTMLDivElement>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
+  function pickConfidence(level: number) {
+    setConfidence(level);
+    if (answerText.trim()) setTimeout(() => submitRef.current?.focus());
+  }
+  function submitOrAskConfidence() {
+    if (confidence === null) confidenceRef.current?.querySelector("button")?.focus();
+    else submitAnswer();
+  }
+  useConfidenceKeys(!!activeQuestion && !feedback && !busy, pickConfidence);
   const elapsed = useElapsedSeconds(busy);
   const elapsedLabel = elapsed !== null && elapsed >= 3 ? ` (${elapsed}s)` : "";
 
@@ -793,27 +838,6 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
           </div>
 
           {!feedback && (
-            <div className="study-confidence">
-              <p>
-                How confident are you, before answering? <span className="study-key-hint">(or press 1–5)</span>
-              </p>
-              <div className="study-confidence-options">
-                {[1, 2, 3, 4, 5].map((level) => (
-                  <button
-                    key={level}
-                    type="button"
-                    className={confidence === level ? "study-confidence-selected" : ""}
-                    onClick={() => setConfidence(level)}
-                    disabled={busy}
-                  >
-                    {level}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {!feedback && confidence !== null && (
             <div className="study-answer">
               <textarea
                 value={answerText}
@@ -822,11 +846,18 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
                 rows={4}
                 disabled={busy}
                 autoFocus
-                onKeyDown={submitOnEnter(submitAnswer, true)}
+                onKeyDown={submitOnEnter(submitOrAskConfidence, true)}
               />
+              <ConfidencePicker value={confidence} onPick={pickConfidence} disabled={busy} groupRef={confidenceRef} />
               {busy && <p className="study-working">Athena is grading your answer… This can take up to a minute.{elapsedLabel}</p>}
               {answerFailure && <div className="study-session-error">{answerFailure}</div>}
-              <button type="button" className="btn-primary" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
+              <button
+                ref={submitRef}
+                type="button"
+                className="btn-primary"
+                onClick={submitAnswer}
+                disabled={busy || confidence === null || !answerText.trim()}
+              >
                 {answerFailure ? "Try again" : "Submit answer"}
               </button>
             </div>

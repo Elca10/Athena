@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { StudyFlow } from "./StudyFlow";
@@ -183,7 +183,8 @@ test("resuming a Live session with a question already up skips the mode picker a
   expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
 });
 
-test("multiple-choice: confidence must be picked before the answer appears, and a correct pick shows immediate feedback", async () => {
+// Issue #7: answer first, then rate confidence in that answer, then feedback.
+test("multiple-choice: the answer comes first, Submit waits for a confidence rating, and a correct pick shows immediate feedback", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockResolvedValue(baseSession());
   vi.mocked(api.generateNextReadyQuestion).mockResolvedValueOnce({
@@ -202,9 +203,13 @@ test("multiple-choice: confidence must be picked before the answer appears, and 
   await user.click(screen.getByRole("button", { name: "Start session" }));
   await screen.findByText("Which organelle produces ATP?");
 
-  expect(screen.queryByText("Mitochondrion")).not.toBeInTheDocument();
+  // The choices are there straight away; the confidence question sits below them.
+  const choice = screen.getByRole("radio", { name: "Mitochondrion" });
+  const confidencePrompt = screen.getByText(/How confident are you in your answer\?/);
+  expect(choice.compareDocumentPosition(confidencePrompt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  await user.click(choice);
+  expect(screen.getByRole("button", { name: "Submit answer" })).toBeDisabled();
   await user.click(screen.getByRole("button", { name: "4" }));
-  await user.click(screen.getByRole("radio", { name: "Mitochondrion" }));
   await user.click(screen.getByRole("button", { name: "Submit answer" }));
 
   expect(api.submitReadyAnswer).toHaveBeenCalledWith("sess-1", { confidence: 4, answerText: undefined, selectedIndex: 1 });
@@ -634,7 +639,7 @@ test("shows 'Question N of M', which doesn't jump ahead until Next", async () =>
   expect(screen.getByText("Question 1 of 3")).toBeInTheDocument();
 });
 
-test("keys 1–5 pick confidence, and Enter submits a fill-in answer", async () => {
+test("keyboard: type the answer, Enter moves to confidence, a 1–5 key rates it, Enter submits", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockResolvedValue(baseSession());
   vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
@@ -656,13 +661,19 @@ test("keys 1–5 pick confidence, and Enter submits a fill-in answer", async () 
   await user.click(screen.getByRole("button", { name: "Start session" }));
   await screen.findByText("The powerhouse of the cell is the ____.");
 
-  await user.keyboard("3");
-  expect(screen.getByRole("button", { name: "3" })).toHaveClass("study-confidence-selected");
   const input = screen.getByPlaceholderText("Fill in the blank…");
   expect(input).toHaveFocus();
-  // Digits typed into the answer box are text, not a confidence change.
-  await user.type(input, "mitochondrion 2");
+  // Digits typed into the answer are text, not a confidence rating.
+  await user.keyboard("mitochondrion 2");
+  expect(input).toHaveValue("mitochondrion 2");
+  expect(document.querySelector(".study-confidence-selected")).toBeNull();
+  // Enter without a rating moves to the rating instead of submitting.
+  await user.keyboard("{Enter}");
+  expect(api.submitReadyAnswer).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "1" })).toHaveFocus();
+  await user.keyboard("3");
   expect(screen.getByRole("button", { name: "3" })).toHaveClass("study-confidence-selected");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Submit answer" })).toHaveFocus());
   await user.keyboard("{Enter}");
   expect(api.submitReadyAnswer).toHaveBeenCalledWith("sess-1", { confidence: 3, answerText: "mitochondrion 2", selectedIndex: undefined });
   expect(await screen.findByRole("button", { name: "Next question" })).toHaveFocus();

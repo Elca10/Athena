@@ -195,7 +195,7 @@ builder must be **deterministic code**, not model calls.
 | Generation | New topics start with an attempt *before* explanation ("what do you think X means / how would you solve this?"), then feedback. |
 | Elaboration | Explain-why and connect-to-something-you-know questions; Live mode pushes follow-up "why". |
 | Reflection | Short end-of-session prompt: what did you learn, what surprised you, what connects to what, what will you do differently. Stored per subject. |
-| Calibration | Confidence rating (1–5) before seeing the answer on every question; dashboard shows predicted vs actual accuracy over time (Hermione's `hermione_calibration.json` model). |
+| Calibration | Confidence rating (1–5) on every question, given AFTER answering and BEFORE any feedback (confidence in the answer just given — the order calibration/hypercorrection research uses; issue #7); dashboard shows predicted vs actual accuracy over time (Hermione's `hermione_calibration.json` model). |
 | Desirable difficulty | Difficulty adapts so success is high but not automatic; mastered topics get harder variants, not just longer gaps. |
 | Structure building / mental models | Per subject, a living "big ideas" summary the user builds and revises (prompted after sessions), shown on the subject view. |
 | Mastery is earned | New topics start unfamiliar; nothing is pre-credited. Blunt, accurate feedback; no ego-boosting. |
