@@ -61,7 +61,9 @@ test("POST /api/sessions refuses (no empty session) when the subject has no topi
       body: JSON.stringify({ subjectIds: [subject.id], mode: "ready" }),
     });
     assert.equal(res.status, 400);
-    assert.match((await res.json()).error, /nothing to study here yet.*Add some course content/i);
+    const body = await res.json();
+    assert.match(body.error, /nothing to study here yet.*Add some course content/i);
+    assert.equal(body.nothingDue, false, "no topics at all: reviewing ahead can't help");
     assert.deepEqual(await (await fetch(base)).json(), [], "no session may be left behind");
   } finally {
     server.close();
@@ -80,7 +82,27 @@ test("POST /api/sessions refuses, saying when the next topic is due, when nothin
       body: JSON.stringify({ subjectIds: [subject.id], mode: "ready" }),
     });
     assert.equal(res.status, 400);
-    assert.match((await res.json()).error, /all caught up.*next topic is due in/i);
+    const body = await res.json();
+    assert.match(body.error, /all caught up.*next topic is due in/i);
+    assert.equal(body.nothingDue, true, "topics exist, so the UI may offer to review ahead");
+  } finally {
+    server.close();
+  }
+});
+
+test("POST /api/sessions with reviewAhead builds a session from not-yet-due topics", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Reviewed" });
+    const [topic] = await addPlannedTopics(dir, subject.id, ["Osmosis"]);
+    await recordTopicReview(dir, topic.id, "easy");
+    const res = await fetch(base, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "ready", reviewAhead: true }),
+    });
+    assert.equal(res.status, 201);
+    assert.deepEqual((await res.json()).topicIds, [topic.id]);
   } finally {
     server.close();
   }

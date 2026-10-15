@@ -77,11 +77,16 @@ export function makeSessionsRouter(appDataDir) {
       // each subject's due topics (section 6's interleaving) when none
       // was given.
       const requestedTopicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds : [];
-      const topicIds = requestedTopicIds.length ? requestedTopicIds : await buildSessionTopicIds(appDataDir, subjectIds);
+      const reviewAhead = req.body?.reviewAhead === true;
+      const topicIds = requestedTopicIds.length
+        ? requestedTopicIds
+        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead });
       // An empty session can't ask anything; refuse with a reason instead
-      // of creating one that dead-ends on its first question.
+      // of creating one that dead-ends on its first question. `nothingDue`
+      // lets the UI offer "Review ahead anyway" when there ARE topics.
       if (!topicIds.length && subjectIds.length) {
-        res.status(400).json({ error: await explainNothingDue(appDataDir, subjectIds) });
+        const hasTopics = (await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead: true, limit: 1 })).length > 0;
+        res.status(400).json({ error: await explainNothingDue(appDataDir, subjectIds), nothingDue: hasTopics });
         return;
       }
       const session = await createSession(appDataDir, {

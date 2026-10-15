@@ -579,3 +579,112 @@ test("resuming a session that's waiting on its reflection shows the reflection, 
   expect(await screen.findByText("What did you learn?")).toBeInTheDocument();
   expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
 });
+
+test("when nothing is due, offers Review ahead anyway, which starts a session from not-yet-due topics", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession)
+    .mockRejectedValueOnce(Object.assign(new Error("You're all caught up: nothing is due right now. The next topic is due in about 3 days."), { nothingDue: true }))
+    .mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ currentQuestion: mcQuestion(), status: "waiting" }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  expect(await screen.findByText(/all caught up/)).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "Review ahead anyway" }));
+
+  expect(api.createSession).toHaveBeenLastCalledWith(["s1"], "ready", { reviewAhead: true });
+  expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
+});
+
+test("no Review ahead button for other start errors (e.g. no topics at all)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockRejectedValue(Object.assign(new Error("There's nothing to study here yet."), { nothingDue: false }));
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  expect(await screen.findByText(/nothing to study here yet/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Review ahead anyway" })).not.toBeInTheDocument();
+});
+
+test("shows 'Question N of M', which doesn't jump ahead until Next", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ topicIds: ["t1", "t2", "t3"] }));
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ topicIds: ["t1", "t2", "t3"], currentQuestion: mcQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.submitReadyAnswer).mockResolvedValue({
+    ok: true,
+    finalized: true,
+    isCorrect: true,
+    correctAnswer: "Mitochondrion",
+    modelAnswer: "Mitochondrion",
+    session: baseSession({ topicIds: ["t1", "t2", "t3"], status: "active", history: [{}] }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(await screen.findByText("Question 1 of 3")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: "4" }));
+  await user.click(screen.getByRole("radio", { name: "Mitochondrion" }));
+  await user.click(screen.getByRole("button", { name: "Submit answer" }));
+  await screen.findByText("Correct!");
+  expect(screen.getByText("Question 1 of 3")).toBeInTheDocument();
+});
+
+test("keys 1–5 pick confidence, and Enter submits a fill-in answer", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({
+      currentQuestion: mcQuestion({ type: "cloze", prompt: "The powerhouse of the cell is the ____.", choices: undefined }),
+      status: "waiting",
+    }),
+  });
+  vi.mocked(api.submitReadyAnswer).mockResolvedValue({
+    ok: true,
+    finalized: true,
+    isCorrect: true,
+    correctAnswer: "mitochondrion",
+    modelAnswer: "mitochondrion",
+    session: baseSession({ status: "active", history: [{}] }),
+  });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText("The powerhouse of the cell is the ____.");
+
+  await user.keyboard("3");
+  expect(screen.getByRole("button", { name: "3" })).toHaveClass("study-confidence-selected");
+  const input = screen.getByPlaceholderText("Fill in the blank…");
+  expect(input).toHaveFocus();
+  // Digits typed into the answer box are text, not a confidence change.
+  await user.type(input, "mitochondrion 2");
+  expect(screen.getByRole("button", { name: "3" })).toHaveClass("study-confidence-selected");
+  await user.keyboard("{Enter}");
+  expect(api.submitReadyAnswer).toHaveBeenCalledWith("sess-1", { confidence: 3, answerText: "mitochondrion 2", selectedIndex: undefined });
+  expect(await screen.findByRole("button", { name: "Next question" })).toHaveFocus();
+});
+
+test("the end of a session shows what happened before the reflection questions", async () => {
+  render(
+    <StudyFlow
+      subjects={SUBJECTS}
+      resumeSession={baseSession({
+        status: "waiting",
+        reflectionPending: true,
+        history: [
+          { prompt: "Which organelle produces ATP?", rating: "good" },
+          { prompt: "Explain photosynthesis.", rating: "again" },
+        ],
+      })}
+      onExit={() => {}}
+    />,
+  );
+  expect(await screen.findByText("2 questions answered: 1 got it · 0 shaky · 1 missed")).toBeInTheDocument();
+  expect(screen.getByText("Which organelle produces ATP?")).toBeInTheDocument();
+  expect(screen.getByText("Missed")).toBeInTheDocument();
+  expect(screen.getByText("What did you learn?")).toBeInTheDocument();
+});

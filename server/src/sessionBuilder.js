@@ -22,14 +22,23 @@ export const MAX_SESSION_TOPICS = 12;
  * Picks due topic ids across one or more subjects, round-robin
  * interleaved, capped at `limit`. A subject with nothing due simply
  * contributes nothing; duplicate subject ids in the input are only
- * queried once.
+ * queried once. `reviewAhead` (the user chose "Review ahead anyway" after
+ * being told nothing is due) takes each subject's topics soonest-due
+ * first instead, so studying early still starts with what's closest to
+ * being forgotten.
  */
-export async function buildSessionTopicIds(appDataDir, subjectIds, { limit = MAX_SESSION_TOPICS, now = new Date() } = {}) {
+export async function buildSessionTopicIds(
+  appDataDir,
+  subjectIds,
+  { limit = MAX_SESSION_TOPICS, now = new Date(), reviewAhead = false } = {},
+) {
   const uniqueSubjectIds = [...new Set(subjectIds)];
   const queues = [];
   for (const subjectId of uniqueSubjectIds) {
-    const due = await listDueTopics(appDataDir, subjectId, now);
-    if (due.length) queues.push(due.map((t) => t.id));
+    const picked = reviewAhead
+      ? (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0))
+      : await listDueTopics(appDataDir, subjectId, now);
+    if (picked.length) queues.push(picked.map((t) => t.id));
   }
 
   const topicIds = [];

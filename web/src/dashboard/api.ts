@@ -57,6 +57,8 @@ export type SessionQuestion = {
 export type Session = {
   id: string;
   subjectIds: string[];
+  /** The topics this session covers, in order: one question each. */
+  topicIds?: string[];
   mode: SessionMode;
   status: SessionStatus;
   endedAt: string | null;
@@ -153,8 +155,22 @@ export function restoreSession(id: string): Promise<Session> {
   return postJson(`/api/sessions/${id}/restore`);
 }
 
-export function createSession(subjectIds: string[], mode: SessionMode): Promise<Session> {
-  return postJsonBody("/api/sessions", { subjectIds, mode });
+export async function createSession(
+  subjectIds: string[],
+  mode: SessionMode,
+  { reviewAhead = false }: { reviewAhead?: boolean } = {},
+): Promise<Session> {
+  const res = await fetch("/api/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subjectIds, mode, ...(reviewAhead ? { reviewAhead } : {}) }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message = (body && typeof body.error === "string" && body.error) || `POST /api/sessions responded ${res.status}`;
+    throw Object.assign(new Error(message), { nothingDue: body?.nothingDue === true });
+  }
+  return res.json();
 }
 
 // Mirrors routes/sessions.js's /live/question shapes. `{ok: false, reason}`

@@ -982,6 +982,13 @@ select {
   border-left: 3px solid var(--accent);
 }
 
+.study-picker-info {
+  color: var(--text);
+  font-size: 0.9rem;
+  max-width: 32rem;
+  margin: 0 auto 1rem;
+}
+
 .study-picker-error {
   color: var(--danger);
   font-size: 0.9rem;
@@ -1011,6 +1018,82 @@ select {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
+}
+
+.study-question-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.study-question-progress {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.study-key-hint {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.study-picker-error-actions {
+  margin-top: 0.5rem;
+}
+
+.study-summary {
+  margin-bottom: 1.25rem;
+  padding: 1rem 1.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.study-summary-score {
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.study-summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.study-summary-list li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 0.9rem;
+}
+
+/* Status in words, with a coloured marker beside it (never colour alone). */
+.study-summary-outcome {
+  flex: 0 0 4.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-h);
+  padding-left: 8px;
+  border-left: 3px solid var(--status-good);
+}
+
+.study-summary-shaky .study-summary-outcome {
+  border-left-color: var(--status-warning);
+}
+
+.study-summary-missed .study-summary-outcome {
+  border-left-color: var(--status-critical);
+}
+
+.study-summary-prompt {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .study-question-difficulty {

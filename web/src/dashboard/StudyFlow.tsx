@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   archiveSession,
   createSession,
@@ -64,6 +64,9 @@ export function StudyFlow({
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reflectingId, setReflectingId] = useState<string | null>(null);
+  const [reflectingHistory, setReflectingHistory] = useState<unknown[]>([]);
+  // Set when nothing is due but there are topics: offers "Review ahead".
+  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode } | null>(null);
 
   // Stop early: with answers, go to the end-of-session reflection; with
   // none, just close it. Before this, a session could only end by
@@ -73,20 +76,24 @@ export function StudyFlow({
     if (!window.confirm("End this session now? Anything you haven't answered yet won't count.")) return;
     try {
       const result = await finishSession(session.id);
-      if (result.reflection) setReflectingId(session.id);
-      else onExit();
+      if (result.reflection) {
+        setReflectingHistory(result.session?.history ?? []);
+        setReflectingId(session.id);
+      } else onExit();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't end the session.");
     }
   }
 
-  async function start(subjectIds: string[], mode: SessionMode) {
+  async function start(subjectIds: string[], mode: SessionMode, reviewAhead = false) {
     setStarting(true);
     setError(null);
+    setNothingDue(null);
     try {
-      setSession(await createSession(subjectIds, mode));
+      setSession(await (reviewAhead ? createSession(subjectIds, mode, { reviewAhead }) : createSession(subjectIds, mode)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start that session.");
+      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode });
       setStarting(false);
     }
   }
@@ -123,7 +130,23 @@ export function StudyFlow({
         </div>
       </header>
       {banner}
-      {error && <div className="study-picker-error">{error}</div>}
+      {error && (
+        <div className={nothingDue ? "study-picker-info" : "study-picker-error"}>
+          {error}
+          {nothingDue && (
+            <div className="study-picker-error-actions">
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => start(nothingDue.subjectIds, nothingDue.mode, true)}
+                disabled={starting}
+              >
+                Review ahead anyway
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {!session && initialSubjectId && (
         <ModePicker
           subjects={subjects}
@@ -133,7 +156,7 @@ export function StudyFlow({
           onStart={start}
         />
       )}
-      {reflectingId && <ReflectionPrompt sessionId={reflectingId} onDone={onExit} />}
+      {reflectingId && <ReflectionPrompt sessionId={reflectingId} history={reflectingHistory} onDone={onExit} />}
       {session && !reflectingId && session.mode === "ready" && (
         <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => switchToLive(session)} />
       )}
@@ -244,6 +267,74 @@ const SELF_GRADE_OPTIONS: { status: SelfGradeStatus; label: string }[] = [
 function revealedFromPendingAnswer(question: SessionQuestion | null): RevealedAnswer | null {
   if (!question?.pendingAnswer || !question.modelAnswer || !question.rubric) return null;
   return { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions ?? [] };
+}
+
+// "Question 2 of 5". `answered` is true once the shown question is in the
+// session's history (its result is on screen), so the count doesn't jump
+// ahead before the user clicks Next.
+function QuestionProgress({ session, answered }: { session: Session; answered: boolean }) {
+  const total = session.topicIds?.length ?? 0;
+  if (!total) return null;
+  const position = Math.min(total, session.history.length + (answered ? 0 : 1));
+  return (
+    <span className="study-question-progress">
+      Question {position} of {total}
+    </span>
+  );
+}
+
+// Seconds since `active` last became true; null while inactive. Shown on
+// the slow model waits so a long one visibly isn't stuck.
+function useElapsedSeconds(active: boolean): number | null {
+  const [seconds, setSeconds] = useState<number | null>(null);
+  useEffect(() => {
+    if (!active) {
+      setSeconds(null);
+      return;
+    }
+    const started = Date.now();
+    setSeconds(0);
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [active]);
+  return seconds;
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+}
+
+// Keys 1–5 pick the confidence level while it's being asked (not while
+// typing an answer, where digits are part of the text).
+function useConfidenceKeys(enabled: boolean, onPick: (level: number) => void) {
+  const onPickRef = useRef(onPick);
+  onPickRef.current = onPick;
+  useEffect(() => {
+    if (!enabled) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.ctrlKey || e.metaKey || e.altKey || isTypingTarget(e.target)) return;
+      const level = Number(e.key);
+      if (level >= 1 && level <= 5) {
+        // Picking a level mounts the (autofocused) answer box; without this
+        // the same keystroke also lands in it as text.
+        e.preventDefault();
+        onPickRef.current(level);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [enabled]);
+}
+
+// Enter submits a one-line answer; Ctrl/Cmd+Enter submits a longer one
+// (plain Enter stays a new line there).
+function submitOnEnter(submit: () => void, multiline: boolean) {
+  return (e: React.KeyboardEvent) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    if (multiline && !(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    submit();
+  };
 }
 
 function ReadySessionScreen({
@@ -397,8 +488,10 @@ function ReadySessionScreen({
     }
   }
 
+  useConfidenceKeys(!!activeQuestion && !revealed && !lastResult && !busy, setConfidence);
+
   if (ended) {
-    return <ReflectionPrompt sessionId={session.id} onDone={onExit} />;
+    return <ReflectionPrompt sessionId={session.id} history={session.history} onDone={onExit} />;
   }
 
   if (stuck) {
@@ -432,13 +525,18 @@ function ReadySessionScreen({
       {question && (
         <>
           <div className="study-question">
-            <span className="study-question-difficulty">{question.difficulty}</span>
+            <div className="study-question-meta">
+              <span className="study-question-difficulty">{question.difficulty}</span>
+              <QuestionProgress session={session} answered={!!lastResult} />
+            </div>
             <p className="study-question-prompt">{question.prompt}</p>
           </div>
 
           {!revealed && !lastResult && (
             <div className="study-confidence">
-              <p>How confident are you, before answering?</p>
+              <p>
+                How confident are you, before answering? <span className="study-key-hint">(or press 1–5)</span>
+              </p>
               <div className="study-confidence-options">
                 {[1, 2, 3, 4, 5].map((level) => (
                   <button
@@ -479,6 +577,8 @@ function ReadySessionScreen({
                   onChange={(e) => setAnswerText(e.target.value)}
                   placeholder="Fill in the blank…"
                   disabled={busy}
+                  autoFocus
+                  onKeyDown={submitOnEnter(submitAnswer, false)}
                 />
               ) : (
                 <textarea
@@ -487,6 +587,8 @@ function ReadySessionScreen({
                   placeholder="Your answer…"
                   rows={4}
                   disabled={busy}
+                  autoFocus
+                  onKeyDown={submitOnEnter(submitAnswer, true)}
                 />
               )}
               <button
@@ -552,7 +654,7 @@ function ReadySessionScreen({
               {lastResult.kind === "auto" && lastResult.explanation && (
                 <p className="study-result-explanation">{lastResult.explanation}</p>
               )}
-              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
+              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy} autoFocus>
                 Next question
               </button>
             </div>
@@ -649,8 +751,12 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
     }
   }
 
+  useConfidenceKeys(!!activeQuestion && !feedback && !busy, setConfidence);
+  const elapsed = useElapsedSeconds(busy);
+  const elapsedLabel = elapsed !== null && elapsed >= 3 ? ` (${elapsed}s)` : "";
+
   if (ended) {
-    return <ReflectionPrompt sessionId={session.id} onDone={onExit} />;
+    return <ReflectionPrompt sessionId={session.id} history={session.history} onDone={onExit} />;
   }
 
   if (genFailure) {
@@ -670,7 +776,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   return (
     <div className="study-session">
       {error && <div className="study-session-error">{error}</div>}
-      {!question && !error && <p>Athena is writing your next question… This can take up to a minute.</p>}
+      {!question && !error && <p>Athena is writing your next question… This can take up to a minute.{elapsedLabel}</p>}
       {!question && error && (
         <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
           Try again
@@ -679,13 +785,18 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
       {question && (
         <>
           <div className="study-question">
-            <span className="study-question-difficulty">{question.difficulty}</span>
+            <div className="study-question-meta">
+              <span className="study-question-difficulty">{question.difficulty}</span>
+              <QuestionProgress session={session} answered={!!feedback} />
+            </div>
             <p className="study-question-prompt">{question.prompt}</p>
           </div>
 
           {!feedback && (
             <div className="study-confidence">
-              <p>How confident are you, before answering?</p>
+              <p>
+                How confident are you, before answering? <span className="study-key-hint">(or press 1–5)</span>
+              </p>
               <div className="study-confidence-options">
                 {[1, 2, 3, 4, 5].map((level) => (
                   <button
@@ -710,8 +821,10 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
                 placeholder="Your answer…"
                 rows={4}
                 disabled={busy}
+                autoFocus
+                onKeyDown={submitOnEnter(submitAnswer, true)}
               />
-              {busy && <p className="study-working">Athena is grading your answer… This can take up to a minute.</p>}
+              {busy && <p className="study-working">Athena is grading your answer… This can take up to a minute.{elapsedLabel}</p>}
               {answerFailure && <div className="study-session-error">{answerFailure}</div>}
               <button type="button" className="btn-primary" onClick={submitAnswer} disabled={busy || !answerText.trim()}>
                 {answerFailure ? "Try again" : "Submit answer"}
@@ -722,7 +835,7 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
           {feedback && (
             <div className="study-result">
               <p>{feedback.feedback}</p>
-              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy}>
+              <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy} autoFocus>
                 Next question
               </button>
             </div>
@@ -746,7 +859,41 @@ const REFLECTION_PROMPTS: { field: keyof ReflectionAnswers; label: string }[] = 
 // them come back blank (reflection.js: that's what Skip is for) — Submit
 // stays disabled until at least one has real content, so the user gets
 // that feedback before the round trip rather than from a server error.
-function ReflectionPrompt({ sessionId, onDone }: { sessionId: string; onDone: () => void }) {
+// What happened this session, before the reflection questions. Every
+// answered entry carries the FSRS rating it produced (Ready's auto-grade or
+// self-grade, Live's model grade), so that's the common score across modes.
+const RATING_OUTCOME: Record<string, "solid" | "shaky" | "missed"> = {
+  easy: "solid",
+  good: "solid",
+  hard: "shaky",
+  again: "missed",
+};
+const OUTCOME_LABEL = { solid: "Got it", shaky: "Shaky", missed: "Missed" } as const;
+
+function SessionSummary({ history }: { history: unknown[] }) {
+  const entries = history as { prompt?: string; rating?: string }[];
+  if (!entries.length) return null;
+  const outcomes = entries.map((e) => RATING_OUTCOME[e.rating ?? ""] ?? "shaky");
+  const count = (o: string) => outcomes.filter((x) => x === o).length;
+  return (
+    <div className="study-summary">
+      <p className="study-summary-score">
+        {entries.length} question{entries.length === 1 ? "" : "s"} answered: {count("solid")} got it · {count("shaky")} shaky ·{" "}
+        {count("missed")} missed
+      </p>
+      <ul className="study-summary-list">
+        {entries.map((e, i) => (
+          <li key={i} className={`study-summary-${outcomes[i]}`}>
+            <span className="study-summary-outcome">{OUTCOME_LABEL[outcomes[i]]}</span>
+            <span className="study-summary-prompt">{e.prompt ?? "Question"}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ReflectionPrompt({ sessionId, history = [], onDone }: { sessionId: string; history?: unknown[]; onDone: () => void }) {
   const [answers, setAnswers] = useState<ReflectionAnswers>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -783,7 +930,8 @@ function ReflectionPrompt({ sessionId, onDone }: { sessionId: string; onDone: ()
 
   return (
     <div className="study-session study-reflection">
-      <p>That's everything due right now. A quick reflection before you go?</p>
+      <SessionSummary history={history} />
+      <p>{history.length ? "A quick reflection before you go?" : "That's everything due right now. A quick reflection before you go?"}</p>
       {error && <div className="study-session-error">{error}</div>}
       {REFLECTION_PROMPTS.map(({ field, label }) => (
         <label key={field} className="study-reflection-field">

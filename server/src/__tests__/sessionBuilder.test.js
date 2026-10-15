@@ -66,3 +66,13 @@ test("buildSessionTopicIds de-duplicates a repeated subject id in the input", as
   const topicIds = await buildSessionTopicIds(dir, ["subject-1", "subject-1"]);
   assert.deepEqual(topicIds.sort(), s1.map((t) => t.id).sort());
 });
+
+test("buildSessionTopicIds with reviewAhead includes not-yet-due topics, soonest-due first", async () => {
+  const dir = await scratchDir();
+  const [a, b] = await addPlannedTopics(dir, "subject-1", ["A", "B"]);
+  await recordTopicReview(dir, a.id, "easy");
+  await recordTopicReview(dir, b.id, "hard");
+  assert.deepEqual(await buildSessionTopicIds(dir, ["subject-1"]), [], "nothing due without reviewAhead");
+  // "hard" schedules sooner than "easy".
+  assert.deepEqual(await buildSessionTopicIds(dir, ["subject-1"], { reviewAhead: true }), [b.id, a.id]);
+});
