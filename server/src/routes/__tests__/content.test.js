@@ -139,7 +139,7 @@ test("POST /:id/content/notes creates a pasted-notes record with a generated .md
   }
 });
 
-test("POST /:id/content with a real PDF (base64) extracts text and flags unreliable pages over real HTTP", async () => {
+test("POST /:id/content/file with a real PDF (raw bytes) extracts text and flags unreliable pages over real HTTP", async () => {
   const { dir, base, server } = await startApp();
   try {
     const subject = await createSubject(dir, { name: "Discrete Math" });
@@ -149,10 +149,10 @@ test("POST /:id/content with a real PDF (base64) extracts text and flags unrelia
       brokenPage,
     ]);
 
-    const createRes = await fetch(base(subject.id), {
+    const createRes = await fetch(`${base(subject.id)}/file?filename=${encodeURIComponent("Lecture 1.pdf")}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ filename: "Lecture 1.pdf", contentBase64: rawBytes.toString("base64") }),
+      headers: { "Content-Type": "application/octet-stream" },
+      body: rawBytes,
     });
     assert.equal(createRes.status, 201);
     const record = await createRes.json();
@@ -161,6 +161,28 @@ test("POST /:id/content with a real PDF (base64) extracts text and flags unrelia
     assert.equal(record.sizeBytes, rawBytes.length);
 
     assert.deepEqual(await (await fetch(base(subject.id))).json(), [record]);
+  } finally {
+    server.close();
+  }
+});
+
+// Issue #6: big slide decks failed with "request entity too large" when
+// files travelled as base64 JSON (capped at 35MB). A 40MB file must now
+// get through (rejected here only because it isn't a real PDF).
+test("POST /:id/content/file accepts files bigger than the old JSON limit", async () => {
+  const { dir, base, server } = await startApp();
+  try {
+    const subject = await createSubject(dir, { name: "Big decks" });
+    const res = await fetch(`${base(subject.id)}/file?filename=huge.pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: Buffer.alloc(40 * 1024 * 1024, 1),
+    });
+    assert.equal(res.status, 400);
+    const { error } = await res.json();
+    assert.doesNotMatch(error, /too large|too big/i);
+    // Rejected by the signature check, before the PDF parser ever sees it.
+    assert.match(error, /isn't a real PDF file/);
   } finally {
     server.close();
   }

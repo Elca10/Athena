@@ -336,12 +336,21 @@ export function uploadTextContent(subjectId: string, filename: string, text: str
   return postJsonBody(`/api/subjects/${subjectId}/content`, { filename, text });
 }
 
-// Binary formats (currently .pdf/.pptx): the browser reads the file as
-// raw bytes and base64-encodes them — see routes/content.js's comment on
-// why this goes over JSON rather than multipart/form-data.
-export function uploadBinaryContent(subjectId: string, filename: string, contentBase64: string): Promise<ContentItem> {
-  return postJsonBody(`/api/subjects/${subjectId}/content`, { filename, contentBase64 });
+// Binary formats (.pdf/.pptx): the file's raw bytes, filename in the
+// query string (routes/content.js's /file route). They used to go as
+// base64 inside JSON, which hit the size limit on big decks (issue #6).
+export async function uploadBinaryContent(subjectId: string, file: File): Promise<ContentItem> {
+  const res = await fetch(`/api/subjects/${subjectId}/content/file?filename=${encodeURIComponent(file.name)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/octet-stream" },
+    body: file,
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Upload failed (${res.status})`));
+  return res.json();
 }
+
+/** Matches server/src/content.js's MAX_BINARY_CONTENT_BYTES. */
+export const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 export function addPastedNotes(subjectId: string, text: string): Promise<ContentItem> {
   return postJsonBody(`/api/subjects/${subjectId}/content/notes`, { text });

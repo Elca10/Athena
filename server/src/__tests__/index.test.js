@@ -73,6 +73,25 @@ test("GET /api/health names the commit this process started on (issue #4)", asyn
   }
 });
 
+test("an upload over the size limit gets a plain 413 saying so, not a server error (issue #6)", async () => {
+  const { createApp } = await import("../index.js");
+  const { MAX_BINARY_CONTENT_BYTES } = await import("../content.js");
+  const { app } = await createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/api/subjects/any/content/file?filename=huge.pdf`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: Buffer.alloc(MAX_BINARY_CONTENT_BYTES + 4096),
+    });
+    assert.equal(res.status, 413);
+    assert.match((await res.json()).error, /too big\. The limit is 100 MB per file/);
+  } finally {
+    server.close();
+  }
+});
+
 test("GET /api/setup/os reports a real detected OS (windows, mac, or other)", async () => {
   const { createApp } = await import("../index.js");
   const { app } = await createApp();

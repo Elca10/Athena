@@ -58,7 +58,7 @@ async function scratchDir() {
 /** Generates a real multi-page PDF with pdfkit (never committed — written
  * fresh into a scratch tmpdir per test, same technique as
  * pdfExtract.test.js) and returns it as a Buffer, ready to pass as
- * `contentBase64` would carry it over the wire. */
+ * the upload route would carry it over the wire. */
 async function samplePdfBuffer(pages) {
   const dir = await scratchDir();
   const filePath = path.join(dir, "sample.pdf");
@@ -219,7 +219,7 @@ test("addUploadedContent never collides on id across concurrent calls", async ()
 });
 
 // --- PDF ingestion: real PDF binaries, generated fresh per test (never
-// committed). contentBase64 is how the route (and the frontend) carries
+// committed). fileBuffer is how the upload route carries
 // raw binary bytes over JSON. ---
 
 test("buildPdfParsedText joins pages under '## Page N' headings", () => {
@@ -235,7 +235,7 @@ test("addUploadedContent accepts a real .pdf, extracts text, and records no unre
 
   const record = await addUploadedContent(dir, "subject-1", {
     filename: "Lecture 1.pdf",
-    contentBase64: rawBytes.toString("base64"),
+    fileBuffer: rawBytes,
   });
 
   assert.equal(record.extension, ".pdf");
@@ -265,7 +265,7 @@ test("addUploadedContent flags a PDF's unreliable pages without dropping them", 
 
   const record = await addUploadedContent(dir, "subject-1", {
     filename: "Lecture 2.pdf",
-    contentBase64: rawBytes.toString("base64"),
+    fileBuffer: rawBytes,
   });
 
   assert.deepEqual(record.unreliablePages, [2]);
@@ -281,7 +281,7 @@ test("addUploadedContent rejects a PDF with no extractable text on any page, and
   const rawBytes = await samplePdfBuffer([null, null]); // two blank pages, no text at all
 
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "scanned.pdf", contentBase64: rawBytes.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "scanned.pdf", fileBuffer: rawBytes }),
     /no extractable text/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -297,7 +297,7 @@ test("addUploadedContent rejects a PDF over the binary size limit and stores not
   const tooBig = Buffer.alloc(MAX_BINARY_CONTENT_BYTES + 1, 1);
 
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "huge.pdf", contentBase64: tooBig.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "huge.pdf", fileBuffer: tooBig }),
     /too large/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -317,7 +317,7 @@ test("addUploadedContent rejects a corrupt .pdf (not a real PDF) and leaves no r
   const notAPdf = Buffer.from("this is not a pdf file at all, just plain bytes");
 
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "fake.pdf", contentBase64: notAPdf.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "fake.pdf", fileBuffer: notAPdf }),
     /couldn't read this pdf/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -334,7 +334,7 @@ test("addUploadedContent accepts a real .pptx, extracts text, and records no unr
 
   const record = await addUploadedContent(dir, "subject-1", {
     filename: "Lecture 1.pptx",
-    contentBase64: rawBytes.toString("base64"),
+    fileBuffer: rawBytes,
   });
 
   assert.equal(record.extension, ".pptx");
@@ -361,7 +361,7 @@ test("addUploadedContent flags a PPTX's unreliable slides without dropping them"
 
   const record = await addUploadedContent(dir, "subject-1", {
     filename: "Lecture 2.pptx",
-    contentBase64: rawBytes.toString("base64"),
+    fileBuffer: rawBytes,
   });
 
   assert.deepEqual(record.unreliablePages, [2]);
@@ -377,7 +377,7 @@ test("addUploadedContent rejects a PPTX with no extractable text on any slide, a
   const rawBytes = samplePptxBuffer([null, null]); // two blank slides, no text at all
 
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "blank.pptx", contentBase64: rawBytes.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "blank.pptx", fileBuffer: rawBytes }),
     /no extractable text/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -390,7 +390,7 @@ test("addUploadedContent rejects a corrupt .pptx (not a real zip) and leaves no 
   const notAPptx = Buffer.from("this is not a pptx file at all, just plain bytes");
 
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "fake.pptx", contentBase64: notAPptx.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "fake.pptx", fileBuffer: notAPptx }),
     /couldn't read this powerpoint file/i,
   );
   assert.deepEqual(await listContent(dir, "subject-1"), []);
@@ -415,7 +415,7 @@ test("a PDF upload counts toward the same per-subject item limit as text uploads
 
   const rawBytes = await samplePdfBuffer(["one more page of real content for this subject"]);
   await assert.rejects(
-    () => addUploadedContent(dir, "subject-1", { filename: "one-more.pdf", contentBase64: rawBytes.toString("base64") }),
+    () => addUploadedContent(dir, "subject-1", { filename: "one-more.pdf", fileBuffer: rawBytes }),
     /maximum of 200/i,
   );
 });

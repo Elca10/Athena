@@ -78,7 +78,7 @@ test("uploading a .txt file reads it as text and refreshes the list", async () =
   expect(onContentAdded).toHaveBeenCalled();
 });
 
-test("uploading a .pdf file reads it as base64 and uses the binary upload path", async () => {
+test("uploading a .pdf file sends the file itself on the binary upload path", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listContent).mockResolvedValueOnce([]).mockResolvedValueOnce([
     baseItem({ originalFilename: "slides.pdf", extension: ".pdf" }),
@@ -93,15 +93,14 @@ test("uploading a .pdf file reads it as base64 and uses the binary upload path",
 
   expect(await screen.findByText("slides.pdf")).toBeInTheDocument();
   expect(api.uploadBinaryContent).toHaveBeenCalledTimes(1);
-  const [subjectId, filename, base64] = vi.mocked(api.uploadBinaryContent).mock.calls[0];
+  const [subjectId, sent] = vi.mocked(api.uploadBinaryContent).mock.calls[0];
   expect(subjectId).toBe("s1");
-  expect(filename).toBe("slides.pdf");
-  const decodedBytes = Array.from(atob(base64), (c) => c.charCodeAt(0));
-  expect(decodedBytes).toEqual([0x25, 0x50, 0x44, 0x46]);
+  expect(sent.name).toBe("slides.pdf");
+  expect(Array.from(new Uint8Array(await sent.arrayBuffer()))).toEqual([0x25, 0x50, 0x44, 0x46]);
   expect(api.uploadTextContent).not.toHaveBeenCalled();
 });
 
-test("uploading a .pptx file reads it as base64 and uses the binary upload path", async () => {
+test("uploading a .pptx file sends the file itself on the binary upload path", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listContent).mockResolvedValueOnce([]).mockResolvedValueOnce([
     baseItem({ originalFilename: "deck.pptx", extension: ".pptx" }),
@@ -118,11 +117,10 @@ test("uploading a .pptx file reads it as base64 and uses the binary upload path"
 
   expect(await screen.findByText("deck.pptx")).toBeInTheDocument();
   expect(api.uploadBinaryContent).toHaveBeenCalledTimes(1);
-  const [subjectId, filename, base64] = vi.mocked(api.uploadBinaryContent).mock.calls[0];
+  const [subjectId, sent] = vi.mocked(api.uploadBinaryContent).mock.calls[0];
   expect(subjectId).toBe("s1");
-  expect(filename).toBe("deck.pptx");
-  const decodedBytes = Array.from(atob(base64), (c) => c.charCodeAt(0));
-  expect(decodedBytes).toEqual([0x50, 0x4b, 0x03, 0x04]);
+  expect(sent.name).toBe("deck.pptx");
+  expect(Array.from(new Uint8Array(await sent.arrayBuffer()))).toEqual([0x50, 0x4b, 0x03, 0x04]);
   expect(api.uploadTextContent).not.toHaveBeenCalled();
 });
 
@@ -312,4 +310,21 @@ test("files dropped on the drop zone are added like picked ones", async () => {
 
   await waitFor(() => expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "notes.md", "Mitosis notes"));
   expect(zone).not.toHaveClass("content-drop-active");
+});
+
+test("a file over the size limit is refused up front with a plain reason, and the rest still upload", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  vi.mocked(api.uploadTextContent).mockResolvedValue(baseItem());
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await screen.findByText("No content added yet.");
+
+  const huge = new File(["x"], "huge.pdf", { type: "application/pdf" });
+  Object.defineProperty(huge, "size", { value: 150 * 1024 * 1024 });
+  const small = new File(["notes"], "notes.md", { type: "text/markdown" });
+  await user.upload(document.querySelector('input[type="file"]') as HTMLInputElement, [huge, small]);
+
+  expect(await screen.findByText(/huge\.pdf: too big \(150 MB; the limit is 100 MB per file\)/)).toBeInTheDocument();
+  expect(api.uploadBinaryContent).not.toHaveBeenCalled();
+  expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "notes.md", "notes");
 });

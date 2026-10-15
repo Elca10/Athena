@@ -261,7 +261,7 @@ test("scanSubjectForTopics points the turn at a PDF-sourced item's real extracte
   ]);
   const content = await addUploadedContent(dir, "subject-1", {
     filename: "Lecture 1.pdf",
-    contentBase64: rawBytes.toString("base64"),
+    fileBuffer: rawBytes,
   });
 
   const prompts = [];

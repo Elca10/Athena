@@ -14,6 +14,7 @@ import { healthRouter } from "./routes/health.js";
 import { makeSetupRouter } from "./routes/setup.js";
 import { makeSubjectsRouter } from "./routes/subjects.js";
 import { makeContentRouter } from "./routes/content.js";
+import { MAX_BINARY_CONTENT_BYTES } from "./content.js";
 import { makeTopicsRouter } from "./routes/topics.js";
 import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
@@ -52,15 +53,11 @@ export async function createApp() {
   });
 
   const app = express();
-  // Default (100kb) is too small for a base64-encoded PDF upload
-  // (content.js's MAX_BINARY_CONTENT_BYTES is 25MB raw, ~33% bigger
-  // base64-encoded); raised for the whole app rather than scoped to the
-  // content route alone, since Express runs this parser ahead of route
-  // matching and a request over the old limit would be rejected before
-  // ever reaching a route-specific one. Fine for a local-only,
-  // single-user app bound to 127.0.0.1 (SPEC.md section 2) — there's no
-  // untrusted caller to harden this against.
-  app.use(express.json({ limit: "35mb" }));
+  // Default (100kb) is too small for a plain-text upload (content.js caps
+  // those at 2MB; JSON escaping can roughly double that). Binary files
+  // don't come through here at all: routes/content.js's /file route takes
+  // raw bytes with its own limit.
+  app.use(express.json({ limit: "8mb" }));
 
   // Never cache API responses: a stale cached GET served from the
   // browser's HTTP cache with no revalidation request is a known,
@@ -103,6 +100,13 @@ export async function createApp() {
   // which could contain a file path or other local detail, straight to
   // the browser.
   app.use((err, _req, res, _next) => {
+    // A body over a parser's limit is the user's file being too big, not a
+    // server fault: say so plainly (it used to surface as a bare
+    // "request entity too large").
+    if (err.type === "entity.too.large") {
+      res.status(413).json({ error: `That file is too big. The limit is ${Math.round(MAX_BINARY_CONTENT_BYTES / 1024 / 1024)} MB per file.` });
+      return;
+    }
     recordError(`${err.message ?? err}`);
     res.status(500).json({ error: "Something went wrong." });
   });

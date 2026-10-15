@@ -50,6 +50,8 @@ const BINARY_EXTRACTORS = {
     unreliableKey: "unreliablePageNumbers",
     unitLabel: "Page",
     formatName: "PDF",
+    // The PDF spec allows the header anywhere in the first 1024 bytes.
+    looksValid: (buf) => buf.subarray(0, 1024).includes("%PDF-"),
     // A scanned, image-only PDF has no text layer at all — called out
     // specifically since it's the common real-world cause.
     emptyHint: " (it may be a scanned, image-only document)",
@@ -60,6 +62,8 @@ const BINARY_EXTRACTORS = {
     unreliableKey: "unreliableSlideNumbers",
     unitLabel: "Slide",
     formatName: "PowerPoint",
+    // A .pptx is a zip archive.
+    looksValid: (buf) => buf.subarray(0, 4).equals(Buffer.from([0x50, 0x4b, 0x03, 0x04])),
     emptyHint: "",
   },
 };
@@ -72,12 +76,11 @@ const SUPPORTED_EXTENSIONS = [...TEXT_EXTENSIONS, ...BINARY_EXTENSIONS];
 const MAX_TEXT_CONTENT_BYTES = 2 * 1024 * 1024;
 
 // PDFs and PPTX decks run much bigger than plain text (embedded
-// fonts/images/media), so this gets its own, larger ceiling — 25MB
-// comfortably covers a real lecture slide deck while still catching an
-// accidental upload of something absurd. Kept well under the JSON body
-// limit index.js sets for this route (the base64-encoded payload is
-// ~33% bigger than the raw file).
-export const MAX_BINARY_CONTENT_BYTES = 25 * 1024 * 1024;
+// fonts/images/media), so this gets its own, larger ceiling. 25MB turned
+// out too small for real image-heavy lecture decks (issue #6's "request
+// entity too large"); 100MB still catches an accidental upload of
+// something absurd. routes/content.js's raw-upload limit matches it.
+export const MAX_BINARY_CONTENT_BYTES = 100 * 1024 * 1024;
 
 // A sanity ceiling against unbounded growth (e.g. a scripting accident),
 // not a product opinion about how much material a subject "should" have —
@@ -136,6 +139,13 @@ async function ingestBinary(appDataDir, subjectId, { ext, fileBuffer, trimmedNam
   const sizeBytes = fileBuffer.length;
   if (sizeBytes > MAX_BINARY_CONTENT_BYTES) {
     throw new Error(`File is too large (${sizeBytes} bytes; limit is ${MAX_BINARY_CONTENT_BYTES} bytes)`);
+  }
+  // Checked before any parsing: handing a large non-PDF to the PDF parser
+  // made it try to "recover" the file and run the whole server out of
+  // memory (found testing a 40MB mislabelled upload).
+  const { looksValid, formatName: checkedFormat } = BINARY_EXTRACTORS[ext];
+  if (!looksValid(fileBuffer)) {
+    throw new Error(`Couldn't read this ${checkedFormat} file: it isn't a real ${checkedFormat} file (it may be damaged, or renamed from another format)`);
   }
 
   const existingCount = (await listContent(appDataDir, subjectId)).length;
@@ -265,12 +275,9 @@ async function ingest(appDataDir, subjectId, { filename, text, fileBuffer, sourc
   return ingestText(appDataDir, subjectId, { ext, text, trimmedName, source });
 }
 
-/** `contentBase64` (a base64-encoded string of the raw file bytes) is for
- * binary formats (currently just PDF); `text` is for plain-text formats.
- * The route decides which one it got from the request body — this just
- * decodes and passes it through. */
-export function addUploadedContent(appDataDir, subjectId, { filename, text, contentBase64 }) {
-  const fileBuffer = typeof contentBase64 === "string" ? Buffer.from(contentBase64, "base64") : undefined;
+/** `fileBuffer` (the raw file bytes) is for binary formats (PDF, PPTX);
+ * `text` is for plain-text formats. */
+export function addUploadedContent(appDataDir, subjectId, { filename, text, fileBuffer }) {
   return ingest(appDataDir, subjectId, { filename, text, fileBuffer, source: "upload" });
 }
 

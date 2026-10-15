@@ -3,6 +3,7 @@ import {
   addPastedNotes,
   listContent,
   removeContent,
+  MAX_UPLOAD_BYTES,
   uploadBinaryContent,
   uploadTextContent,
   type ContentItem,
@@ -13,8 +14,8 @@ import { useFocusTrap } from "../useFocusTrap";
 // Add content (SPEC.md section 7): a native file picker (plain
 // text/markdown, now also PDF and PPTX — server/src/pdfExtract.js /
 // pptxExtract.js) plus a "paste class notes" text box. Binary formats
-// are read client-side and base64-encoded (see api.ts's
-// uploadBinaryContent); text formats are read and sent as-is. "Done"
+// are sent as raw bytes (api.ts's uploadBinaryContent); text formats are
+// read and sent as-is. "Done"
 // saves any notes still in the box, closes the panel, and hands the slow
 // part (reading for topics, writing practice questions — see
 // readNewContent.ts) to the dashboard via onDone, which shows progress and
@@ -35,21 +36,6 @@ function readAsText(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Couldn't read that file"));
     reader.readAsText(file);
   });
-}
-
-// Encodes a File's raw bytes as base64 without ever materializing a
-// giant arg list for String.fromCharCode (which blows the call stack
-// well under this app's own MAX_BINARY_CONTENT_BYTES) — chunked the same
-// way this conversion is commonly done for large binaries in the browser.
-async function readAsBase64(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  const CHUNK_SIZE = 0x8000;
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
-  }
-  return btoa(binary);
 }
 
 // `unreliablePages` holds 1-based page numbers for a PDF, slide numbers
@@ -117,10 +103,14 @@ export function AddContentPanel({
           problems.push(`${file.name}: unsupported file type (only ${ACCEPTED_EXTENSIONS.join(", ")})`);
           continue;
         }
+        if (file.size > MAX_UPLOAD_BYTES) {
+          problems.push(`${file.name}: too big (${Math.round(file.size / 1024 / 1024)} MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB per file)`);
+          continue;
+        }
         setUploadingName(files.length > 1 ? `${file.name} (${index + 1} of ${files.length})` : file.name);
         try {
           if (BINARY_EXTENSIONS.includes(ext)) {
-            await uploadBinaryContent(subjectId, file.name, await readAsBase64(file));
+            await uploadBinaryContent(subjectId, file);
           } else {
             await uploadTextContent(subjectId, file.name, await readAsText(file));
           }
