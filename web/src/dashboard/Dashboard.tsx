@@ -45,6 +45,8 @@ import { ThemeToggle } from "../theme/ThemeToggle";
 // preview the redacted issue text, explicit Send. "Calendar" (SPEC.md
 // section 14: still v2) stays hidden entirely rather than shown disabled
 // — v1.0 ship scope has no "Coming soon" stub visible anywhere in the UI.
+const COMPLETED_SHOWN = 5;
+
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
   { label: "Active", status: "active" },
   { label: "Waiting", status: "waiting" },
@@ -74,6 +76,7 @@ export function Dashboard() {
   // Subjects whose new content is being read in the background (after
   // Add content's Done), and which stage each is on.
   const [reading, setReading] = useState<Record<string, ReadStage>>({});
+  const [showAllCompleted, setShowAllCompleted] = useState(false);
   const readingNow = useRef(new Set<string>());
   const readAgain = useRef(new Set<string>());
 
@@ -326,7 +329,15 @@ export function Dashboard() {
         </section>
         <section className="dashboard-sessions">
           {SESSION_COLUMNS.map(({ label, status }) => {
-            const columnSessions = sessions?.filter((s) => s.status === status) ?? [];
+            let columnSessions = sessions?.filter((s) => s.status === status) ?? [];
+            // Completed piles up: newest first, and only the latest few
+            // unless asked.
+            const collapsible = status === "completed" && columnSessions.length > COMPLETED_SHOWN;
+            const total = columnSessions.length;
+            if (status === "completed") {
+              columnSessions = [...columnSessions].sort((a, b) => (b.endedAt ?? "").localeCompare(a.endedAt ?? ""));
+              if (collapsible && !showAllCompleted) columnSessions = columnSessions.slice(0, COMPLETED_SHOWN);
+            }
             return (
               <div className="dashboard-session-column" key={status}>
                 <h2>{label}</h2>
@@ -371,6 +382,11 @@ export function Dashboard() {
                     }
                   />
                 ))}
+                {collapsible && (
+                  <button type="button" className="session-show-all" onClick={() => setShowAllCompleted((v) => !v)}>
+                    {showAllCompleted ? "Show fewer" : `Show all ${total}`}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -504,7 +520,11 @@ function SessionRow({
           : prompt || "Paused — resume to pick up where you left off.";
     }
   } else {
-    detail = `${session.history.length} question${session.history.length === 1 ? "" : "s"} answered`;
+    const answered = `${session.history.length} question${session.history.length === 1 ? "" : "s"} answered`;
+    const ended = session.endedAt
+      ? new Date(session.endedAt).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })
+      : null;
+    detail = ended ? `${ended} · ${answered}` : answered;
   }
 
   return (

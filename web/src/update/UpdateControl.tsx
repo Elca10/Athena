@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { applyUpdate, getHealth, getUpdateStatus, type UpdateStatus } from "./api";
 import { useEscapeKey } from "../useEscapeKey";
+import { useFocusTrap } from "../useFocusTrap";
 
 // One-click updates, the UI half (server: routes/update.js, updateApply.js;
 // installers/updater.mjs does the actual update). Renders nothing unless
@@ -18,6 +19,13 @@ type Phase =
   | { kind: "confirm" }
   | { kind: "updating"; to: string; startedAt: number }
   | { kind: "message"; title: string; text: string; offerBugReport: boolean };
+
+// A dialog section that takes keyboard focus while it's shown.
+function DialogSection(props: React.ComponentPropsWithoutRef<"section">) {
+  const ref = useRef<HTMLElement>(null);
+  useFocusTrap(ref);
+  return <section ref={ref} tabIndex={-1} {...props} />;
+}
 
 export function UpdateControl({
   onReportBug,
@@ -152,7 +160,7 @@ export function UpdateControl({
 
       {phase.kind === "confirm" && (
         <div className="modal-backdrop">
-          <section className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
+          <DialogSection className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
             <h2 id="update-confirm-title">Update Athena?</h2>
             <p>Athena will restart for about a minute; your work is saved.</p>
             {blockedReason && <p className="update-error">{blockedReason}</p>}
@@ -165,22 +173,22 @@ export function UpdateControl({
                 Update now
               </button>
             </div>
-          </section>
+          </DialogSection>
         </div>
       )}
 
       {phase.kind === "updating" && (
         <div className="modal-backdrop update-overlay">
-          <section className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-progress-title" aria-busy="true">
+          <DialogSection className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-progress-title" aria-busy="true">
             <h2 id="update-progress-title">Updating…</h2>
             <p>Athena is restarting with the new version. This page will reload by itself when it's ready.</p>
-          </section>
+          </DialogSection>
         </div>
       )}
 
       {phase.kind === "message" && (
         <div className="modal-backdrop">
-          <section className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-message-title">
+          <DialogSection className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-message-title">
             <h2 id="update-message-title">{phase.title}</h2>
             <p>{phase.text}</p>
             <div className="update-modal-actions">
@@ -200,7 +208,7 @@ export function UpdateControl({
                 </button>
               )}
             </div>
-          </section>
+          </DialogSection>
         </div>
       )}
     </>

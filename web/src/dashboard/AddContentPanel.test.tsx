@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { AddContentPanel } from "./AddContentPanel";
@@ -296,4 +296,20 @@ test("several files can be picked at once; one bad file doesn't stop the others"
   expect(await screen.findByText(/photo\.jpg: unsupported file type/)).toBeInTheDocument();
   expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "week1.md", "one");
   expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "week2.txt", "two");
+});
+
+test("files dropped on the drop zone are added like picked ones", async () => {
+  vi.mocked(api.listContent).mockResolvedValue([]);
+  vi.mocked(api.uploadTextContent).mockResolvedValue(baseItem());
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await screen.findByText("No content added yet.");
+
+  const zone = screen.getByText("Drop files here, or click to choose").closest("label") as HTMLElement;
+  const file = new File(["Mitosis notes"], "notes.md", { type: "text/markdown" });
+  fireEvent.dragOver(zone, { dataTransfer: { files: [file] } });
+  expect(zone).toHaveClass("content-drop-active");
+  fireEvent.drop(zone, { dataTransfer: { files: [file] } });
+
+  await waitFor(() => expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "notes.md", "Mitosis notes"));
+  expect(zone).not.toHaveClass("content-drop-active");
 });

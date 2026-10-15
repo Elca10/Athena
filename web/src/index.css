@@ -421,7 +421,7 @@ select {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  width: 30px;
+  width: 34px;
   cursor: default;
 }
 
@@ -429,6 +429,7 @@ select {
 .calibration-level {
   font-size: 0.7rem;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .calibration-level {
@@ -659,6 +660,11 @@ select {
   font-weight: 400;
 }
 
+.session-show-all {
+  align-self: flex-start;
+  font-size: 0.85rem;
+}
+
 .session-row-detail {
   color: var(--text-dim);
   font-size: 0.9rem;
@@ -809,8 +815,43 @@ select {
   justify-content: space-between;
 }
 
-.content-panel-upload {
+.content-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   margin: 0.75rem 0;
+  padding: 1.25rem 1rem;
+  border: 2px dashed var(--border);
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.content-drop:hover,
+.content-drop-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.content-drop:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.content-drop-disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.content-drop-title {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.content-drop-hint {
+  font-size: 0.8rem;
+  color: var(--text-dim);
 }
 
 .content-panel-notes {

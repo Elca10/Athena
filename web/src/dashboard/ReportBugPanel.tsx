@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { previewBugReport, sendBugReport, type BugReportPreview } from "./api";
 import { useEscapeKey } from "../useEscapeKey";
+import { useFocusTrap } from "../useFocusTrap";
 
 // "Report a bug" (SPEC.md section 10/3.6 — the plain-report-and-file
 // half only; no Bug Fixer in v1.0). Three steps, matching the backend's
@@ -22,6 +23,8 @@ export function ReportBugPanel({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<{ ok: true; url: string } | { ok: false; error: string } | null>(null);
   // Not while sending: closing then would hide whether it was filed.
   useEscapeKey(onClose, step !== "sending");
+  const dialogRef = useRef<HTMLElement>(null);
+  useFocusTrap(dialogRef);
 
   async function goToPreview() {
     setError(null);
@@ -47,7 +50,7 @@ export function ReportBugPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop">
-      <section className="bug-report-panel modal" role="dialog" aria-modal="true" aria-labelledby="bug-report-title">
+      <section className="bug-report-panel modal" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="bug-report-title">
         <div className="bug-report-panel-header">
           <h2 id="bug-report-title">Report a bug</h2>
           <button type="button" onClick={onClose} disabled={step === "sending"}>

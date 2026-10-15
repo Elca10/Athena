@@ -8,6 +8,7 @@ import {
   type ContentItem,
 } from "./api";
 import { useEscapeKey } from "../useEscapeKey";
+import { useFocusTrap } from "../useFocusTrap";
 
 // Add content (SPEC.md section 7): a native file picker (plain
 // text/markdown, now also PDF and PPTX — server/src/pdfExtract.js /
@@ -80,13 +81,15 @@ export function AddContentPanel({
   const [busy, setBusy] = useState(false);
   const [uploadingName, setUploadingName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   // Escape (and the Close button) leave without looking for topics; any
   // new content stays unread until Done is used next time.
   // Not while busy, and not with typed-but-unsaved notes (Escape would
   // silently throw them away).
   useEscapeKey(onClose, !busy && !notes.trim());
+  const dialogRef = useRef<HTMLElement>(null);
+  useFocusTrap(dialogRef);
 
   function closePanel() {
     if (notes.trim() && !window.confirm("Discard the notes you typed but haven't added?")) return;
@@ -195,7 +198,7 @@ export function AddContentPanel({
 
   return (
     <div className="modal-backdrop">
-      <section className="content-panel modal" role="dialog" aria-modal="true" aria-labelledby="content-panel-title">
+      <section className="content-panel modal" ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="content-panel-title">
         <div className="content-panel-header">
           <h2 id="content-panel-title">Add content — {subjectName}</h2>
           <div className="content-panel-header-actions">
@@ -208,9 +211,25 @@ export function AddContentPanel({
           </div>
         </div>
 
-        <div className="content-panel-upload">
+        {/* A drop zone instead of the browser's bare file input. The real
+            input stays inside (visually hidden) so clicking and keyboard
+            focus still open the native picker. */}
+        <label
+          className={`content-drop${dragOver ? " content-drop-active" : ""}${busy ? " content-drop-disabled" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy) setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const files = Array.from(e.dataTransfer.files ?? []);
+            if (!busy && files.length) handleFiles(files);
+          }}
+        >
           <input
-            ref={fileInputRef}
+            className="visually-hidden"
             type="file"
             multiple
             accept={ACCEPTED_EXTENSIONS.join(",")}
@@ -221,7 +240,9 @@ export function AddContentPanel({
               if (files.length) handleFiles(files);
             }}
           />
-        </div>
+          <span className="content-drop-title">Drop files here, or click to choose</span>
+          <span className="content-drop-hint">PDF, PowerPoint (.pptx), text or Markdown. Several at once is fine.</span>
+        </label>
 
         <form
           className="content-panel-notes"

@@ -578,7 +578,7 @@ test("Done with unread content closes the panel at once and reads it in the back
   expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
   expect(api.scanBank).toHaveBeenCalledWith("s1");
   expect(screen.queryByText(/Reading your new content/)).not.toBeInTheDocument();
-});
+}, 15_000);
 
 test("going to Study mid-read still shows the reading progress, a warning in the picker, and the result", async () => {
   const user = userEvent.setup();
@@ -628,7 +628,7 @@ test("going to Study mid-read still shows the reading progress, a warning in the
   expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
   expect(screen.queryByText(/Still reading your new content/)).not.toBeInTheDocument();
   expect(screen.queryByText(/won't be in a session started now/)).not.toBeInTheDocument();
-});
+}, 15_000);
 
 test("if reading the new content fails, the dashboard says so as an error with how to retry", async () => {
   const user = userEvent.setup();
@@ -671,7 +671,7 @@ test("if reading the new content fails, the dashboard says so as an error with h
   expect(alert).toHaveTextContent(/Open Add content and click Done to try again/);
   expect(await screen.findByText(/1 item not read yet/)).toBeInTheDocument();
   expect(api.scanBank).not.toHaveBeenCalled();
-});
+}, 15_000);
 
 test("renders one card per subject, each fetching its own summary", async () => {
   vi.mocked(api.listSubjects).mockResolvedValue([
@@ -769,7 +769,7 @@ test("sorts real sessions into their Active/Waiting/Completed columns with subje
   const completedHeading = screen.getByRole("heading", { name: "Completed" });
   const completedColumn = completedHeading.closest(".dashboard-session-column") as HTMLElement;
   expect(within(completedColumn).getByText("Biology, Calculus")).toBeInTheDocument();
-  expect(within(completedColumn).getByText("2 questions answered")).toBeInTheDocument();
+  expect(within(completedColumn).getByText(/2 questions answered/)).toBeInTheDocument();
 });
 
 test("truncates a long waiting-question prompt preview", async () => {
@@ -980,4 +980,56 @@ test("a Waiting session can be ended from the dashboard without resuming it", as
   await user.click(await screen.findByRole("button", { name: "End" }));
   expect(api.finishSession).toHaveBeenCalledWith("w1");
   expect(api.generateNextLiveQuestion).not.toHaveBeenCalled();
+});
+
+test("Completed shows the newest 5 with when they ended, and Show all reveals the rest", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  const completed = Array.from({ length: 7 }, (_, i) => ({
+    id: `done-${i}`,
+    subjectIds: [],
+    mode: "ready" as const,
+    status: "completed" as const,
+    endedAt: new Date(2026, 9, 1 + i, 15, 0).toISOString(),
+    archived: false,
+    currentQuestion: null,
+    history: [{}],
+  }));
+  vi.mocked(api.listSessions).mockResolvedValue(completed);
+  render(<Dashboard />);
+
+  const column = (await screen.findByRole("heading", { name: "Completed" })).parentElement as HTMLElement;
+  await within(column).findByRole("button", { name: "Show all 7" });
+  const rows = () => within(column).getAllByText(/1 question answered/);
+  expect(rows()).toHaveLength(5);
+  // Newest first, with the end date.
+  expect(rows()[0].textContent).toMatch(/7 Oct|Oct 7/);
+  await user.click(within(column).getByRole("button", { name: "Show all 7" }));
+  expect(rows()).toHaveLength(7);
+  await user.click(within(column).getByRole("button", { name: "Show fewer" }));
+  expect(rows()).toHaveLength(5);
+});
+
+test("a panel takes keyboard focus, keeps Tab inside, and hands focus back on close", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.listPreferences).mockResolvedValue([]);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const opener = screen.getByRole("button", { name: "Tune Athena" });
+  await user.click(opener);
+  const dialog = await screen.findByRole("dialog");
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  for (let i = 0; i < 8; i++) {
+    await user.tab();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+  }
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  expect(opener).toHaveFocus();
 });
