@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   archiveSession,
   createSession,
@@ -47,11 +47,17 @@ export function StudyFlow({
   subjects,
   initialSubjectId,
   resumeSession,
+  readingSubjectIds = [],
+  banner,
   onExit,
 }: {
   subjects: Subject[];
   initialSubjectId?: string;
   resumeSession?: Session | null;
+  /** Subjects whose newly added content is still being read in the background. */
+  readingSubjectIds?: string[];
+  /** Background-work status from the dashboard (reading progress, its result). */
+  banner?: ReactNode;
   onExit: () => void;
 }) {
   const [session, setSession] = useState<Session | null>(resumeSession ?? null);
@@ -116,9 +122,16 @@ export function StudyFlow({
           </div>
         </div>
       </header>
+      {banner}
       {error && <div className="study-picker-error">{error}</div>}
       {!session && initialSubjectId && (
-        <ModePicker subjects={subjects} initialSubjectId={initialSubjectId} busy={starting} onStart={start} />
+        <ModePicker
+          subjects={subjects}
+          initialSubjectId={initialSubjectId}
+          readingSubjectIds={readingSubjectIds}
+          busy={starting}
+          onStart={start}
+        />
       )}
       {reflectingId && <ReflectionPrompt sessionId={reflectingId} onDone={onExit} />}
       {session && !reflectingId && session.mode === "ready" && (
@@ -132,11 +145,13 @@ export function StudyFlow({
 function ModePicker({
   subjects,
   initialSubjectId,
+  readingSubjectIds,
   busy,
   onStart,
 }: {
   subjects: Subject[];
   initialSubjectId: string;
+  readingSubjectIds: string[];
   busy: boolean;
   onStart: (subjectIds: string[], mode: SessionMode) => void;
 }) {
@@ -179,6 +194,14 @@ function ModePicker({
           Live — Athena asks and grades in real time (uses more of your Claude usage)
         </label>
       </fieldset>
+      {subjects
+        .filter((s) => selected.has(s.id) && readingSubjectIds.includes(s.id))
+        .map((s) => (
+          <p key={s.id} className="study-picker-hint">
+            Athena is still reading the content you just added to {s.name}, so its new topics won't be in a session
+            started now. You can start anyway with what's already there, or wait a minute.
+          </p>
+        ))}
       <div className="study-picker-actions">
         <button
           type="button"

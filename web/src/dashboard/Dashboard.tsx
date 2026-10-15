@@ -189,6 +189,16 @@ export function Dashboard() {
     setContentSubjectId(panel === "content" ? subjectId ?? null : null);
   }
 
+  const noticeBanner = notice && (
+    <div className={notice.ok ? "dashboard-notice" : "dashboard-notice dashboard-notice-error"} role={notice.ok ? "status" : "alert"}>
+      <span>{notice.text}</span>
+      <button type="button" onClick={() => setNotice(null)}>
+        Dismiss
+      </button>
+    </div>
+  );
+  const readingIds = Object.keys(reading);
+
   if (view === "archive") {
     return (
       <ArchiveView
@@ -206,6 +216,22 @@ export function Dashboard() {
         subjects={subjects ?? []}
         initialSubjectId={studySubjectId ?? undefined}
         resumeSession={resumeSession}
+        readingSubjectIds={readingIds}
+        banner={
+          <>
+            {readingIds.map((id) => (
+              <div key={id} className="dashboard-notice dashboard-notice-progress" role="status">
+                <span>
+                  {reading[id] === "topics"
+                    ? `Still reading your new content for ${subjectName(id)}…`
+                    : `Writing practice questions for ${subjectName(id)}…`}{" "}
+                  New topics will be in your next session once this finishes.
+                </span>
+              </div>
+            ))}
+            {noticeBanner}
+          </>
+        }
         onExit={() => {
           setView("dashboard");
           setStudySubjectId(null);
@@ -248,14 +274,7 @@ export function Dashboard() {
           </button>
         </div>
       )}
-      {notice && (
-        <div className={notice.ok ? "dashboard-notice" : "dashboard-notice dashboard-notice-error"} role={notice.ok ? "status" : "alert"}>
-          <span>{notice.text}</span>
-          <button type="button" onClick={() => setNotice(null)}>
-            Dismiss
-          </button>
-        </div>
-      )}
+      {noticeBanner}
       {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
       {contentSubjectId && (

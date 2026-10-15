@@ -558,6 +558,56 @@ test("Done with unread content closes the panel at once and reads it in the back
   expect(screen.queryByText(/Reading your new content/)).not.toBeInTheDocument();
 });
 
+test("going to Study mid-read still shows the reading progress, a warning in the picker, and the result", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+    topicCount: 0,
+    contentCount: 1,
+    unreadContentCount: 1,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  vi.mocked(api.listContent).mockResolvedValue([
+    {
+      id: "c1",
+      subjectId: "s1",
+      originalFilename: "lecture1.pdf",
+      extension: ".pdf",
+      source: "upload",
+      sizeBytes: 10,
+      addedAt: "2026-01-01T00:00:00.000Z",
+      topicsExtractedAt: null,
+      unreliablePages: [],
+    },
+  ]);
+  let finishTopics: (r: api.TopicScanResult) => void = () => {};
+  vi.mocked(api.scanTopics).mockReturnValue(new Promise((resolve) => (finishTopics = resolve)));
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 2, questionsAdded: 8, errors: [] });
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  await screen.findByRole("heading", { name: "Organic Chemistry" });
+  await user.click(screen.getByRole("button", { name: "Add content" }));
+  const panel = (await screen.findByRole("heading", { name: "Add content — Organic Chemistry" })).closest("section") as HTMLElement;
+  await within(panel).findByText("lecture1.pdf");
+  await user.click(within(panel).getByRole("button", { name: "Done" }));
+  await screen.findByText(/Reading your new content for topics/);
+
+  await user.click(screen.getByRole("button", { name: "Study" }));
+  expect(await screen.findByRole("heading", { name: "Study" })).toBeInTheDocument();
+  expect(screen.getByText(/Still reading your new content for Organic Chemistry/)).toBeInTheDocument();
+  expect(screen.getByText(/its new topics won't be in a session started now/)).toBeInTheDocument();
+
+  finishTopics({ ok: true, skipped: false, topicsAdded: 2, filesProcessed: 1, errors: [] });
+  expect(await screen.findByText("Found 2 new topics in Organic Chemistry. Ready to study.")).toBeInTheDocument();
+  expect(screen.queryByText(/Still reading your new content/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/won't be in a session started now/)).not.toBeInTheDocument();
+});
+
 test("if reading the new content fails, the dashboard says so as an error with how to retry", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);

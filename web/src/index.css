@@ -787,6 +787,14 @@ select {
   color: var(--text-dim);
 }
 
+.study-picker-hint {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin: 0 0 1rem;
+  padding-left: 8px;
+  border-left: 3px solid var(--accent);
+}
+
 .study-picker-error {
   color: var(--danger);
   font-size: 0.9rem;
@@ -1052,6 +1060,10 @@ select {
   border-radius: 8px;
   background: var(--bg-elevated);
   color: var(--text-h);
+}
+
+.dashboard-notice-progress {
+  border-left-color: var(--accent);
 }
 
 .dashboard-notice-error {
