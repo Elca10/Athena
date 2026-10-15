@@ -17,7 +17,7 @@
 // what's in it".
 
 import { promises as fs } from "node:fs";
-import { runCommand } from "./processUtil.js";
+import { runCommand, readDirArgs } from "./processUtil.js";
 import { listContent, markTopicsExtracted, parsedFilePath } from "./content.js";
 import { addPlannedTopics, listTopics } from "./topics.js";
 
@@ -193,8 +193,8 @@ export function parseExtractionReply(resultText) {
  * scratch PATH pointing at a fake script, so this module's own test can
  * verify the exact argv without ever finding the real CLI.
  */
-export async function runExtractionTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
+export async function runExtractionTurn(prompt, { env, readPaths = [] } = {}) {
+  const result = await runCommand("claude", ["-p", ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -229,7 +229,11 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
   inFlightSubjects.add(subjectId);
   try {
     const content = await listContent(appDataDir, subjectId);
-    const unprocessed = content.filter((c) => !c.topicsExtractedAt);
+    // A subject with content but no topics at all can't have been read
+    // successfully (issue #5: files were marked read after the model
+    // couldn't open them), so read everything again in that case.
+    const hasTopics = (await listTopics(appDataDir, subjectId)).length > 0;
+    const unprocessed = hasTopics ? content.filter((c) => !c.topicsExtractedAt) : content;
     if (!unprocessed.length) return { ok: true, skipped: false, topicsAdded: 0, filesProcessed: 0, errors: [] };
 
     const errors = [];
@@ -264,7 +268,7 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
 
       let replyText;
       try {
-        replyText = await runTurn(prompt);
+        replyText = await runTurn(prompt, { readPaths: batch.map((f) => f.absolutePath) });
       } catch (err) {
         errors.push(`${batch.length} file(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
         continue; // leave this batch's files unprocessed — retryable on the next scan
@@ -277,9 +281,15 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
       }
 
       // A well-formed reply with zero topics ("nothing new in this
-      // material") is a real answer, not a failure — its files are still
-      // marked processed below so the next scan doesn't re-read and
-      // re-send them forever.
+      // material") is a real answer when the subject already has topics:
+      // its files are marked processed so they aren't re-sent forever. But
+      // with NO topics at all yet it means the material couldn't be read
+      // or used (issue #5), so the files stay unread and it's an error.
+      if (!parsed.topics.length && !existingTopics.length) {
+        const why = parsed.summary ? ` (Athena said: ${parsed.summary})` : "";
+        errors.push(`${batch.length} file(s): no topics could be found${why}`);
+        continue;
+      }
       if (parsed.topics.length) {
         const added = await addPlannedTopics(appDataDir, subjectId, parsed.topics);
         topicsAdded += added.length;

@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import PDFDocument from "pdfkit";
 import { addUploadedContent, listContent, parsedFilePath } from "../content.js";
-import { listTopics } from "../topics.js";
+import { listTopics, addPlannedTopics } from "../topics.js";
 import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
 import {
   batchFiles,
@@ -210,6 +210,16 @@ test("runExtractionTurn sends a large prompt over stdin, not argv (Windows comma
   assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
+test("runExtractionTurn grants read access to the content folder via --add-dir (issue #5)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const files = [path.join(os.tmpdir(), "data", "parsed", "a.md"), path.join(os.tmpdir(), "data", "parsed", "b.md")];
+  const result = JSON.parse(await runExtractionTurn("prompt", { env, readPaths: files }));
+  const i = result.argv.indexOf("--add-dir");
+  assert.ok(i >= 0, "must pass --add-dir");
+  assert.equal(result.argv[i + 1], path.join(os.tmpdir(), "data", "parsed"));
+  assert.equal(result.argv.filter((a) => a === "--add-dir").length, 1, "one flag per distinct folder");
+});
+
 // --- scanSubjectForTopics (the orchestration) -------------------------------
 
 test("scanSubjectForTopics does nothing when there is no unprocessed content", async () => {
@@ -325,6 +335,8 @@ test("scanSubjectForTopics leaves a batch's files unprocessed when the reply can
 
 test("scanSubjectForTopics marks files processed on a well-formed empty-topics reply, so they aren't re-sent", async () => {
   const dir = await scratchDir();
+  // The subject already has topics, so "nothing new" is a real answer.
+  await addPlannedTopics(dir, "subject-1", ["Existing topic"]);
   await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Lecture 1" });
 
   let calls = 0;
@@ -371,4 +383,32 @@ test("scanSubjectForTopics only sends newly-added files, with already-tracked to
   assert.match(seenPrompt, new RegExp(second.id));
   assert.doesNotMatch(seenPrompt, new RegExp(first.id));
   assert.equal((await listTopics(dir, "subject-1")).length, 2);
+});
+
+test("issue #5: zero topics on a subject with none yet is an error and the files stay unread", async () => {
+  const dir = await scratchDir();
+  await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Lecture 1" });
+  const unreadableTurn = async () =>
+    "```json athena-topics\n" + JSON.stringify({ topics: [], summary: "The file could not be read." }) + "\n```";
+
+  const result = await scanSubjectForTopics(dir, "subject-1", { subjectName: "S", runTurn: unreadableTurn });
+  assert.equal(result.ok, false);
+  assert.equal(result.filesProcessed, 0);
+  assert.match(result.errors[0], /no topics could be found.*could not be read/);
+  assert.equal((await listContent(dir, "subject-1"))[0].topicsExtractedAt ?? null, null);
+});
+
+test("issue #5 recovery: content wrongly marked read on a subject with no topics is read again, with its folder granted", async () => {
+  const dir = await scratchDir();
+  const item = await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Lecture 1" });
+  const { markTopicsExtracted } = await import("../content.js");
+  await markTopicsExtracted(dir, [item.id]); // what the bug left behind
+  let readPaths = null;
+  const goodTurn = async (_prompt, opts) => {
+    readPaths = opts?.readPaths;
+    return "```json athena-topics\n" + JSON.stringify({ topics: ["Mitosis"], summary: "cells" }) + "\n```";
+  };
+  const result = await scanSubjectForTopics(dir, "subject-1", { subjectName: "S", runTurn: goodTurn });
+  assert.equal(result.topicsAdded, 1);
+  assert.deepEqual(readPaths, [parsedFilePath(dir, item)]);
 });

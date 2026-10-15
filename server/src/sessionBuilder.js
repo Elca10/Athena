@@ -68,7 +68,8 @@ export async function explainNothingDue(appDataDir, subjectIds, now = new Date()
   if (!topics.length) {
     let unread = 0;
     for (const subjectId of new Set(subjectIds)) {
-      unread += (await listContent(appDataDir, subjectId)).filter((item) => !item.topicsExtractedAt).length;
+      // With no topics anywhere, all content counts as unread (issue #5).
+      unread += (await listContent(appDataDir, subjectId)).length;
     }
     if (unread) {
       return "Athena hasn't read your content yet. Open Add content on the subject's card and click Done, so it can find the topics to quiz you on.";

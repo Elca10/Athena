@@ -184,3 +184,18 @@ function runCommandInner(command, args, { timeoutMs = 10_000, cwd, env, input, o
 export function spawnCommand(command, args, { cwd } = {}) {
   return spawn(command, args, { cwd, windowsHide: true });
 }
+
+/**
+ * `--add-dir` flags so a `claude -p` turn may READ the given directories.
+ * Claude Code only allows file access inside its working directory unless
+ * told otherwise, and in headless `-p` mode nobody can approve a read
+ * outside it, so it's silently refused. Athena's content lives in the app
+ * data dir, never the install dir, so every turn that reads content needs
+ * its exact folder(s) granted (issue #5: on a default Claude Code setup
+ * every read failed and topic extraction found nothing). Only the folders
+ * actually holding this turn's files, nothing broader.
+ */
+export function readDirArgs(filePaths) {
+  const dirs = [...new Set(filePaths.map((p) => path.dirname(p)))];
+  return dirs.flatMap((dir) => ["--add-dir", dir]);
+}

@@ -35,7 +35,9 @@ export async function getSubjectSummary(appDataDir, subjectId, now = new Date())
   // Content counts let the dashboard say what to do next: add content, or
   // finish reading what was added (Close instead of Done leaves it unread).
   const content = await listContent(appDataDir, subjectId);
-  const unreadContentCount = content.filter((item) => !item.topicsExtractedAt).length;
+  // No topics at all means nothing was read successfully, whatever the
+  // flags say (issue #5), and the next Done reads it all again.
+  const unreadContentCount = topics.length ? content.filter((item) => !item.topicsExtractedAt).length : content.length;
   return {
     masteryCounts: computeMasteryCounts(topics),
     dueCount,

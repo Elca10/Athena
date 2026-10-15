@@ -80,6 +80,7 @@ test("getSubjectSummary is scoped to its own subject, not any other subject's to
 test("getSubjectSummary counts content, and content not yet read for topics", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-summary-content-"));
   const subject = await createSubject(dir, { name: "Chem" });
+  await addPlannedTopics(dir, subject.id, ["Atoms"]);
   const { addPastedNotes, markTopicsExtracted } = await import("../content.js");
   const first = await addPastedNotes(dir, subject.id, { text: "Atoms." });
   await addPastedNotes(dir, subject.id, { text: "Bonds." });
@@ -87,4 +88,13 @@ test("getSubjectSummary counts content, and content not yet read for topics", as
   const summary = await getSubjectSummary(dir, subject.id);
   assert.equal(summary.contentCount, 2);
   assert.equal(summary.unreadContentCount, 1);
+});
+
+test("getSubjectSummary: with no topics at all, all content counts as unread (issue #5 recovery)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-summary-notopics-"));
+  const subject = await createSubject(dir, { name: "Bio" });
+  const { addPastedNotes, markTopicsExtracted } = await import("../content.js");
+  const item = await addPastedNotes(dir, subject.id, { text: "Cells." });
+  await markTopicsExtracted(dir, [item.id]);
+  assert.equal((await getSubjectSummary(dir, subject.id)).unreadContentCount, 1);
 });

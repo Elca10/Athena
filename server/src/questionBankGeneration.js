@@ -18,7 +18,7 @@
 // batch until file-to-topic provenance exists.
 
 import { promises as fs } from "node:fs";
-import { runCommand } from "./processUtil.js";
+import { runCommand, readDirArgs } from "./processUtil.js";
 import { listContent, parsedFilePath } from "./content.js";
 import { batchFiles } from "./topicExtraction.js";
 import { listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
@@ -250,8 +250,8 @@ export function parseBankReply(resultText) {
 
 /** Test seam for the model call — same convention as
  * topicExtraction.js's `runExtractionTurn`. */
-export async function runBankGenerationTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", "--disallowedTools", ...DENIED_TOOLS], {
+export async function runBankGenerationTurn(prompt, { env, readPaths = [] } = {}) {
+  const result = await runCommand("claude", ["-p", ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -311,7 +311,7 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
 
     let replyText;
     try {
-      replyText = await runTurn(prompt);
+      replyText = await runTurn(prompt, { readPaths: groundingFiles.map((f) => f.absolutePath) });
     } catch (err) {
       errors.push(`${batch.length} topic(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
       continue; // leave this batch's topics unmarked — retryable on the next scan

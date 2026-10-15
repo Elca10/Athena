@@ -476,3 +476,20 @@ test("topUpTopicBank reports a turn failure without throwing", async () => {
   assert.equal(result.questionsAdded, 0);
   assert.match(result.errors[0], /claude CLI not found/);
 });
+
+test("bank generation grants read access to the grounding files' folder (issue #5)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-readdirs-"));
+  const { addUploadedContent, parsedFilePath } = await import("../content.js");
+  const { addPlannedTopics } = await import("../topics.js");
+  const item = await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Cells" });
+  await addPlannedTopics(dir, "subject-1", ["Mitosis"]);
+  let readPaths = null;
+  await scanSubjectForBankGeneration(dir, "subject-1", {
+    subjectName: "Bio",
+    runTurn: async (_prompt, opts) => {
+      readPaths = opts?.readPaths;
+      return "no usable reply";
+    },
+  });
+  assert.deepEqual(readPaths, [parsedFilePath(dir, item)]);
+});
