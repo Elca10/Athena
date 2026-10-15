@@ -17,21 +17,19 @@ import {
   type Subject,
   type SubjectSummary,
   type UsageStatus,
-  type UsageWindow,
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
+import { SessionStatsTiles, UsageTile } from "./StatsTiles";
 import { readNewContent, type ReadStage } from "./readNewContent";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
 import { UpdateControl } from "../update/UpdateControl";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
-// The real dashboard (SPEC.md section 4). The top bar's "Stats" line is
-// fully wired: session stats (sessions/questions this week, streak,
-// accuracy, calibration — server/src/sessionStats.js) and subscription
-// usage (the account's Claude usage windows, read live via `claude -p
-// "/usage"` — server/src/usageStatus.js). "Tune Athena" opens
+// The real dashboard (SPEC.md section 4). The top bar's stats row
+// (StatsTiles.tsx) shows session stats and subscription usage as tiles,
+// a calibration chart and usage meters. "Tune Athena" opens
 // TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
 // opens AddContentPanel (SPEC.md section 7). Each subject's "Study"
 // opens StudyFlow (mode picker, both Ready's and Live's session screens,
@@ -262,8 +260,8 @@ export function Dashboard() {
           </div>
         </div>
         <div className="dashboard-stats">
-          <SessionStatsSummary stats={stats} />
-          <UsageStatusSummary usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
+          <SessionStatsTiles stats={stats} />
+          <UsageTile usage={usage} checking={usageChecking} onCheckNow={refreshUsage} />
         </div>
       </header>
       {loadError && (
@@ -652,88 +650,5 @@ function NewSubjectForm({ onClose, onCreated }: { onClose: () => void; onCreated
       </button>
       {error && <div className="new-subject-form-error">{error}</div>}
     </form>
-  );
-}
-
-function formatPercent(rate: number | null): string {
-  return rate === null ? "—" : `${Math.round(rate * 100)}%`;
-}
-
-// SPEC.md section 6's Calibration principle: "dashboard shows predicted vs
-// actual accuracy over time". Rendered as one segment per confidence level
-// that has at least one answered question — confidence IS the prediction,
-// so there's no separate "predicted" number to show per level, just how
-// often that confidence level turned out right. Empty when nothing has
-// been answered yet, same as accuracy going unshown below.
-function formatCalibration(stats: SessionStats): string {
-  const levelsWithData = stats.calibration.byConfidence.filter((b) => b.total > 0);
-  if (levelsWithData.length === 0) return "";
-  const segments = levelsWithData.map((b) => `confidence ${b.confidence} → ${formatPercent(b.correctRate)} (${b.total})`);
-  return ` · Calibration: ${segments.join(", ")}`;
-}
-
-// Built as one plain string, not nested elements, so the rendered stats
-// line is a single text node — easier to assert on in tests and avoids any
-// ambiguity between a parent and child both matching the same text query.
-function formatSessionStats(stats: SessionStats): string {
-  const sessionsLabel = `${stats.sessionsThisWeek} session${stats.sessionsThisWeek === 1 ? "" : "s"}`;
-  const questionsLabel = `${stats.questionsThisWeek} question${stats.questionsThisWeek === 1 ? "" : "s"} this week`;
-  const streakLabel = `${stats.streakDays}-day streak`;
-  const accuracyLabel =
-    stats.accuracy.total === 0
-      ? "no questions answered yet"
-      : `${formatPercent(stats.accuracy.rate)} accuracy (${stats.accuracy.correct}/${stats.accuracy.total})`;
-  const calibrationLabel = stats.accuracy.total > 0 ? formatCalibration(stats) : "";
-  return `${sessionsLabel} · ${questionsLabel} · ${streakLabel} · ${accuracyLabel}${calibrationLabel}`;
-}
-
-function SessionStatsSummary({ stats }: { stats: SessionStats | null }) {
-  return <span className="dashboard-stats-sessions">{stats ? formatSessionStats(stats) : "Loading stats…"}</span>;
-}
-
-function formatResetsAt(resetsAt: number | undefined): string {
-  if (!resetsAt) return "";
-  const when = new Date(resetsAt * 1000).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-  return ` (resets ${when})`;
-}
-
-function formatUsageWindow(label: string, window: UsageWindow): string {
-  if (!window) return `${label}: unknown`;
-  return `${label}: ${Math.round(window.utilization * 100)}% used${formatResetsAt(window.resetsAt)}`;
-}
-
-// SPEC.md section 4's "subscription usage" stat, read live off the `claude`
-// CLI's own `/usage` command (server/src/usageStatus.js) rather than
-// derived from anything this app tracks itself. A non-null `error` means
-// the check itself failed (CLI missing/not logged in, or a future CLI
-// reply shape this app's parser doesn't recognize yet) — shown plainly
-// rather than silently falling back to stale or invented numbers.
-function formatUsageStatus(usage: UsageStatus): string {
-  if (usage.error) return "Subscription usage — couldn't check.";
-  return `Subscription usage — ${formatUsageWindow("session", usage.fiveHour)} · ${formatUsageWindow("week", usage.weekly)}`;
-}
-
-function UsageStatusSummary({
-  usage,
-  checking,
-  onCheckNow,
-}: {
-  usage: UsageStatus | null;
-  checking: boolean;
-  onCheckNow: () => void;
-}) {
-  return (
-    <span className="dashboard-stats-usage">
-      {" "}
-      · {usage ? formatUsageStatus(usage) : "Checking subscription usage…"}{" "}
-      <button type="button" onClick={onCheckNow} disabled={checking}>
-        {checking ? "Checking…" : "Check now"}
-      </button>
-    </span>
   );
 }

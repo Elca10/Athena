@@ -355,8 +355,195 @@ select {
 }
 
 .dashboard-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-start;
   color: var(--text-dim);
   font-size: 0.9rem;
+}
+
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+  flex: 1 1 32rem;
+}
+
+.calibration-axis {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.stats-loading {
+  align-items: center;
+}
+
+.stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 7.5rem;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+}
+
+.stat-tile-label {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.stat-tile-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-h);
+  line-height: 1.2;
+}
+
+.stat-tile-detail {
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+/* Calibration: one series, so no legend; the label names it. */
+.calibration-chart {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  margin-top: 4px;
+}
+
+.calibration-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 30px;
+  cursor: default;
+}
+
+.calibration-value,
+.calibration-level {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.calibration-level {
+  color: var(--text);
+}
+
+.calibration-track {
+  display: flex;
+  align-items: flex-end;
+  width: 14px;
+  height: 44px;
+  border-radius: 4px 4px 0 0;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.calibration-bar {
+  width: 100%;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+}
+
+.calibration-col:hover .calibration-track {
+  outline: 2px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.stat-tile-usage {
+  flex: 0 1 20rem;
+  gap: 8px;
+}
+
+.usage-tile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.usage-tile-head button {
+  padding: 2px 10px;
+  font-size: 0.8rem;
+}
+
+.usage-meter {
+  --meter-fill: var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.usage-meter-warning {
+  --meter-fill: var(--status-warning);
+}
+
+.usage-meter-exceeded {
+  --meter-fill: var(--status-critical);
+}
+
+.usage-meter-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text);
+}
+
+.usage-meter-head strong {
+  color: var(--text-h);
+}
+
+.usage-meter-track {
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--meter-fill) 18%, transparent);
+}
+
+.usage-meter-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--meter-fill);
+}
+
+.usage-meter-resets {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.usage-error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.usage-error summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.usage-error code {
+  display: block;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
 }
 
 .dashboard-body {

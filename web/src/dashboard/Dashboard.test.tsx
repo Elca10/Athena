@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
+import { explainUsageError } from "./StatsTiles";
 import * as api from "./api";
 
 vi.mock("./api");
@@ -42,8 +43,9 @@ test("renders the top bar actions and the session columns' empty state", async (
     expect(screen.getByRole("heading", { name: label })).toBeInTheDocument();
   }
   expect(await screen.findAllByText("Nothing here yet.")).toHaveLength(3);
-  expect(await screen.findByText(/no questions answered yet/)).toBeInTheDocument();
-  expect(await screen.findByText(/Subscription usage — session: unknown · week: unknown/)).toBeInTheDocument();
+  expect(await screen.findByText("No questions answered yet")).toBeInTheDocument();
+  expect(screen.queryByText(/Calibration/)).not.toBeInTheDocument();
+  expect(await screen.findAllByText("unknown")).toHaveLength(2);
 });
 
 test("renders real session stats, including the per-confidence calibration breakdown", async () => {
@@ -67,11 +69,17 @@ test("renders real session stats, including the per-confidence calibration break
   mockEmptyUsage();
   render(<Dashboard />);
 
-  expect(await screen.findByText(/3 sessions · 12 questions this week · 4-day streak/)).toBeInTheDocument();
-  expect(screen.getByText(/75% accuracy \(9\/12\)/)).toBeInTheDocument();
-  expect(screen.getByText(/confidence 2 → 50% \(2\)/)).toBeInTheDocument();
-  expect(screen.getByText(/confidence 5 → 80% \(10\)/)).toBeInTheDocument();
-  expect(screen.queryByText(/confidence 1 →/)).not.toBeInTheDocument();
+  expect(await screen.findByText("3 sessions")).toBeInTheDocument();
+  expect(screen.getByText("12 questions")).toBeInTheDocument();
+  expect(screen.getByText("4 days")).toBeInTheDocument();
+  expect(screen.getByText("75%")).toBeInTheDocument();
+  expect(screen.getByText("9 of 12 correct")).toBeInTheDocument();
+  // The calibration chart: a hover tooltip per level, and a table for screen readers.
+  expect(screen.getByTitle("Confidence 2: 50% correct (2 answered)")).toBeInTheDocument();
+  expect(screen.getByTitle("Confidence 5: 80% correct (10 answered)")).toBeInTheDocument();
+  expect(screen.getByTitle("Confidence 1: nothing answered yet")).toBeInTheDocument();
+  const table = screen.getByRole("table", { name: /Calibration/ });
+  expect(within(table).getAllByRole("row")).toHaveLength(6);
 });
 
 test("renders real subscription usage, including each window's reset time", async () => {
@@ -87,8 +95,12 @@ test("renders real subscription usage, including each window's reset time", asyn
   });
   render(<Dashboard />);
 
-  expect(await screen.findByText(/Subscription usage — session: 12% used \(resets/)).toBeInTheDocument();
-  expect(screen.getByText(/week: 91% used/)).toBeInTheDocument();
+  expect(await screen.findByText("12% used")).toBeInTheDocument();
+  expect(screen.getByText(/^Resets /)).toBeInTheDocument();
+  expect(screen.getByRole("meter", { name: "Session (5 hours) usage" })).toHaveAttribute("aria-valuenow", "12");
+  // Near the limit says so in words, not just colour.
+  expect(screen.getByText(/Near limit/)).toBeInTheDocument();
+  expect(screen.getByRole("meter", { name: "Week usage" })).toHaveAttribute("aria-valuenow", "91");
 });
 
 test("shows a 'couldn't check' message when the usage check itself failed", async () => {
@@ -103,7 +115,17 @@ test("shows a 'couldn't check' message when the usage check itself failed", asyn
   });
   render(<Dashboard />);
 
-  expect(await screen.findByText(/Subscription usage — couldn't check\./)).toBeInTheDocument();
+  expect(await screen.findByText(/Couldn't check\. Claude Code isn't logged in\. Open a terminal, run claude, log in/)).toBeInTheDocument();
+  expect(screen.getByText("claude exited with code 1: not logged in")).toBeInTheDocument();
+});
+
+test("explains each usual reason the usage check fails, with what to do", () => {
+  expect(explainUsageError("spawn claude ENOENT")).toMatch(/wasn't found/);
+  expect(explainUsageError("claude exited with code 1: 'claude' is not recognized as an internal or external command")).toMatch(/wasn.t found/);
+  expect(explainUsageError("claude exited with code 1: Invalid API key · Please run /login")).toMatch(/isn't logged in/);
+  expect(explainUsageError("timed out after 45000ms")).toMatch(/took too long/);
+  expect(explainUsageError("Couldn't parse /usage output -- the CLI's reply shape may have changed.")).toMatch(/changed shape/);
+  expect(explainUsageError("something odd")).toMatch(/reported a problem/);
 });
 
 test("'Check now' re-checks usage on demand and disables itself while in flight", async () => {
