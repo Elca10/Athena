@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { applyUpdate, getHealth, getUpdateStatus, type UpdateStatus } from "./api";
+import { applyUpdate, checkForUpdates, getHealth, getUpdateStatus, type UpdateStatus } from "./api";
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -12,6 +12,11 @@ import { useFocusTrap } from "../useFocusTrap";
 // in plain words rather than reloading.
 
 const STATUS_POLL_MS = 5 * 60 * 1000;
+// Opening Athena (or coming back to it) checks GitHub again when the last
+// check is older than this. Issue #8: the server only checks every 30
+// minutes on its own, so a fresh release stayed invisible for up to half
+// an hour with no sign anything was being checked.
+const STALE_CHECK_MS = 5 * 60 * 1000;
 const UPDATE_TIMEOUT_MS = 10 * 60 * 1000;
 
 type Phase =
@@ -39,28 +44,69 @@ export function UpdateControl({
   const [status, setStatus] = useState<UpdateStatus | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [startError, setStartError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  // Set after a check the user asked for found nothing, so the button can
+  // say so briefly instead of looking like it did nothing.
+  const [justChecked, setJustChecked] = useState(false);
   const mounted = useRef(true);
+  const checkInFlight = useRef(false);
   useEscapeKey(() => setPhase({ kind: "idle" }), phase.kind === "confirm" || phase.kind === "message");
 
-  async function refreshStatus() {
+  async function refreshStatus(): Promise<UpdateStatus | null> {
     try {
       const next = await getUpdateStatus();
       if (mounted.current) setStatus(next);
+      return next;
     } catch {
       // Not worth a banner: no status just means no pill.
+      return null;
     }
+  }
+
+  async function checkNow({ manual = false } = {}) {
+    if (checkInFlight.current) return;
+    checkInFlight.current = true;
+    setChecking(true);
+    setJustChecked(false);
+    try {
+      try {
+        await checkForUpdates();
+      } catch {
+        // The status below carries the check's own error, if any.
+      }
+      const next = await refreshStatus();
+      if (manual && mounted.current && next && !next.available && !next.error) {
+        setJustChecked(true);
+        setTimeout(() => mounted.current && setJustChecked(false), 5000);
+      }
+    } finally {
+      checkInFlight.current = false;
+      if (mounted.current) setChecking(false);
+    }
+  }
+
+  async function refreshAndCheckIfStale() {
+    const current = await refreshStatus();
+    const checkedAt = current?.checkedAt ? Date.parse(current.checkedAt) : 0;
+    if (current && !current.updating && Date.now() - checkedAt > STALE_CHECK_MS) await checkNow();
   }
 
   useEffect(() => {
     mounted.current = true;
-    refreshStatus();
+    refreshAndCheckIfStale();
     const interval = setInterval(() => {
       if (document.visibilityState === "visible") refreshStatus();
     }, STATUS_POLL_MS);
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible") refreshAndCheckIfStale();
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
     return () => {
       mounted.current = false;
       clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // While updating: wait for the new commit to answer, or for the server
@@ -134,6 +180,23 @@ export function UpdateControl({
 
   return (
     <>
+      {status && !status.available && phase.kind === "idle" && (
+        <button
+          type="button"
+          className="update-check"
+          onClick={() => checkNow({ manual: true })}
+          disabled={checking}
+          title={status.error ? `Last check failed: ${status.error}` : undefined}
+        >
+          {checking
+            ? "Checking for updates…"
+            : justChecked
+              ? "Up to date ✓"
+              : status.error
+                ? "Couldn't check for updates · Retry"
+                : "Check for updates"}
+        </button>
+      )}
       {status?.available && phase.kind === "idle" && (
         <div className="update-pill" role="status">
           <span>Update available</span>

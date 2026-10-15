@@ -16,6 +16,8 @@ export type UpdateStatus = {
   current: string | null;
   latest: string | null;
   checkedAt: string | null;
+  /** Why the last check failed (offline, git missing…); absent when it worked. */
+  error?: string;
   updating: boolean;
   blockedReason: string | null;
   lastUpdate: LastUpdate | null;
@@ -29,6 +31,13 @@ export async function getUpdateStatus(): Promise<UpdateStatus> {
   const res = await fetch("/api/update/status");
   if (!res.ok) throw new Error(`GET /api/update/status responded ${res.status}`);
   return res.json();
+}
+
+/** Asks the server to check GitHub now instead of waiting for its next
+ * periodic check (every 30 minutes). */
+export async function checkForUpdates(): Promise<void> {
+  const res = await fetch("/api/update/check", { method: "POST" });
+  if (!res.ok) throw new Error(`POST /api/update/check responded ${res.status}`);
 }
 
 /** Throws while the server is down mid-update; callers treat that as

@@ -704,6 +704,21 @@ select {
 
 /* One-click updates (update/UpdateControl.tsx): a quiet pill in the top
    bar, only when an update exists; its dialogs reuse .modal. */
+/* Quiet on purpose: it sits in a busy header and only matters now and then. */
+.update-check {
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.update-check:hover:not(:disabled) {
+  background: none;
+  color: var(--text-h);
+  text-decoration: underline;
+}
+
 .update-pill {
   display: inline-flex;
   align-items: center;

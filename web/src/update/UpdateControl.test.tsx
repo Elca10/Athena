@@ -21,11 +21,48 @@ const base: api.UpdateStatus = {
   lastUpdate: null,
 };
 
-test("renders nothing when there's no update", async () => {
-  vi.mocked(api.getUpdateStatus).mockResolvedValue({ ...base, available: false });
-  const { container } = render(<UpdateControl onReportBug={() => {}} />);
-  await waitFor(() => expect(api.getUpdateStatus).toHaveBeenCalled());
-  expect(container).toBeEmptyDOMElement();
+// Issue #8: a release promoted minutes ago stayed invisible (the server
+// only checks every 30 minutes) and nothing showed a check was happening.
+test("opening Athena with a stale last check checks GitHub now, and shows the update it finds", async () => {
+  const stale = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  vi.mocked(api.getUpdateStatus)
+    .mockResolvedValueOnce({ ...base, available: false, checkedAt: stale })
+    .mockResolvedValue({ ...base, available: true, checkedAt: new Date().toISOString() });
+  vi.mocked(api.checkForUpdates).mockResolvedValue();
+  render(<UpdateControl onReportBug={() => {}} />);
+
+  expect(await screen.findByText("Update available")).toBeInTheDocument();
+  expect(api.checkForUpdates).toHaveBeenCalledTimes(1);
+});
+
+test("a recent check isn't repeated on open; the quiet Check for updates control shows instead", async () => {
+  vi.mocked(api.getUpdateStatus).mockResolvedValue({ ...base, available: false, checkedAt: new Date().toISOString() });
+  render(<UpdateControl onReportBug={() => {}} />);
+  expect(await screen.findByRole("button", { name: "Check for updates" })).toBeEnabled();
+  expect(api.checkForUpdates).not.toHaveBeenCalled();
+});
+
+test("Check for updates says so when there's nothing new", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getUpdateStatus).mockResolvedValue({ ...base, available: false, checkedAt: new Date().toISOString() });
+  vi.mocked(api.checkForUpdates).mockResolvedValue();
+  render(<UpdateControl onReportBug={() => {}} />);
+
+  await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+  expect(api.checkForUpdates).toHaveBeenCalledTimes(1);
+  expect(await screen.findByRole("button", { name: "Up to date ✓" })).toBeInTheDocument();
+});
+
+test("a failed check says so (with the reason on hover) and offers a retry", async () => {
+  vi.mocked(api.getUpdateStatus).mockResolvedValue({
+    ...base,
+    available: false,
+    checkedAt: new Date().toISOString(),
+    error: "git fetch failed: Could not resolve host: github.com",
+  });
+  render(<UpdateControl onReportBug={() => {}} />);
+  const retry = await screen.findByRole("button", { name: "Couldn't check for updates · Retry" });
+  expect(retry).toHaveAttribute("title", expect.stringMatching(/Could not resolve host/));
 });
 
 test("during a Live turn the button is disabled and says why", async () => {
