@@ -207,8 +207,11 @@ the actual enforcement, so a `release` that's somehow diverged (it
 shouldn't) will fail loudly instead of being silently rewritten. Running
 it again on an already-released commit does nothing.
 
-Versions follow semver: patch for fixes, `--minor` for new features,
-`--major` for changes that break existing installs or data. Pushing the
+Versions follow semver: patch for fixes, `--minor` for new features or
+visible behaviour changes, `--major` for changes that break existing
+installs or data. These meanings hold before 1.0 too (a new feature in
+0.x is still `--minor`), so nothing changes at `1.0.0` — the deliberate
+public-launch version — except that they become promises to users. Pushing the
 tag runs `.github/workflows/release.yml`, which publishes a GitHub Release
 whose notes are the commit subjects since the previous version — so write
 commit subjects for a reader. The app shows the version it's running
