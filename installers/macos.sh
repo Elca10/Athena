@@ -15,7 +15,15 @@
 # ATHENA_UPDATE_BRANCH (which branch installs track and auto-update from —
 # defaults to `release` so nothing pushed straight to `main` reaches an
 # installed copy until the maintainer promotes it; see
-# scripts/promote-release.mjs).
+# scripts/promote-release.mjs), ATHENA_APPLICATIONS_DIR (where the relaunch
+# app goes — so a test never touches the real ~/Applications; setting it
+# also makes the app get written on a non-macOS test host).
+#
+# Also writes an Athena-Studying.app into ~/Applications (Launchpad,
+# Spotlight, draggable to the Dock) that re-runs this same script from the
+# checkout, so a relaunch gets the same update + rollback path as a fresh
+# install, or just opens the browser when Athena is already running — the
+# macOS twin of windows.ps1's relaunch shortcut (SPEC-v2.md section 7).
 
 set -euo pipefail
 
@@ -25,6 +33,8 @@ BRANCH="${ATHENA_UPDATE_BRANCH:-release}"
 MIN_NODE_MAJOR=18
 PORT="${ATHENA_PORT:-4417}"
 APP_URL="http://127.0.0.1:$PORT/"
+APP_NAME="Athena-Studying"
+APPLICATIONS_DIR="${ATHENA_APPLICATIONS_DIR:-$HOME/Applications}"
 
 log() { printf '==> %s\n' "$1"; }
 fail() { printf 'Athena-Studying install failed: %s\n' "$1" >&2; exit 1; }
@@ -94,19 +104,104 @@ clone_or_update() {
   fi
 }
 
+# The app's executable. Finder launches apps with a bare PATH
+# (/usr/bin:/bin:/usr/sbin:/sbin), which has none of Homebrew's node/gh or
+# Claude Code's claude — so it bakes in the PATH this install ran with
+# (the terminal where the README had the user check all three), and the
+# server it starts inherits it. Output goes to a log file because there's
+# no terminal to show it, and a failure gets a dialog instead of silence.
+app_launcher_source() {
+  printf '#!/bin/bash\n'
+  printf '# Written by %s/installers/macos.sh; re-running the installer rewrites it.\n' "$INSTALL_DIR"
+  printf 'export PATH=%q\n' "$PATH"
+  printf 'export ATHENA_INSTALL_DIR=%q\n' "$INSTALL_DIR"
+  printf 'export ATHENA_REPO_URL=%q\n' "$REPO_URL"
+  printf 'export ATHENA_UPDATE_BRANCH=%q\n' "$BRANCH"
+  printf 'export ATHENA_PORT=%q\n' "$PORT"
+  printf 'export ATHENA_APPLICATIONS_DIR=%q\n' "$APPLICATIONS_DIR"
+  cat <<'EOF'
+log_dir="$HOME/Library/Logs/Athena-Studying"
+mkdir -p "$log_dir"
+if ! /bin/bash "$ATHENA_INSTALL_DIR/installers/macos.sh" >"$log_dir/launcher.log" 2>&1; then
+  osascript -e 'on run argv' -e 'display alert (item 1 of argv) message (item 2 of argv) as critical' -e 'end run' \
+    "Athena-Studying couldn't start" \
+    "Try opening it again. If it still fails, run the install command from the README in Terminal to see what's wrong. Details: $log_dir/launcher.log" \
+    >/dev/null 2>&1
+  exit 1
+fi
+EOF
+}
+
+app_info_plist() {
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key><string>$APP_NAME</string>
+  <key>CFBundleDisplayName</key><string>$APP_NAME</string>
+  <key>CFBundleIdentifier</key><string>io.github.elca10.athena-studying</string>
+  <key>CFBundleExecutable</key><string>$APP_NAME</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+</dict>
+</plist>
+EOF
+}
+
+# Best-effort, like windows.ps1's Install-RelaunchShortcuts: an app is a
+# convenience, so failing to write one must never fail the install. Built
+# in a temp dir and swapped in whole, and skipped when nothing changed —
+# the usual case when the app itself is what's running this script.
+install_relaunch_app() {
+  [[ "${OSTYPE:-}" == darwin* || -n "${ATHENA_APPLICATIONS_DIR:-}" ]] || return 0
+  [ -f "$INSTALL_DIR/installers/macos.sh" ] || return 0
+  local app="$APPLICATIONS_DIR/$APP_NAME.app"
+  local tmp="$APPLICATIONS_DIR/.$APP_NAME.app.tmp.$$"
+  local exe="Contents/MacOS/$APP_NAME"
+  if ! {
+    rm -rf "$tmp" \
+      && mkdir -p "$tmp/Contents/MacOS" \
+      && app_info_plist >"$tmp/Contents/Info.plist" \
+      && app_launcher_source >"$tmp/$exe" \
+      && chmod 755 "$tmp/$exe"
+  } 2>/dev/null; then
+    rm -rf "$tmp" 2>/dev/null || true
+    log "Couldn't create the $APP_NAME app in $APPLICATIONS_DIR. Athena-Studying still works; reopen it by running this install command again."
+    return 0
+  fi
+  if cmp -s "$tmp/$exe" "$app/$exe" 2>/dev/null && cmp -s "$tmp/Contents/Info.plist" "$app/Contents/Info.plist" 2>/dev/null; then
+    rm -rf "$tmp" 2>/dev/null || true
+    return 0
+  fi
+  if rm -rf "$app" 2>/dev/null && mv "$tmp" "$app" 2>/dev/null; then
+    log "Added $APP_NAME to $APPLICATIONS_DIR. Next time, open it from Launchpad or Spotlight (or drag it to your Dock)."
+  else
+    rm -rf "$tmp" 2>/dev/null || true
+    log "Couldn't create the $APP_NAME app in $APPLICATIONS_DIR. Athena-Studying still works; reopen it by running this install command again."
+  fi
+}
+
 main() {
   if already_running; then
     log "Athena-Studying is already running: $APP_URL"
     log "To update it, stop it first, then run this command again. To stop it:"
     log "  lsof -ti tcp:$PORT -sTCP:LISTEN | xargs kill    (or just restart your Mac)"
+    # Doesn't touch the checkout, so it's safe under a live server — and
+    # it's how an install from before the app existed gets one.
+    install_relaunch_app
     if [ -z "${ATHENA_NO_OPEN_BROWSER:-}" ] && have open; then open "$APP_URL" || true; fi
     exit 0
   fi
   ensure_git
   ensure_node
   clone_or_update
+  install_relaunch_app
   log "Handing off to the Node installer..."
   node "$INSTALL_DIR/installers/bootstrap.mjs"
 }
 
-main
+# On one line so bash has read all of it before running: when the app runs
+# this file from the checkout, the update in clone_or_update can replace
+# it on disk mid-run.
+main "$@"; exit $?

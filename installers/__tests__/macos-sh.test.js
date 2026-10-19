@@ -15,12 +15,12 @@
 // job — prereq checks, clone, update, handoff — without also paying for a
 // real `npm install`.
 
-import { test } from "node:test";
+import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, existsSync, readFileSync, rmSync, statSync, chmodSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -58,24 +58,40 @@ console.log("stub bootstrap ran");
  * branch is `release` (matching macos.sh's own ATHENA_UPDATE_BRANCH
  * default) so the plain clone/update tests exercise the real tracked
  * branch without needing an override. */
-function makeFixtureRepo() {
+function makeFixtureRepo({ withMacosSh = false } = {}) {
   const dir = mkdtempSync(path.join(tmpdir(), "athena-fixture-repo-"));
   execFileSync("git", ["init", "-q"], { cwd: dir });
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir });
   execFileSync("git", ["config", "user.name", "Test"], { cwd: dir });
   mkdirSync(path.join(dir, "installers"), { recursive: true });
   writeFileSync(path.join(dir, "installers", "bootstrap.mjs"), stubBootstrapSource);
+  // The relaunch app re-runs the checkout's own copy of macos.sh, so the
+  // app tests need the real one in the checkout too.
+  if (withMacosSh) writeFileSync(path.join(dir, "installers", "macos.sh"), readFileSync(SCRIPT_PATH));
   execFileSync("git", ["add", "-A"], { cwd: dir });
   execFileSync("git", ["commit", "-q", "-m", "fixture init"], { cwd: dir });
   execFileSync("git", ["branch", "-M", "release"], { cwd: dir });
   return dir;
 }
 
+/** Every run gets its own Applications dir unless a test picks one, so
+ * nothing ever writes a relaunch app into a real ~/Applications. */
+const scratchAppsRoot = mkdtempSync(path.join(tmpdir(), "athena-apps-"));
+after(() => rmSync(scratchAppsRoot, { recursive: true, force: true }));
+
+function installerEnv(env) {
+  return {
+    HOME: env.HOME ?? tmpdir(),
+    ATHENA_APPLICATIONS_DIR: env.ATHENA_APPLICATIONS_DIR ?? mkdtempSync(path.join(scratchAppsRoot, "run-")),
+    ...env,
+  };
+}
+
 function runInstaller(env) {
   try {
     const stdout = execFileSync(BASH_PATH, [SCRIPT_PATH], {
       encoding: "utf8",
-      env: { HOME: env.HOME ?? tmpdir(), ...env },
+      env: installerEnv(env),
     });
     return { code: 0, stdout, stderr: "" };
   } catch (err) {
@@ -218,7 +234,7 @@ async function runInstallerAsync(env) {
   try {
     const { stdout, stderr } = await promisify(execFile)(BASH_PATH, [SCRIPT_PATH], {
       encoding: "utf8",
-      env: { HOME: env.HOME ?? tmpdir(), ...env },
+      env: installerEnv(env),
     });
     return { code: 0, stdout, stderr };
   } catch (err) {
@@ -290,5 +306,171 @@ test("with curl available but nothing listening, it installs normally", async ()
   } finally {
     cleanup(fakeBin, fixtureRepo, path.dirname(installDir));
     rmSync(marker, { force: true });
+  }
+});
+
+// --- Relaunch app (SPEC-v2.md section 7) -----------------------------------
+
+// What writing the app bundle and running its launcher need on PATH, on
+// top of git/node for the install itself.
+const APP_COMMANDS = ["git", "node", "mkdir", "chmod", "mv", "rm", "cmp", "cat"];
+const APP_NAME = "Athena-Studying";
+
+function appPaths(applicationsDir) {
+  const app = path.join(applicationsDir, `${APP_NAME}.app`);
+  return { app, plist: path.join(app, "Contents", "Info.plist"), exe: path.join(app, "Contents", "MacOS", APP_NAME) };
+}
+
+/** A fake `osascript` that records its arguments, so the launcher's error
+ * dialog can be asserted without a real Mac. */
+function addFakeOsascript(binDir, recordPath) {
+  const fake = path.join(binDir, "osascript");
+  writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$@" > '${recordPath}'\n`);
+  chmodSync(fake, 0o755);
+}
+
+/** Runs the app's executable the way Finder would: a bare system PATH and
+ * no ATHENA_* overrides, so everything it needs must be baked in. */
+function runLauncher(exe, { HOME, marker }) {
+  try {
+    execFileSync(exe, [], { encoding: "utf8", env: { HOME, PATH: "/usr/bin:/bin:/usr/sbin:/sbin", ATHENA_TEST_MARKER: marker } });
+    return 0;
+  } catch (err) {
+    return typeof err.status === "number" ? err.status : 1;
+  }
+}
+
+function setUpAppInstall() {
+  const fakeBin = makeFakeBin(APP_COMMANDS);
+  const fixtureRepo = makeFixtureRepo({ withMacosSh: true });
+  const root = mkdtempSync(path.join(tmpdir(), "athena-install-"));
+  const env = {
+    HOME: path.join(root, "home"),
+    PATH: fakeBin,
+    ATHENA_REPO_URL: fixtureRepo,
+    ATHENA_INSTALL_DIR: path.join(root, "checkout"),
+    ATHENA_APPLICATIONS_DIR: path.join(root, "home", "Applications"),
+    ATHENA_TEST_MARKER: path.join(root, "marker"),
+  };
+  mkdirSync(env.HOME);
+  return { fakeBin, fixtureRepo, root, env, cleanupAll: () => cleanup(fakeBin, fixtureRepo, root) };
+}
+
+test("a fresh install writes a relaunch app with the install's PATH baked in", () => {
+  const { fakeBin, env, cleanupAll } = setUpAppInstall();
+  try {
+    const result = runInstaller(env);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Added Athena-Studying to/);
+    const { plist, exe } = appPaths(env.ATHENA_APPLICATIONS_DIR);
+    assert.match(readFileSync(plist, "utf8"), /<key>CFBundleExecutable<\/key><string>Athena-Studying<\/string>/);
+    assert.ok(statSync(exe).mode & 0o100, "launcher must be executable");
+    const launcher = readFileSync(exe, "utf8");
+    assert.ok(launcher.includes(`export PATH=${fakeBin}\n`), "Finder's bare PATH has no node/claude/gh, so the install's PATH must be baked in");
+    assert.ok(launcher.includes(`export ATHENA_INSTALL_DIR=${env.ATHENA_INSTALL_DIR}\n`));
+  } finally {
+    cleanupAll();
+  }
+});
+
+test("opening the app re-runs the checkout's installer with the baked-in PATH and logs it", () => {
+  const { env, cleanupAll } = setUpAppInstall();
+  try {
+    assert.equal(runInstaller(env).code, 0);
+    rmSync(env.ATHENA_TEST_MARKER);
+
+    const code = runLauncher(appPaths(env.ATHENA_APPLICATIONS_DIR).exe, { HOME: env.HOME, marker: env.ATHENA_TEST_MARKER });
+    assert.equal(code, 0);
+    assert.ok(existsSync(env.ATHENA_TEST_MARKER), "bootstrap.mjs stub should have run via the app");
+    const log = readFileSync(path.join(env.HOME, "Library", "Logs", "Athena-Studying", "launcher.log"), "utf8");
+    assert.match(log, /Handing off to the Node installer/);
+  } finally {
+    cleanupAll();
+  }
+});
+
+test("when the app can't start Athena it shows a dialog instead of failing silently", () => {
+  const { fakeBin, env, root, cleanupAll } = setUpAppInstall();
+  const record = path.join(root, "osascript-args");
+  try {
+    addFakeOsascript(fakeBin, record);
+    assert.equal(runInstaller(env).code, 0);
+    // A bootstrap that fails, standing in for any startup failure.
+    writeFileSync(path.join(env.ATHENA_INSTALL_DIR, "installers", "bootstrap.mjs"), "process.exit(3);\n");
+
+    const code = runLauncher(appPaths(env.ATHENA_APPLICATIONS_DIR).exe, { HOME: env.HOME, marker: env.ATHENA_TEST_MARKER });
+    assert.notEqual(code, 0);
+    const args = readFileSync(record, "utf8");
+    assert.match(args, /couldn't start/);
+    assert.match(args, /launcher\.log/);
+  } finally {
+    cleanupAll();
+  }
+});
+
+test("re-running with nothing changed leaves the app alone (the app is often what's running)", () => {
+  const { env, cleanupAll } = setUpAppInstall();
+  try {
+    assert.equal(runInstaller(env).code, 0);
+    const { app } = appPaths(env.ATHENA_APPLICATIONS_DIR);
+    const inodeBefore = statSync(app).ino;
+    const second = runInstaller(env);
+    assert.equal(second.code, 0, second.stderr);
+    assert.doesNotMatch(second.stdout, /Added Athena-Studying/);
+    assert.equal(statSync(app).ino, inodeBefore, "an unchanged app must not be swapped out");
+  } finally {
+    cleanupAll();
+  }
+});
+
+test("an install whose PATH changed rewrites the app", () => {
+  const { fakeBin, env, root, cleanupAll } = setUpAppInstall();
+  const otherBin = makeFakeBin(APP_COMMANDS);
+  try {
+    assert.equal(runInstaller(env).code, 0);
+    const second = runInstaller({ ...env, PATH: otherBin });
+    assert.equal(second.code, 0, second.stderr);
+    const launcher = readFileSync(appPaths(env.ATHENA_APPLICATIONS_DIR).exe, "utf8");
+    assert.ok(launcher.includes(`export PATH=${otherBin}\n`));
+    assert.ok(!launcher.includes(fakeBin));
+    assert.deepEqual(readdirSync(env.ATHENA_APPLICATIONS_DIR), [`${APP_NAME}.app`], "no temp dir left behind");
+  } finally {
+    cleanupAll();
+    cleanup(otherBin, root);
+  }
+});
+
+test("failing to write the app never fails the install", () => {
+  const { env, root, cleanupAll } = setUpAppInstall();
+  try {
+    const blocker = path.join(root, "not-a-dir");
+    writeFileSync(blocker, "");
+    const result = runInstaller({ ...env, ATHENA_APPLICATIONS_DIR: path.join(blocker, "Applications") });
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /Couldn't create the Athena-Studying app/);
+    assert.ok(existsSync(env.ATHENA_TEST_MARKER), "the install itself should still have finished");
+  } finally {
+    cleanupAll();
+  }
+});
+
+test("re-running while already running still adds the app for an older install", async () => {
+  const { env, cleanupAll } = setUpAppInstall();
+  const health = http.createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({ ok: true }));
+  });
+  const port = await listen(health);
+  try {
+    execFileSync("git", ["clone", "--quiet", "--branch", "release", env.ATHENA_REPO_URL, env.ATHENA_INSTALL_DIR]);
+    const fakeBinWithCurl = makeFakeBin([...APP_COMMANDS, "curl", "grep"]);
+    const result = await runInstallerAsync({ ...env, PATH: fakeBinWithCurl, ATHENA_PORT: String(port), ATHENA_NO_OPEN_BROWSER: "1" });
+    cleanup(fakeBinWithCurl);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /already running/i);
+    assert.ok(existsSync(appPaths(env.ATHENA_APPLICATIONS_DIR).exe));
+  } finally {
+    health.close();
+    cleanupAll();
   }
 });

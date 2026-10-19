@@ -111,7 +111,8 @@ curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/release/installers/ma
 
 It installs `git` and `Node.js` if needed (approve any Windows
 permission prompt), downloads Athena-Studying into an `Athena-Studying`
-folder in your home folder, and opens it in your browser. The first run
+folder in your home folder, opens it in your browser, and (on Mac) adds an
+**Athena-Studying** app for reopening it later. The first run
 takes a few minutes. A short setup wizard then confirms Claude Code and
 GitHub are ready and has you create your first subject.
 
@@ -128,11 +129,15 @@ GitHub are ready and has you create your first subject.
 
 - **Windows:** use the **Athena-Studying** shortcut on your Desktop or
   Start menu.
-- **Mac:** there's no shortcut yet; run the step 7 install command again.
+- **Mac:** open **Athena-Studying** from Launchpad or Spotlight
+  (`Cmd+Space`, type *Athena*). It lives in the Applications folder in
+  your home folder; drag it to your Dock to keep it handy. Installed
+  before the app existed? Run the step 7 command once to add it.
 
 Either way, it opens your browser to Athena, starting it first (and
-checking for updates) if it isn't running. Your study data is never
-touched.
+checking for updates) if it isn't running. That can take up to a minute
+after an update. Your study data is never touched. If the Mac app can't
+start Athena, it says so; run the step 7 command in Terminal to see why.
 
 ## Stopping Athena-Studying
 
@@ -172,8 +177,8 @@ shows you the link.
 ## Uninstalling
 
 [Stop Athena](#stopping-athena-studying), then delete its app folder,
-its data folder (your subjects and progress), and on Windows its
-shortcuts:
+its data folder (your subjects and progress), and its shortcuts or
+app:
 
 **Windows** (PowerShell):
 
@@ -189,6 +194,7 @@ Remove-Item -Force "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Athena-St
 ```bash
 rm -rf ~/Athena-Studying
 rm -rf ~/Library/Application\ Support/Athena-Studying
+rm -rf ~/Applications/Athena-Studying.app ~/Library/Logs/Athena-Studying
 ```
 
 ## For maintainers
