@@ -74,7 +74,8 @@ export async function waitForExit(pid, { timeoutMs = 60_000, pollMs = 200, isAli
  * Returns the commit now checked out.
  */
 export async function moveToLatest({ cwd, branch, git = runGit }) {
-  await git(["fetch", "--quiet", "origin", branch], { cwd });
+  // --tags: the release tags name each version (see server/src/bugReport.js).
+  await git(["fetch", "--quiet", "--tags", "origin", branch], { cwd });
   const target = await git(["rev-parse", `refs/remotes/origin/${branch}`], { cwd });
   const head = await git(["rev-parse", "HEAD"], { cwd });
   if (target === head) return target;

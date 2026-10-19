@@ -31,19 +31,27 @@ const BUG_REPORT_LABEL = "bug-report";
 
 const TITLE_MAX = 72;
 
-/** Current checkout's commit, best-effort — `null` if `cwd` isn't a git
- * checkout at all (e.g. a test running outside one) rather than throwing,
- * since a missing commit just means "unknown" in the preview, not a
- * reason to fail the whole report. */
+/** Current checkout's commit and release version, best-effort — `null`
+ * commit if `cwd` isn't a git checkout at all (e.g. a test running outside
+ * one) rather than throwing, since a missing commit just means "unknown"
+ * in the preview, not a reason to fail the whole report.
+ *
+ * `version` is the release tag (scripts/promote-release.mjs): "v0.2.0" on
+ * a released commit, "v0.2.0-3-gabc1234" three commits past one (a dev
+ * checkout), or package.json's version when no tag is reachable (a clone
+ * that hasn't fetched tags yet). */
 export async function getAppVersion(cwd) {
   let commit = null;
+  let version = pkg.version;
   try {
     const result = await runCommand("git", ["rev-parse", "HEAD"], { cwd, timeoutMs: 5_000 });
     if (result.code === 0) commit = result.stdout.trim();
+    const described = await runCommand("git", ["describe", "--tags", "--match", "v*"], { cwd, timeoutMs: 5_000 });
+    if (described.code === 0) version = described.stdout.trim();
   } catch {
     // Not a git checkout, or git isn't on PATH — leave commit null.
   }
-  return { packageVersion: pkg.version, commit };
+  return { packageVersion: pkg.version, version, commit };
 }
 
 const OS_LABELS = { win32: "Windows", darwin: "macOS", linux: "Linux" };
@@ -77,7 +85,8 @@ function buildTitle(redactedDescription) {
 }
 
 function buildBody({ redactedDescription, appVersion, osSummary, redactedErrors }) {
-  const versionLine = appVersion.commit ? `${appVersion.packageVersion} (commit ${appVersion.commit.slice(0, 8)})` : `${appVersion.packageVersion} (commit unknown)`;
+  const shown = appVersion.version ?? appVersion.packageVersion;
+  const versionLine = appVersion.commit ? `${shown} (commit ${appVersion.commit.slice(0, 8)})` : `${shown} (commit unknown)`;
   const osLine = `${osSummary.label} ${osSummary.release} (${osSummary.arch})`;
   const errorsBlock = redactedErrors.length ? redactedErrors.join("\n") : "None captured.";
 

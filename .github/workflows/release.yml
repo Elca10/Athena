@@ -1,0 +1,39 @@
+name: Release
+
+# Publishes a GitHub Release for every version tag that
+# scripts/promote-release.mjs pushes (atomically with the `release` branch
+# move it ships). The Release notes are the tag's own annotation — the
+# commit subjects since the previous version, written by the promote
+# script — so this workflow makes no decisions of its own: CI-green,
+# fast-forward-only and the version number were all settled before the
+# tag existed. Creating a Release needs write auth, which is why this half
+# lives here (the workflow's own GITHUB_TOKEN) rather than in the
+# deliberately token-free promote script.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      # Reads the annotation through the API rather than a checkout:
+      # actions/checkout's shallow tag fetch can replace an annotated tag
+      # with a lightweight one, silently losing exactly the message needed.
+      - name: Create GitHub Release from the tag's notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")
+          if [ "$(jq -r .object.type <<<"$ref")" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag with no notes — tag releases with scripts/promote-release.mjs."
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/git/tags/$(jq -r .object.sha <<<"$ref")" --jq .message > notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --title "Athena $TAG" --notes-file notes.md

@@ -74,7 +74,7 @@ already_running() {
 clone_or_update() {
   if [ -d "$INSTALL_DIR/.git" ]; then
     log "Found an existing checkout at $INSTALL_DIR, updating..."
-    git -C "$INSTALL_DIR" fetch origin "$BRANCH" || fail "git fetch failed in $INSTALL_DIR."
+    git -C "$INSTALL_DIR" fetch --tags origin "$BRANCH" || fail "git fetch failed in $INSTALL_DIR."
     if git -C "$INSTALL_DIR" show-ref --verify --quiet "refs/heads/$BRANCH"; then
       git -C "$INSTALL_DIR" checkout "$BRANCH" || fail "git checkout $BRANCH failed in $INSTALL_DIR."
     else

@@ -28,6 +28,16 @@ async function git(args, { cwd, run, timeoutMs = 10_000 }) {
   return result.stdout.trim();
 }
 
+/** The release tag (vX.Y.Z) on exactly `commit`, or null — a commit pushed
+ * to the branch some other way just has no name to show. */
+async function releaseTagAt(commit, { repoDir, run }) {
+  try {
+    return await git(["describe", "--tags", "--exact-match", "--match", "v*", commit], { cwd: repoDir, run });
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Fetches `branch` from origin and reports whether it is ahead of HEAD.
  * `available` is true only when HEAD is a strict ancestor of the fetched
@@ -40,11 +50,15 @@ export async function checkForUpdate({ repoDir, branch = updateBranch(), run = r
   let current = null;
   try {
     current = await git(["rev-parse", "HEAD"], { cwd: repoDir, run });
-    await git(["fetch", "--quiet", "origin", branch], { cwd: repoDir, run, timeoutMs: FETCH_TIMEOUT_MS });
+    // --tags: a branch fetch alone doesn't bring the release tags along,
+    // and they're what names a version (latestVersion below, and the
+    // running version once the update is applied — bugReport.js).
+    await git(["fetch", "--quiet", "--tags", "origin", branch], { cwd: repoDir, run, timeoutMs: FETCH_TIMEOUT_MS });
     const latest = await git(["rev-parse", `refs/remotes/origin/${branch}`], { cwd: repoDir, run });
-    if (latest === current) return { available: false, current, latest, checkedAt };
+    const latestVersion = await releaseTagAt(latest, { repoDir, run });
+    if (latest === current) return { available: false, current, latest, latestVersion, checkedAt };
     const ancestor = await run("git", ["merge-base", "--is-ancestor", current, latest], { cwd: repoDir, timeoutMs: 10_000 });
-    return { available: ancestor.code === 0, current, latest, checkedAt };
+    return { available: ancestor.code === 0, current, latest, latestVersion, checkedAt };
   } catch (err) {
     return { available: false, current, latest: null, checkedAt, error: err.message };
   }

@@ -194,14 +194,26 @@ reaches anyone until you deliberately promote it. To ship whatever is
 currently on `main`:
 
 ```bash
-node scripts/promote-release.mjs <main-commit-sha>
+node scripts/promote-release.mjs <main-commit-sha>            # v0.4.1 -> v0.4.2
+node scripts/promote-release.mjs <main-commit-sha> --minor    # v0.4.1 -> v0.5.0
+node scripts/promote-release.mjs <main-commit-sha> --major    # v0.4.1 -> v1.0.0
 ```
 
-This fast-forwards `release` to that commit, but only if CI has already
-finished green for it — otherwise it refuses and exits non-zero. It never
-force-pushes: a plain `git push` with no `--force` is the actual
-enforcement, so a `release` that's somehow diverged (it shouldn't) will
-fail loudly instead of being silently rewritten.
+This fast-forwards `release` to that commit and tags it with the next
+version, but only if CI has already finished green for it — otherwise it
+refuses and exits non-zero. Branch and tag are pushed atomically (both or
+neither). It never force-pushes: a plain `git push` with no `--force` is
+the actual enforcement, so a `release` that's somehow diverged (it
+shouldn't) will fail loudly instead of being silently rewritten. Running
+it again on an already-released commit does nothing.
+
+Versions follow semver: patch for fixes, `--minor` for new features,
+`--major` for changes that break existing installs or data. Pushing the
+tag runs `.github/workflows/release.yml`, which publishes a GitHub Release
+whose notes are the commit subjects since the previous version — so write
+commit subjects for a reader. The app shows the version it's running
+(health and bug reports) and the version on offer, with a link to its
+release notes.
 
 Once `release` moves, every running copy shows **Update available**
 within about half an hour (the server re-checks `release` every 30

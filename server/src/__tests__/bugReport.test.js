@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -42,6 +43,25 @@ test("getAppVersion: a non-git directory reports commit: null, not a throw", asy
   const version = await getAppVersion(dir);
   assert.equal(version.commit, null);
   assert.equal(typeof version.packageVersion, "string");
+});
+
+test("getAppVersion: the release tag names the version, with distance past it on a dev checkout", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-version-"));
+  const git = (...args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  try {
+    git("init", "-q");
+    git("config", "user.email", "test@example.com");
+    git("config", "user.name", "Test");
+    git("commit", "-q", "--allow-empty", "-m", "one");
+    // No tag yet: falls back to package.json's version.
+    assert.equal((await getAppVersion(dir)).version, (await getAppVersion(dir)).packageVersion);
+    git("tag", "-a", "v0.3.0", "-m", "- one");
+    assert.equal((await getAppVersion(dir)).version, "v0.3.0");
+    git("commit", "-q", "--allow-empty", "-m", "two");
+    assert.match((await getAppVersion(dir)).version, /^v0\.3\.0-1-g[0-9a-f]+$/);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("getOsSummary reports this process's real platform/arch", () => {

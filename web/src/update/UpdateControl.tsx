@@ -3,6 +3,10 @@ import { applyUpdate, checkForUpdates, getHealth, getUpdateStatus, type UpdateSt
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
+// Each version's GitHub Release (scripts/promote-release.mjs tags it,
+// .github/workflows/release.yml publishes the notes).
+const RELEASES_URL = "https://github.com/Elca10/Athena/releases";
+
 // One-click updates, the UI half (server: routes/update.js, updateApply.js;
 // installers/updater.mjs does the actual update). Renders nothing unless
 // an update is available. Then: a small pill in the top bar → a confirm
@@ -177,6 +181,7 @@ export function UpdateControl({
   }
 
   const blockedReason = status?.blockedReason ?? null;
+  const latestVersion = status?.latestVersion ?? null;
 
   return (
     <>
@@ -199,7 +204,7 @@ export function UpdateControl({
       )}
       {status?.available && phase.kind === "idle" && (
         <div className="update-pill" role="status">
-          <span>Update available</span>
+          <span>{latestVersion ? `Update available: ${latestVersion}` : "Update available"}</span>
           <button
             type="button"
             className="btn-primary"
@@ -224,8 +229,15 @@ export function UpdateControl({
       {phase.kind === "confirm" && (
         <div className="modal-backdrop">
           <DialogSection className="modal update-modal" role="dialog" aria-modal="true" aria-labelledby="update-confirm-title">
-            <h2 id="update-confirm-title">Update Athena?</h2>
+            <h2 id="update-confirm-title">{latestVersion ? `Update Athena to ${latestVersion}?` : "Update Athena?"}</h2>
             <p>Athena will restart for about a minute; your work is saved.</p>
+            {latestVersion && (
+              <p>
+                <a href={`${RELEASES_URL}/tag/${latestVersion}`} target="_blank" rel="noreferrer">
+                  What's new in {latestVersion}
+                </a>
+              </p>
+            )}
             {blockedReason && <p className="update-error">{blockedReason}</p>}
             {startError && <p className="update-error">{startError}</p>}
             <div className="update-modal-actions">

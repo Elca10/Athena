@@ -318,4 +318,5 @@ the second OS's clean-machine test move to the v2 spec (`SPEC-v2.md`).
 
 Installed copies auto-update from a `release` branch, not `main`; the
 owner promotes a verified, CI-green `main` commit to `release` to ship an
-update (decided 2026-10-12).
+update (decided 2026-10-12). Each promotion is also a semver tag and a
+GitHub Release (decided 2026-10-18) — the tag is the product's version.

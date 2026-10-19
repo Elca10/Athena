@@ -182,7 +182,7 @@ function Install-RelaunchShortcuts {
 function Sync-Checkout {
     if (Test-Path (Join-Path $InstallDir ".git")) {
         Write-Log "Found an existing checkout at $InstallDir, updating..."
-        & git -C $InstallDir fetch origin $Branch
+        & git -C $InstallDir fetch --tags origin $Branch
         if ($LASTEXITCODE -ne 0) { Invoke-Fail "git fetch failed in $InstallDir." }
         & git -C $InstallDir show-ref --verify --quiet "refs/heads/$Branch"
         if ($LASTEXITCODE -eq 0) {

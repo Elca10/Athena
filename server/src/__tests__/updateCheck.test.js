@@ -81,6 +81,32 @@ test("checkForUpdate: a new commit on origin's release is an available update, a
   }
 });
 
+// A plain `git fetch origin release` doesn't bring tags along (verified
+// against real git), so without --tags an installed copy could never name
+// the version it's being offered, or the one it ends up running.
+test("checkForUpdate: names a tagged release, and the installed copy gets its tag", async () => {
+  const { root, installed, maintainer } = makeRepos();
+  try {
+    commit(maintainer, "two");
+    git(maintainer, "tag", "-a", "v0.2.0", "-m", "- two");
+    git(maintainer, "push", "-q", "--atomic", "origin", "release", "refs/tags/v0.2.0");
+
+    const status = await checkForUpdate({ repoDir: installed, branch: "release" });
+    assert.equal(status.available, true);
+    assert.equal(status.latestVersion, "v0.2.0");
+    assert.equal(git(installed, "tag", "--list", "v*"), "v0.2.0");
+
+    // An untagged commit on top just has no version to show.
+    commit(maintainer, "three");
+    git(maintainer, "push", "-q", "origin", "release");
+    const untagged = await checkForUpdate({ repoDir: installed, branch: "release" });
+    assert.equal(untagged.available, true);
+    assert.equal(untagged.latestVersion, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("checkForUpdate: a checkout that's ahead of origin (dev clone) is never offered an update", async () => {
   const { root, installed } = makeRepos();
   try {

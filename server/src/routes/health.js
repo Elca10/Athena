@@ -19,7 +19,9 @@ export function healthRouter(appDataDir, appVersion = Promise.resolve({ commit: 
   router.get("/", async (_req, res) => {
     res.json({
       ok: true,
-      version: pkg.version,
+      // The release this process started on (bugReport.js getAppVersion),
+      // falling back to package.json's when there's no tag to go by.
+      version: (await appVersion).version ?? pkg.version,
       // The commit this process started on (index.js), so a caller can
       // tell which code is really answering, not just that something is.
       commit: (await appVersion).commit,

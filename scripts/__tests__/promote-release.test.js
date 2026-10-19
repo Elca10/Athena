@@ -5,7 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isCommitCiGreen, promoteRelease } from "../promote-release.mjs";
+import { FIRST_VERSION, isCommitCiGreen, nextVersion, parseArgs, promoteRelease } from "../promote-release.mjs";
 
 const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "promote-release.mjs");
 
@@ -114,6 +114,37 @@ test("promoteRelease: refuses and never pushes when CI isn't green", async () =>
   assert.ok(!calls.some((args) => args[0] === "push"), "must never push when CI isn't green");
 });
 
+test("nextVersion: first release is FIRST_VERSION, then bumps from the highest semver tag", () => {
+  assert.equal(nextVersion([]), FIRST_VERSION);
+  assert.equal(nextVersion(["not-a-version", "v1"], "major"), FIRST_VERSION);
+  // Numeric, not lexical: v0.10.0 is higher than v0.9.3.
+  const tags = ["v0.9.3", "v0.10.0", "v0.2.7"];
+  assert.equal(nextVersion(tags), "v0.10.1");
+  assert.equal(nextVersion(tags, "minor"), "v0.11.0");
+  assert.equal(nextVersion(tags, "major"), "v1.0.0");
+});
+
+test("parseArgs: commit plus optional bump flag, in either order", () => {
+  assert.deepEqual(parseArgs(["abc123"]), { commit: "abc123", bump: "patch" });
+  assert.deepEqual(parseArgs(["--minor", "abc123"]), { commit: "abc123", bump: "minor" });
+  assert.deepEqual(parseArgs(["abc123", "--major"]), { commit: "abc123", bump: "major" });
+});
+
+test("promoteRelease: refuses a commit that's already a version, without pushing or tagging", async () => {
+  const calls = [];
+  const runFn = (args) => {
+    calls.push(args);
+    if (args[0] === "rev-parse") return "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    if (args[0] === "tag" && args[1] === "--points-at") return "v0.3.0";
+    return "";
+  };
+  const result = await promoteRelease("deadbeef", { runFn, checkCiGreen: async () => true, log: () => {}, error: () => {} });
+  assert.equal(result.promoted, false);
+  assert.equal(result.reason, "already-released");
+  assert.equal(result.version, "v0.3.0");
+  assert.ok(!calls.some((args) => args[0] === "push" || (args[0] === "tag" && args[1] === "-a")));
+});
+
 test("promoteRelease: pushes the resolved commit to release, with no --force, when CI is green", async () => {
   const calls = [];
   const runFn = (args) => {
@@ -131,7 +162,14 @@ test("promoteRelease: pushes the resolved commit to release, with no --force, wh
   assert.equal(result.commit, "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
   const pushCall = calls.find((args) => args[0] === "push");
   assert.ok(pushCall, "should have pushed");
-  assert.deepEqual(pushCall, ["push", "origin", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef:refs/heads/release"]);
+  assert.deepEqual(pushCall, [
+    "push",
+    "--atomic",
+    "origin",
+    "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef:refs/heads/release",
+    `refs/tags/${FIRST_VERSION}`,
+  ]);
+  assert.equal(result.version, FIRST_VERSION);
   assert.ok(!pushCall.includes("--force") && !pushCall.includes("-f"), "must never force-push");
 });
 
@@ -189,6 +227,10 @@ test("promoteRelease: reports not-fast-forward (and does not retry with force) w
   assert.equal(result.reason, "not-fast-forward");
   const pushCalls = calls.filter((args) => args[0] === "push");
   assert.equal(pushCalls.length, 1, "must not retry the push at all, e.g. with --force");
+  assert.ok(
+    calls.some((args) => args[0] === "tag" && args[1] === "-d"),
+    "the local tag must be dropped so a re-run doesn't trip over it",
+  );
 });
 
 // Real-git integration test: no DI for the fast-forward enforcement itself —
@@ -242,6 +284,8 @@ test("real git: a non-fast-forward push to release is rejected by git itself, wi
     // Confirm release on the remote genuinely wasn't moved.
     const releaseTip = execFileSync("git", ["ls-remote", bareDir, "refs/heads/release"], { encoding: "utf8" }).trim();
     assert.ok(!releaseTip.includes(siblingCommit), "release must not have been moved by the rejected push");
+    // --atomic: the rejected branch update must take its tag down with it.
+    assert.equal(execFileSync("git", ["ls-remote", "--tags", bareDir], { encoding: "utf8" }).trim(), "");
   } finally {
     rmSync(bareDir, { recursive: true, force: true });
     rmSync(cloneDir, { recursive: true, force: true });
@@ -294,6 +338,68 @@ test("real git: the very first promotion creates release on a remote that has no
     assert.equal(result.promoted, true);
     const releaseTip = execFileSync("git", ["ls-remote", bareDir, "refs/heads/release"], { encoding: "utf8" }).trim();
     assert.match(releaseTip, new RegExp(`^${mainCommit}`), "release should now exist on origin, pointing at the promoted commit");
+    // ...and so should the first version tag, also with no tags on origin
+    // beforehand (the other state most likely on a real first run).
+    const tagRef = execFileSync("git", ["ls-remote", bareDir, `refs/tags/${FIRST_VERSION}^{}`], { encoding: "utf8" }).trim();
+    assert.match(tagRef, new RegExp(`^${mainCommit}`), "first version tag should point at the promoted commit");
+  } finally {
+    rmSync(bareDir, { recursive: true, force: true });
+    rmSync(cloneDir, { recursive: true, force: true });
+    rmSync(seedDir, { recursive: true, force: true });
+  }
+});
+
+// Real-git integration test for a normal (non-first) release: the new
+// version bumps from the existing tag, and its annotation — which
+// release.yml publishes as the GitHub Release notes — lists exactly the
+// commits since that tag.
+test("real git: a later release bumps from the previous tag and lists the commits since it", async () => {
+  const bareDir = mkdtempSync(path.join(tmpdir(), "athena-promote-bare-"));
+  const cloneDir = mkdtempSync(path.join(tmpdir(), "athena-promote-clone-"));
+  const seedDir = mkdtempSync(path.join(tmpdir(), "athena-promote-seed-"));
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  try {
+    execFileSync("git", ["init", "-q", "--bare", bareDir]);
+    git(seedDir, ["init", "-q"]);
+    git(seedDir, ["config", "user.email", "test@example.com"]);
+    git(seedDir, ["config", "user.name", "Test"]);
+    git(seedDir, ["commit", "-q", "--allow-empty", "-m", "already shipped"]);
+    git(seedDir, ["branch", "-M", "main"]);
+    git(seedDir, ["tag", "-a", "v0.4.2", "-m", "earlier release"]);
+    git(seedDir, ["remote", "add", "origin", bareDir]);
+    git(seedDir, ["push", "-q", "origin", "main", "main:release", "refs/tags/v0.4.2"]);
+    git(seedDir, ["commit", "-q", "--allow-empty", "-m", "Refs #9: first fix"]);
+    git(seedDir, ["commit", "-q", "--allow-empty", "-m", "Refs #10: second fix"]);
+    git(seedDir, ["push", "-q", "origin", "main"]);
+    const mainCommit = git(seedDir, ["rev-parse", "HEAD"]);
+
+    execFileSync("git", ["clone", "-q", bareDir, cloneDir]);
+    git(cloneDir, ["config", "user.email", "test@example.com"]);
+    git(cloneDir, ["config", "user.name", "Test"]);
+
+    const result = await promoteRelease(mainCommit, {
+      bump: "minor",
+      runFn: runGitAt(cloneDir),
+      checkCiGreen: async () => true,
+      log: () => {},
+      error: () => {},
+    });
+    assert.equal(result.promoted, true);
+    assert.equal(result.version, "v0.5.0");
+    assert.match(git(cloneDir, ["ls-remote", bareDir, "refs/tags/v0.5.0^{}"]), new RegExp(`^${mainCommit}`));
+    assert.match(git(cloneDir, ["ls-remote", bareDir, "refs/heads/release"]), new RegExp(`^${mainCommit}`));
+    const notes = git(cloneDir, ["tag", "-l", "--format=%(contents)", "v0.5.0"]);
+    assert.equal(notes, "- Refs #10: second fix\n- Refs #9: first fix");
+
+    // Promoting the same commit again is a no-op, not a second version.
+    const again = await promoteRelease(mainCommit, {
+      runFn: runGitAt(cloneDir),
+      checkCiGreen: async () => true,
+      log: () => {},
+      error: () => {},
+    });
+    assert.equal(again.reason, "already-released");
+    assert.equal(again.version, "v0.5.0");
   } finally {
     rmSync(bareDir, { recursive: true, force: true });
     rmSync(cloneDir, { recursive: true, force: true });

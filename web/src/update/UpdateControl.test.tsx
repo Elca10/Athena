@@ -154,3 +154,21 @@ test("a cancelled update (Athena was busy) explains that nothing changed", async
   expect(await screen.findByText("Update cancelled")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Report a bug" })).not.toBeInTheDocument();
 });
+
+test("names the version on offer and links to its release notes", async () => {
+  vi.mocked(api.getUpdateStatus).mockResolvedValue({
+    ...base,
+    available: true,
+    latestVersion: "v0.2.0",
+    checkedAt: new Date().toISOString(),
+  });
+  render(<UpdateControl onReportBug={() => {}} />);
+
+  expect(await screen.findByText("Update available: v0.2.0")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Update now" }));
+  expect(await screen.findByText("Update Athena to v0.2.0?")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "What's new in v0.2.0" })).toHaveAttribute(
+    "href",
+    "https://github.com/Elca10/Athena/releases/tag/v0.2.0",
+  );
+});

@@ -15,6 +15,8 @@ export type UpdateStatus = {
   available: boolean;
   current: string | null;
   latest: string | null;
+  /** The release tag on `latest` (e.g. "v0.2.0"); null if it has none. */
+  latestVersion?: string | null;
   checkedAt: string | null;
   /** Why the last check failed (offline, git missing…); absent when it worked. */
   error?: string;
