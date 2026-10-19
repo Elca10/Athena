@@ -137,3 +137,27 @@ test("GET /:id/summary for an unknown id returns 404", async () => {
     server.close();
   }
 });
+
+test("PATCH /:id renames a subject; a clash is a 400 with the reason, an unknown id a 404", async () => {
+  const { base, server } = await startApp();
+  try {
+    const post = (name) =>
+      fetch(base, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) }).then((r) => r.json());
+    const patch = (id, name) =>
+      fetch(`${base}/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    const bio = await post("Biology");
+    await post("Chemistry");
+
+    const ok = await patch(bio.id, "Cell Biology");
+    assert.equal(ok.status, 200);
+    assert.equal((await ok.json()).name, "Cell Biology");
+
+    const clash = await patch(bio.id, "chemistry");
+    assert.equal(clash.status, 400);
+    assert.match((await clash.json()).error, /already have a subject called "Chemistry"/);
+
+    assert.equal((await patch("nope", "X")).status, 404);
+  } finally {
+    server.close();
+  }
+});

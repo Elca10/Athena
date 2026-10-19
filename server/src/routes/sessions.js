@@ -78,21 +78,23 @@ export function makeSessionsRouter(appDataDir) {
       // was given.
       const requestedTopicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds : [];
       const reviewAhead = req.body?.reviewAhead === true;
+      const contentIds = Array.isArray(req.body?.contentIds) ? req.body.contentIds.filter((id) => typeof id === "string") : null;
       const topicIds = requestedTopicIds.length
         ? requestedTopicIds
-        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead });
+        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds });
       // An empty session can't ask anything; refuse with a reason instead
       // of creating one that dead-ends on its first question. `nothingDue`
       // lets the UI offer "Review ahead anyway" when there ARE topics.
       if (!topicIds.length && subjectIds.length) {
-        const hasTopics = (await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead: true, limit: 1 })).length > 0;
-        res.status(400).json({ error: await explainNothingDue(appDataDir, subjectIds), nothingDue: hasTopics });
+        const hasTopics = (await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead: true, limit: 1, contentIds })).length > 0;
+        res.status(400).json({ error: await explainNothingDue(appDataDir, subjectIds, { contentIds }), nothingDue: hasTopics });
         return;
       }
       const session = await createSession(appDataDir, {
         subjectIds,
         mode: req.body?.mode,
         topicIds,
+        contentIds: contentIds ?? [],
       });
       res.status(201).json(publicSessionView(session));
     } catch (err) {

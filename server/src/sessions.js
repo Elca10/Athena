@@ -38,7 +38,7 @@ export async function getSession(appDataDir, id) {
   return sessions.find((s) => s.id === id) ?? null;
 }
 
-export async function createSession(appDataDir, { subjectIds, mode, topicIds = [] }) {
+export async function createSession(appDataDir, { subjectIds, mode, topicIds = [], contentIds = [] }) {
   const subjects = stringIds(subjectIds);
   if (subjects.length === 0) throw new Error("subjectIds must be a non-empty array");
   if (!MODES.includes(mode)) throw new Error(`mode must be one of ${MODES.join(", ")}`);
@@ -47,6 +47,9 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
     id: randomUUID(),
     subjectIds: subjects,
     topicIds: stringIds(topicIds),
+    // The files the user limited it to (issue #6), so switching modes or
+    // reviewing ahead keeps the same choice. Empty: all content.
+    contentIds: stringIds(contentIds),
     mode,
     status: "active",
     startedAt: new Date().toISOString(),
@@ -85,6 +88,36 @@ export async function reconcileInterruptedSessions(appDataDir) {
     }),
   );
   return moved;
+}
+
+/**
+ * Topics were deleted (their only content was removed — issue #6): takes
+ * them out of every unfinished session, so resuming one never hits
+ * "Topic not found". A question up for a deleted topic is dropped, and a
+ * session left with nothing asked and nothing to ask is closed. History
+ * stays as it was. Returns how many sessions changed.
+ */
+export async function dropTopicsFromSessions(appDataDir, topicIds) {
+  const gone = new Set(topicIds);
+  if (!gone.size) return 0;
+  const store = storeFor(appDataDir);
+  const touches = (s) =>
+    s.status !== "completed" && ((s.topicIds ?? []).some((id) => gone.has(id)) || gone.has(s.currentQuestion?.topicId));
+  if (!(await store.read()).some(touches)) return 0;
+  let changed = 0;
+  await store.update((current) =>
+    current.map((s) => {
+      if (!touches(s)) return s;
+      changed++;
+      const next = {
+        ...s,
+        topicIds: (s.topicIds ?? []).filter((id) => !gone.has(id)),
+        currentQuestion: gone.has(s.currentQuestion?.topicId) ? null : s.currentQuestion,
+      };
+      return isEmptySession(next) ? { ...next, status: "completed", endedAt: next.endedAt ?? new Date().toISOString() } : next;
+    }),
+  );
+  return changed;
 }
 
 function isEmptySession(s) {

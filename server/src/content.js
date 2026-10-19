@@ -29,6 +29,9 @@ import { appDataSubdirs } from "./dataDir.js";
 import { makeJsonFileStore } from "./store/jsonFileStore.js";
 import { extractPdfPages } from "./pdfExtract.js";
 import { extractPptxSlides } from "./pptxExtract.js";
+import { inferTopicSources, removeContentFromTopics } from "./topics.js";
+import { removeBankQuestionsForTopics } from "./questionBank.js";
+import { dropTopicsFromSessions } from "./sessions.js";
 
 const FILE_NAME = "content.json";
 
@@ -302,9 +305,10 @@ export async function markTopicsExtracted(appDataDir, contentIds) {
  * Removes one content item (the user picked the wrong file, or a
  * duplicate) and its raw + parsed copies. File paths are built from the
  * stored record's own id/extension, never from request input, so nothing
- * outside this subject's content dirs can be touched. Topics already
- * found from it stay: they aren't linked to a single item. Returns the
- * removed record, or null if there was no such item in this subject.
+ * outside this subject's content dirs can be touched. Topics found only
+ * in it go too (issue #6), with their practice questions, and leave any
+ * unfinished session that included them. Returns `{removed,
+ * removedTopics}`, or null if there was no such item in this subject.
  */
 export async function removeContent(appDataDir, subjectId, contentId) {
   let removed = null;
@@ -316,5 +320,19 @@ export async function removeContent(appDataDir, subjectId, contentId) {
   const dirs = contentDirsFor(appDataDir, subjectId);
   await fs.unlink(path.join(dirs.raw, `${removed.id}${removed.extension}`)).catch(() => {});
   await fs.unlink(path.join(dirs.parsed, `${removed.id}.md`)).catch(() => {});
-  return removed;
+  const removedTopics = await removeContentFromTopics(appDataDir, subjectId, contentId);
+  const removedIds = removedTopics.map((t) => t.id);
+  await removeBankQuestionsForTopics(appDataDir, removedIds);
+  await dropTopicsFromSessions(appDataDir, removedIds);
+  return { removed, removedTopics };
+}
+
+/** Links topics from before provenance tracking to the files whose text
+ * mentions them (topics.js's inferTopicSources). Cheap and idempotent:
+ * run at startup. */
+export function backfillTopicSources(appDataDir) {
+  return inferTopicSources(appDataDir, {
+    listContentFor: (subjectId) => listContent(appDataDir, subjectId),
+    readText: (item) => fs.readFile(parsedFilePath(appDataDir, item), "utf8").catch(() => null),
+  });
 }

@@ -1,5 +1,6 @@
 import express from "express";
 import { getSubject } from "../subjects.js";
+import { topicsOnlyFrom } from "../topics.js";
 import { listContent, addUploadedContent, addPastedNotes, removeContent, MAX_BINARY_CONTENT_BYTES } from "../content.js";
 
 // Mounted at /api/subjects/:id/content — needs mergeParams so the :id
@@ -66,13 +67,19 @@ export function makeContentRouter(appDataDir) {
     }
   });
 
+  // What removing this item would take with it, for the confirm prompt.
+  router.get("/:contentId/removal", async (req, res) => {
+    const topics = await topicsOnlyFrom(appDataDir, req.params.id, req.params.contentId);
+    res.json({ topics: topics.map((t) => t.name) });
+  });
+
   router.delete("/:contentId", async (req, res) => {
-    const removed = await removeContent(appDataDir, req.params.id, req.params.contentId);
-    if (!removed) {
+    const result = await removeContent(appDataDir, req.params.id, req.params.contentId);
+    if (!result) {
       res.status(404).json({ error: "That content item wasn't found." });
       return;
     }
-    res.json({ removed: removed.id });
+    res.json({ removed: result.removed.id, removedTopics: result.removedTopics.map((t) => t.name) });
   });
 
   return router;

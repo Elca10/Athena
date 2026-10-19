@@ -85,7 +85,7 @@ export function batchFiles(files, { maxFiles = MAX_FILES_PER_BATCH, maxBytes = M
  */
 export function buildExtractionPrompt({ subjectName, files, existingTopics = [], batchIndex, batchCount }) {
   const existingBlock = existingTopics.length
-    ? `These topics are already tracked for this subject — do not repeat any of them, only propose what's missing:\n${existingTopics
+    ? `These topics are already tracked for this subject. Propose what's missing; and if these files also cover one of them, list it too, using its exact name below, so we know which files cover it:\n${existingTopics
         .map((t) => `- ${t}`)
         .join("\n")}`
     : `Nothing is tracked for this subject yet, so everything you propose will be new.`;
@@ -98,7 +98,7 @@ export function buildExtractionPrompt({ subjectName, files, existingTopics = [],
   return `This is a one-shot background task, not a conversation. Don't ask questions; just do the task below and reply once.
 
 New study material was added for the subject "${subjectName}". Read these files — these exact paths, and nothing else, using the Read tool — and tell me what topics they cover:
-${files.map((f) => `- ${f.absolutePath}`).join("\n")}${batchLine}
+${files.map((f, i) => `${i + 1}. ${f.absolutePath}`).join("\n")}${batchLine}
 
 ${existingBlock}
 
@@ -109,7 +109,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
 \`\`\`json athena-topics
 {
   "topics": [
-    {"name": "<short topic name>", "notes": "<optional one-line note on what it covers>"}
+    {"name": "<short topic name>", "notes": "<optional one-line note on what it covers>", "files": [<the number(s) of the file(s) above that cover it>]}
   ],
   "summary": "<one sentence on what the material covered>"
 }
@@ -149,7 +149,7 @@ export function parseExtractionReply(resultText) {
   if (!data) return { ok: false, reason: "no readable topic list in the reply" };
 
   const topics = [];
-  const seen = new Set();
+  const seen = new Map();
   let rejected = 0;
   for (const raw of data.topics) {
     const name = (typeof raw === "string" ? raw : raw?.name) ?? "";
@@ -158,14 +158,26 @@ export function parseExtractionReply(resultText) {
       rejected += 1;
       continue;
     }
+    // 1-based numbers into the prompt's file list; checked against the
+    // batch by the caller. Anything that isn't a whole number is dropped.
+    const files = Array.isArray(raw?.files) ? raw.files.filter((n) => Number.isInteger(n)) : [];
     const key = trimmed.toLowerCase();
-    if (seen.has(key)) continue;
+    const earlier = seen.get(key);
+    if (earlier) {
+      // The same topic listed once per file: keep every file, or none (the
+      // whole batch) if either entry didn't say. Dropping one would let
+      // removing the other file delete a topic it still covers.
+      earlier.files = earlier.files.length && files.length ? [...new Set([...earlier.files, ...files])] : [];
+      continue;
+    }
     if (topics.length >= MAX_TOPICS_PER_RUN) break;
-    seen.add(key);
-    topics.push({
+    const topic = {
       name: trimmed,
       notes: typeof raw === "object" && raw ? String(raw.notes ?? "").slice(0, MAX_NOTE_CHARS) : "",
-    });
+      files,
+    };
+    seen.set(key, topic);
+    topics.push(topic);
   }
 
   // Every entry rejected is a malformed reply, not "nothing to add" — a
@@ -203,6 +215,15 @@ export async function runExtractionTurn(prompt, { env, readPaths = [] } = {}) {
     throw new Error(`claude exited with code ${result.code}: ${result.stderr.slice(0, 300)}`);
   }
   return result.stdout;
+}
+
+/** Turns a parsed topic's file numbers into content ids. A reply that
+ * names no valid file links the topic to the whole batch (exact for a
+ * one-file batch, the common case). Pure, exported for its own test. */
+export function withSources(topic, batch) {
+  const ids = [...new Set(topic.files.filter((n) => n >= 1 && n <= batch.length).map((n) => batch[n - 1].id))];
+  const { files: _files, ...rest } = topic;
+  return { ...rest, sourceContentIds: ids.length ? ids : batch.map((f) => f.id) };
 }
 
 // Guards against two overlapping triggers for the SAME subject (e.g. two
@@ -291,7 +312,7 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
         continue;
       }
       if (parsed.topics.length) {
-        const added = await addPlannedTopics(appDataDir, subjectId, parsed.topics);
+        const added = await addPlannedTopics(appDataDir, subjectId, parsed.topics.map((t) => withSources(t, batch)));
         topicsAdded += added.length;
       }
       filesProcessed += batch.length;

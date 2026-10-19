@@ -42,11 +42,23 @@ export async function getTopicById(appDataDir, topicId) {
   return all.find((t) => t.id === topicId) ?? null;
 }
 
+// Provenance (issue #6): `sourceContentIds` lists the content items a
+// topic was found in, so a session can be limited to chosen files and
+// removing a file can remove the topics that came only from it.
+//   - an array: known sources (from extraction, or inferred for topics
+//     that predate tracking, with `sourcesInferred: true`)
+//   - null: unknown (an older topic no file's text could be matched to);
+//     never auto-removed, never matched by a file filter
+//   - absent: not looked at yet (older topics before inferTopicSources runs)
+
 /**
  * Adds topics proposed for a subject, skipping any whose normalized name
  * already exists for that subject. `proposed` entries are either plain
- * strings or `{name, notes}` objects. Returns the topics actually added
- * (fresh rows, with ids) so a caller can report what was new.
+ * strings or `{name, notes, sourceContentIds?}` objects. A proposal
+ * matching an existing topic adds its sources to that topic (the same
+ * topic covered in a second file), unless that topic's sources are
+ * unknown. Returns the topics actually added (fresh rows, with ids) so a
+ * caller can report what was new.
  */
 export async function addPlannedTopics(appDataDir, subjectId, proposed) {
   let added = [];
@@ -57,7 +69,15 @@ export async function addPlannedTopics(appDataDir, subjectId, proposed) {
     for (const item of proposed) {
       const name = typeof item === "string" ? item : item?.name;
       const key = normalizeTopicName(name);
-      if (!key || existingKeys.has(key)) continue;
+      const sources = typeof item === "object" && Array.isArray(item?.sourceContentIds) ? item.sourceContentIds : null;
+      if (!key) continue;
+      if (existingKeys.has(key)) {
+        const idx = next.findIndex((t) => t.subjectId === subjectId && normalizeTopicName(t.name) === key);
+        if (sources && idx !== -1 && Array.isArray(next[idx].sourceContentIds)) {
+          next[idx] = { ...next[idx], sourceContentIds: [...new Set([...next[idx].sourceContentIds, ...sources])] };
+        }
+        continue;
+      }
       existingKeys.add(key);
       const topic = {
         id: randomUUID(),
@@ -72,6 +92,7 @@ export async function addPlannedTopics(appDataDir, subjectId, proposed) {
         // unused questions is meant to top it up per SPEC.md section 5),
         // just that the one-time initial pass has run.
         bankGeneratedAt: null,
+        sourceContentIds: sources,
       };
       next.push(topic);
       added.push(topic);
@@ -128,4 +149,85 @@ export async function markBankGenerated(appDataDir, topicIds) {
   const idSet = new Set(topicIds);
   const now = new Date().toISOString();
   await storeFor(appDataDir).update((current) => current.map((t) => (idSet.has(t.id) ? { ...t, bankGeneratedAt: now } : t)));
+}
+
+/**
+ * A content item was removed: drops it from every topic's sources, and
+ * deletes the topics whose ONLY known source it was (issue #6). Topics
+ * with unknown sources are left alone. Returns the deleted topics so the
+ * caller can remove their bank questions and report them.
+ */
+export async function removeContentFromTopics(appDataDir, subjectId, contentId) {
+  let removed = [];
+  await storeFor(appDataDir).update((current) => {
+    removed = [];
+    const next = [];
+    for (const t of current) {
+      if (t.subjectId !== subjectId || !Array.isArray(t.sourceContentIds) || !t.sourceContentIds.includes(contentId)) {
+        next.push(t);
+        continue;
+      }
+      const remaining = t.sourceContentIds.filter((id) => id !== contentId);
+      if (remaining.length) next.push({ ...t, sourceContentIds: remaining });
+      else removed.push(t);
+    }
+    return next;
+  });
+  return removed;
+}
+
+/** Words that say nothing about a topic, ignored when matching names. */
+const STOP_WORDS = new Set(["a", "an", "and", "the", "of", "in", "on", "for", "to", "vs", "with", "its", "how", "what", "why"]);
+
+/**
+ * Topics extracted before provenance was tracked have no sources. This
+ * links each one, by script (no model call), to the subject's files whose
+ * extracted text contains the topic's name, or failing that every
+ * meaningful word of it. Matches are marked `sourcesInferred`; a topic no
+ * file matches gets `null` (unknown). Runs once per topic: anything with
+ * the field set is skipped. `readText(contentItem)` returns that item's
+ * extracted text, or null.
+ */
+export async function inferTopicSources(appDataDir, { listContentFor, readText }) {
+  const all = await storeFor(appDataDir).read();
+  const pending = all.filter((t) => t.sourceContentIds === undefined);
+  if (!pending.length) return 0;
+
+  const textsBySubject = new Map();
+  for (const subjectId of new Set(pending.map((t) => t.subjectId))) {
+    const items = await listContentFor(subjectId);
+    const texts = [];
+    for (const item of items) {
+      const text = await readText(item);
+      if (text) texts.push({ id: item.id, text: text.toLowerCase().replace(/\s+/g, " ") });
+    }
+    textsBySubject.set(subjectId, texts);
+  }
+
+  const inferred = new Map();
+  for (const t of pending) {
+    const name = normalizeTopicName(t.name);
+    const words = name.split(/[^a-z0-9]+/).filter((w) => w.length > 2 && !STOP_WORDS.has(w));
+    const matches = (textsBySubject.get(t.subjectId) ?? [])
+      .filter(({ text }) => text.includes(name) || (words.length > 0 && words.every((w) => text.includes(w))))
+      .map(({ id }) => id);
+    inferred.set(t.id, matches.length ? matches : null);
+  }
+
+  await storeFor(appDataDir).update((current) =>
+    current.map((t) =>
+      t.sourceContentIds === undefined && inferred.has(t.id)
+        ? { ...t, sourceContentIds: inferred.get(t.id), ...(inferred.get(t.id) ? { sourcesInferred: true } : {}) }
+        : t,
+    ),
+  );
+  return inferred.size;
+}
+
+/** The topics that would be deleted if this content item were removed:
+ * those whose only known source it is. For the confirm prompt. */
+export async function topicsOnlyFrom(appDataDir, subjectId, contentId) {
+  return (await listTopics(appDataDir, subjectId)).filter(
+    (t) => Array.isArray(t.sourceContentIds) && t.sourceContentIds.length === 1 && t.sourceContentIds[0] === contentId,
+  );
 }

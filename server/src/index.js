@@ -14,7 +14,7 @@ import { healthRouter } from "./routes/health.js";
 import { makeSetupRouter } from "./routes/setup.js";
 import { makeSubjectsRouter } from "./routes/subjects.js";
 import { makeContentRouter } from "./routes/content.js";
-import { MAX_BINARY_CONTENT_BYTES } from "./content.js";
+import { MAX_BINARY_CONTENT_BYTES, backfillTopicSources } from "./content.js";
 import { makeTopicsRouter } from "./routes/topics.js";
 import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
@@ -130,6 +130,12 @@ async function main() {
       return 0;
     });
     if (moved) console.log(`Moved ${moved} interrupted session(s) to Waiting.`);
+    // Topics from before source tracking: link them to their files once.
+    const linked = await backfillTopicSources(appDataDir).catch((err) => {
+      recordError(`backfillTopicSources: ${err.message}`);
+      return 0;
+    });
+    if (linked) console.log(`Checked ${linked} older topic(s) for which files they came from.`);
   });
 }
 

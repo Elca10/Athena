@@ -18,6 +18,14 @@ import { listContent } from "./content.js";
  * Ada's call, section 11. */
 export const MAX_SESSION_TOPICS = 12;
 
+// `contentIds` (issue #6: "not all exams are cumulative") keeps only
+// topics found in at least one of those files. Topics whose source is
+// unknown can't match. No ids (or an empty list) means every topic.
+function fromContent(contentIds) {
+  const wanted = Array.isArray(contentIds) && contentIds.length ? new Set(contentIds) : null;
+  return (t) => !wanted || (Array.isArray(t.sourceContentIds) && t.sourceContentIds.some((id) => wanted.has(id)));
+}
+
 /**
  * Picks due topic ids across one or more subjects, round-robin
  * interleaved, capped at `limit`. A subject with nothing due simply
@@ -30,14 +38,17 @@ export const MAX_SESSION_TOPICS = 12;
 export async function buildSessionTopicIds(
   appDataDir,
   subjectIds,
-  { limit = MAX_SESSION_TOPICS, now = new Date(), reviewAhead = false } = {},
+  { limit = MAX_SESSION_TOPICS, now = new Date(), reviewAhead = false, contentIds = null } = {},
 ) {
   const uniqueSubjectIds = [...new Set(subjectIds)];
+  const fromWanted = fromContent(contentIds);
   const queues = [];
   for (const subjectId of uniqueSubjectIds) {
-    const picked = reviewAhead
-      ? (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0))
-      : await listDueTopics(appDataDir, subjectId, now);
+    const picked = (
+      reviewAhead
+        ? (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0))
+        : await listDueTopics(appDataDir, subjectId, now)
+    ).filter(fromWanted);
     if (picked.length) queues.push(picked.map((t) => t.id));
   }
 
@@ -70,10 +81,15 @@ function formatIn(ms) {
  * Plain-language reason no session can be built right now, for when
  * `buildSessionTopicIds` came back empty: either there's nothing to study
  * yet, or everything has been reviewed and isn't due again until later.
+ * With `contentIds`, only the topics found in those files count.
  */
-export async function explainNothingDue(appDataDir, subjectIds, now = new Date()) {
+export async function explainNothingDue(appDataDir, subjectIds, { now = new Date(), contentIds = null } = {}) {
   const topics = [];
   for (const subjectId of new Set(subjectIds)) topics.push(...(await listTopics(appDataDir, subjectId)));
+  const chosen = topics.filter(fromContent(contentIds));
+  if (topics.length && !chosen.length) {
+    return "Athena hasn't found any topics in the files you picked. Pick other files, or study all of this subject's content.";
+  }
   if (!topics.length) {
     let unread = 0;
     for (const subjectId of new Set(subjectIds)) {
@@ -85,7 +101,7 @@ export async function explainNothingDue(appDataDir, subjectIds, now = new Date()
     }
     return "There's nothing to study here yet. Add some course content first (Add content on the subject's card).";
   }
-  const nextDue = Math.min(...topics.map((t) => t.fsrs?.due ?? Infinity));
+  const nextDue = Math.min(...chosen.map((t) => t.fsrs?.due ?? Infinity));
   if (!Number.isFinite(nextDue)) return "Nothing is due right now. Check back later.";
   return `You're all caught up: nothing is due right now. The next topic is due ${formatIn(nextDue - now.getTime())}.`;
 }

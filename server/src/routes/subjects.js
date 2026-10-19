@@ -1,5 +1,5 @@
 import express from "express";
-import { listSubjects, getSubject, createSubject, archiveSubject, restoreSubject } from "../subjects.js";
+import { listSubjects, getSubject, createSubject, renameSubject, archiveSubject, restoreSubject } from "../subjects.js";
 import { getSubjectSummary } from "../subjectSummary.js";
 
 export function makeSubjectsRouter(appDataDir) {
@@ -26,6 +26,18 @@ export function makeSubjectsRouter(appDataDir) {
       return;
     }
     res.json(subject);
+  });
+
+  router.patch("/:id", async (req, res) => {
+    if (!(await getSubject(appDataDir, req.params.id))) {
+      res.status(404).json({ error: `Subject not found: ${req.params.id}` });
+      return;
+    }
+    try {
+      res.json(await renameSubject(appDataDir, req.params.id, { name: req.body?.name }));
+    } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   router.get("/:id/summary", async (req, res) => {

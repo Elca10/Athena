@@ -35,6 +35,20 @@ function storeFor(appDataDir) {
   return makeJsonFileStore(appDataSubdirs(appDataDir).db, FILE_NAME, []);
 }
 
+/** Deletes every bank question belonging to the given topics (the topics
+ * themselves were removed — issue #6). Returns how many went. */
+export async function removeBankQuestionsForTopics(appDataDir, topicIds) {
+  if (!topicIds.length) return 0;
+  const ids = new Set(topicIds);
+  let count = 0;
+  await storeFor(appDataDir).update((current) => {
+    const next = current.filter((q) => !ids.has(q.topicId));
+    count = current.length - next.length;
+    return next;
+  });
+  return count;
+}
+
 export async function listBankQuestions(appDataDir, topicId) {
   const all = await storeFor(appDataDir).read();
   return all.filter((q) => q.topicId === topicId);
