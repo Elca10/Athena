@@ -199,3 +199,21 @@ export function readDirArgs(filePaths) {
   const dirs = [...new Set(filePaths.map((p) => path.dirname(p)))];
   return dirs.flatMap((dir) => ["--add-dir", dir]);
 }
+
+/** The system prompt for every background `claude -p` turn. Each turn's
+ * own prompt carries the full task; this just replaces Claude Code's
+ * default coding-assistant prompt. */
+export const BACKGROUND_SYSTEM_PROMPT =
+  "You do one-shot background tasks for a study app. Follow the task exactly, use only the tools you are given, and reply in the format it asks for.";
+
+/**
+ * Arguments that keep a background turn small (issue #10): only the named
+ * built-in tools (none if empty), no MCP servers, no skills, and a short
+ * system prompt instead of Claude Code's default. Measured on one tiny
+ * turn: ~28K tokens of context per model call down to ~3K, and every
+ * file read is another call. `--tools` also ignores user/project
+ * settings, so a turn behaves the same on every machine.
+ */
+export function backgroundTurnArgs(tools) {
+  return ["--tools", tools.join(","), "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", BACKGROUND_SYSTEM_PROMPT];
+}

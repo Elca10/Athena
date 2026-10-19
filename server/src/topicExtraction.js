@@ -17,7 +17,7 @@
 // what's in it".
 
 import { promises as fs } from "node:fs";
-import { runCommand, readDirArgs } from "./processUtil.js";
+import { runCommand, readDirArgs, backgroundTurnArgs } from "./processUtil.js";
 import { listContent, markTopicsExtracted, parsedFilePath } from "./content.js";
 import { addPlannedTopics, listTopics } from "./topics.js";
 
@@ -35,8 +35,16 @@ export const MAX_FILES_PER_BATCH = 6;
  * skipped outright. */
 export const MAX_BATCH_BYTES = 150_000;
 
-/** Most topics accepted from a single turn's reply. */
-export const MAX_TOPICS_PER_RUN = 12;
+/** Most topics accepted per file in a turn, and per turn overall. Scales
+ * with the batch so packing several files into one turn (issue #10)
+ * doesn't cut how many topics each file can contribute. */
+export const MAX_TOPICS_PER_FILE = 12;
+export const MAX_TOPICS_PER_RUN = 36;
+
+/** The topic cap for a turn over `fileCount` files. */
+export function topicCapFor(fileCount) {
+  return Math.min(MAX_TOPICS_PER_RUN, MAX_TOPICS_PER_FILE * Math.max(1, fileCount));
+}
 
 const MAX_NOTE_CHARS = 200;
 const MAX_REPLY_CHARS = 400_000;
@@ -102,7 +110,7 @@ ${files.map((f, i) => `${i + 1}. ${f.absolutePath}`).join("\n")}${batchLine}
 
 ${existingBlock}
 
-Reply with up to ${MAX_TOPICS_PER_RUN} topics actually covered by this material. Each topic must be a short, specific, quizzable label of a few words ("Binary search trees", "Krebs cycle", "Supply and demand shifts") — not a sentence, not a whole lecture, no newlines inside a name. Broad coverage matters more than depth on any one item. If a file is unreadable or empty, say so in "summary" and cover the rest.
+Reply with up to ${topicCapFor(files.length)} topics actually covered by this material. Each topic must be a short, specific, quizzable label of a few words ("Binary search trees", "Krebs cycle", "Supply and demand shifts") — not a sentence, not a whole lecture, no newlines inside a name. Broad coverage matters more than depth on any one item. If a file is unreadable or empty, say so in "summary" and cover the rest.
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
 
@@ -126,7 +134,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
  * first so a reply that restates the format before filling it in isn't
  * parsed from its own example.
  */
-export function parseExtractionReply(resultText) {
+export function parseExtractionReply(resultText, { maxTopics = MAX_TOPICS_PER_RUN } = {}) {
   const full = typeof resultText === "string" ? resultText : "";
   if (!full.trim()) return { ok: false, reason: "the reply was empty" };
   const text = full.length > MAX_REPLY_CHARS ? full.slice(-MAX_REPLY_CHARS) : full;
@@ -170,7 +178,7 @@ export function parseExtractionReply(resultText) {
       earlier.files = earlier.files.length && files.length ? [...new Set([...earlier.files, ...files])] : [];
       continue;
     }
-    if (topics.length >= MAX_TOPICS_PER_RUN) break;
+    if (topics.length >= maxTopics) break;
     const topic = {
       name: trimmed,
       notes: typeof raw === "object" && raw ? String(raw.notes ?? "").slice(0, MAX_NOTE_CHARS) : "",
@@ -206,7 +214,7 @@ export function parseExtractionReply(resultText) {
  * verify the exact argv without ever finding the real CLI.
  */
 export async function runExtractionTurn(prompt, { env, readPaths = [] } = {}) {
-  const result = await runCommand("claude", ["-p", ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs(["Read"]), ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -261,15 +269,19 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
     const files = [];
     for (const item of unprocessed) {
       const absolutePath = parsedFilePath(appDataDir, item);
+      let stat;
       try {
-        await fs.access(absolutePath);
+        stat = await fs.stat(absolutePath);
       } catch {
         // No parsed text on disk yet for this item — leave it unprocessed
         // rather than erroring; a future scan with the file present (or a
         // user re-upload) will pick it up.
         continue;
       }
-      files.push({ ...item, absolutePath });
+      // Batched by extracted text, which is what the turn reads (issue
+      // #10). The upload's size counts a slide deck's images, which put
+      // nearly every deck in a turn of its own.
+      files.push({ ...item, absolutePath, sizeBytes: stat.size });
     }
     if (!files.length) return { ok: true, skipped: false, topicsAdded: 0, filesProcessed: 0, errors };
 
@@ -295,7 +307,7 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
         continue; // leave this batch's files unprocessed — retryable on the next scan
       }
 
-      const parsed = parseExtractionReply(replyText);
+      const parsed = parseExtractionReply(replyText, { maxTopics: topicCapFor(batch.length) });
       if (!parsed.ok) {
         errors.push(`${batch.length} file(s) not processed: ${parsed.reason}`);
         continue;

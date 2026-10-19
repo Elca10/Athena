@@ -8,19 +8,16 @@
 // Read-only-these-exact-paths / hard `--disallowedTools` deny list
 // topicExtraction.js uses, not liveSession.js's "deny every tool" shape.
 //
-// Known v1 simplification, worth revisiting once it matters: there's no
-// per-topic record of which content file(s) a topic actually came from, so
-// every topic in a subject is grounded in the SAME bounded slice of that
-// subject's material (the first `batchFiles` batch) rather than whichever
-// files actually cover it. Good enough for a subject whose material fits
-// in one batch (the common case so far); a subject with enough material to
-// need multiple batches will under-ground topics that came from a later
-// batch until file-to-topic provenance exists.
+// Grounding (issue #10): each topic is grounded in the file(s) it was
+// found in (topics.js's `sourceContentIds`), and topics that share files
+// are packed into the same turn, so a file is read about once per few
+// topics instead of every turn re-reading the subject's first batch of
+// files. Only a topic with no known source falls back to that first batch.
 
 import { promises as fs } from "node:fs";
-import { runCommand, readDirArgs } from "./processUtil.js";
+import { runCommand, readDirArgs, backgroundTurnArgs } from "./processUtil.js";
 import { listContent, parsedFilePath } from "./content.js";
-import { batchFiles } from "./topicExtraction.js";
+import { batchFiles, MAX_FILES_PER_BATCH, MAX_BATCH_BYTES } from "./topicExtraction.js";
 import { listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
 import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.js";
 import { listPreferences } from "./preferences.js";
@@ -32,6 +29,11 @@ const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "Web
  * questions per topic, each with a model answer/rubric) from growing
  * unbounded the way a huge multi-topic subject otherwise would. */
 export const MAX_TOPICS_PER_BATCH = 4;
+
+/** Question-writing turns run at once. Doesn't change how much usage a
+ * scan takes, only how long it takes (issue #10: 20 minutes for a big
+ * upload); kept low so a scan doesn't hammer the account's rate limit. */
+export const MAX_PARALLEL_TURNS = 3;
 
 /** Questions requested per topic per generation pass — "several questions
  * of varied types and angles" (SPEC.md section 5), not meant to exhaust
@@ -251,7 +253,7 @@ export function parseBankReply(resultText) {
 /** Test seam for the model call — same convention as
  * topicExtraction.js's `runExtractionTurn`. */
 export async function runBankGenerationTurn(prompt, { env, readPaths = [] } = {}) {
-  const result = await runCommand("claude", ["-p", ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs(["Read"]), ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -274,21 +276,76 @@ export async function runBankGenerationTurn(prompt, { env, readPaths = [] } = {}
  * leave it retryable, same "don't silently lose it" posture as
  * `scanSubjectForTopics`.
  */
+/**
+ * Groups topics into turns, each with the files to ground it in (issue
+ * #10). A topic's files are its own sources (falling back to
+ * `fallbackFiles` when none are known); topics sharing files go together,
+ * and a turn takes another topic only while its combined files stay
+ * within topicExtraction.js's per-turn file and size bounds (topics
+ * adding no new files always fit). A topic whose own files are over the
+ * bounds still gets a turn.
+ * `filesById` maps content id -> {id, absolutePath, sizeBytes}, sized by
+ * extracted text. Pure, exported for its own test.
+ */
+export function planBankTurns(topics, filesById, fallbackFiles, { maxTopics = MAX_TOPICS_PER_BATCH, maxFiles = MAX_FILES_PER_BATCH, maxBytes = MAX_BATCH_BYTES } = {}) {
+  const withFiles = topics.map((topic) => {
+    const own = (topic.sourceContentIds ?? []).map((id) => filesById.get(id)).filter(Boolean);
+    const files = own.length ? own : fallbackFiles;
+    return { topic, files, key: files.map((f) => f.id).sort().join(",") };
+  });
+  withFiles.sort((a, b) => a.key.localeCompare(b.key));
+
+  const turns = [];
+  let current = null;
+  for (const { topic, files } of withFiles) {
+    if (current) {
+      const union = new Map(current.files.map((f) => [f.id, f]));
+      for (const f of files) union.set(f.id, f);
+      const bytes = [...union.values()].reduce((sum, f) => sum + (f.sizeBytes ?? 0), 0);
+      // Topics adding no new files always fit: an oversized file is
+      // still read once for several of its topics, not once per topic.
+      const addsFiles = union.size > current.files.length;
+      if (current.topics.length < maxTopics && (!addsFiles || (union.size <= maxFiles && bytes <= maxBytes))) {
+        current.topics.push(topic);
+        current.files = [...union.values()];
+        continue;
+      }
+      turns.push(current);
+    }
+    current = { topics: [topic], files: [...files] };
+  }
+  if (current) turns.push(current);
+  return turns;
+}
+
+/** Runs `fn` over `items` with at most `limit` running at once. */
+async function forEachLimited(items, limit, fn) {
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) await fn(items[next++]);
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
 async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics, runTurn = runBankGenerationTurn }) {
   const content = await listContent(appDataDir, subjectId);
+  const filesById = new Map();
   const availableFiles = [];
   for (const item of content) {
     const absolutePath = parsedFilePath(appDataDir, item);
+    let stat;
     try {
-      await fs.access(absolutePath);
+      stat = await fs.stat(absolutePath);
     } catch {
       continue; // nothing parsed on disk yet for this item — just skip it as grounding material
     }
-    availableFiles.push({ ...item, absolutePath });
+    // Sized by extracted text, not the upload: a slide deck's images
+    // aren't read, only its text is.
+    const file = { ...item, absolutePath, sizeBytes: stat.size };
+    filesById.set(item.id, file);
+    availableFiles.push(file);
   }
-  // See the module header: every batch in this scan shares the same
-  // first file batch as grounding, rather than per-topic provenance.
-  const groundingFiles = batchFiles(availableFiles)[0] ?? [];
+  const fallbackFiles = batchFiles(availableFiles)[0] ?? [];
   const preferences = await listPreferences(appDataDir);
 
   // Same `fsrs.reps === 0` check liveSession.js's `isNewTopic` uses — a
@@ -296,31 +353,27 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
   // Ready-mode bank, so this is independent of whether a bank already
   // exists (buildBankPrompt's header comment has the full reasoning).
   const annotatedTopics = topics.map((t) => ({ ...t, isNewTopic: (t.fsrs?.reps ?? 0) === 0 }));
-
-  const topicBatches = [];
-  for (let i = 0; i < annotatedTopics.length; i += MAX_TOPICS_PER_BATCH) {
-    topicBatches.push(annotatedTopics.slice(i, i + MAX_TOPICS_PER_BATCH));
-  }
+  const turns = planBankTurns(annotatedTopics, filesById, fallbackFiles);
 
   const errors = [];
   const generatedTopicIds = [];
   let questionsAdded = 0;
 
-  for (const batch of topicBatches) {
-    const prompt = buildBankPrompt({ subjectName, topics: batch, files: groundingFiles, preferences });
+  await forEachLimited(turns, MAX_PARALLEL_TURNS, async ({ topics: batch, files }) => {
+    const prompt = buildBankPrompt({ subjectName, topics: batch, files, preferences });
 
     let replyText;
     try {
-      replyText = await runTurn(prompt, { readPaths: groundingFiles.map((f) => f.absolutePath) });
+      replyText = await runTurn(prompt, { readPaths: files.map((f) => f.absolutePath) });
     } catch (err) {
       errors.push(`${batch.length} topic(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
-      continue; // leave this batch's topics unmarked — retryable on the next scan
+      return; // leave this batch's topics unmarked — retryable on the next scan
     }
 
     const parsed = parseBankReply(replyText);
     if (!parsed.ok) {
       errors.push(`${batch.length} topic(s) not processed: ${parsed.reason}`);
-      continue;
+      return;
     }
 
     const byName = new Map(parsed.topics.map((t) => [t.topicName.trim().toLowerCase(), t]));
@@ -334,7 +387,7 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
       questionsAdded += added.length;
       generatedTopicIds.push(topic.id);
     }
-  }
+  });
 
   return { generatedTopicIds, questionsAdded, errors };
 }

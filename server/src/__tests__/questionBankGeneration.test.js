@@ -16,6 +16,7 @@ import {
   runBankGenerationTurn,
   MAX_TOPICS_PER_BATCH,
   QUESTIONS_PER_TOPIC,
+  planBankTurns,
 } from "../questionBankGeneration.js";
 
 async function scratchDir() {
@@ -492,4 +493,52 @@ test("bank generation grants read access to the grounding files' folder (issue #
     },
   });
   assert.deepEqual(readPaths, [parsedFilePath(dir, item)]);
+});
+
+// Issue #10: each turn reads only its own topics' files.
+test("planBankTurns groups topics by their own files, packs small ones, and falls back only for unknown sources", () => {
+  const f = (id, sizeBytes = 1000) => ({ id, absolutePath: `/p/${id}.md`, sizeBytes });
+  const files = new Map([["a", f("a")], ["b", f("b")], ["big", f("big", 200_000)]]);
+  const t = (name, sourceContentIds) => ({ name, sourceContentIds });
+  const turns = planBankTurns(
+    [t("A1", ["a"]), t("B1", ["b"]), t("A2", ["a"]), t("Big1", ["big"]), t("Big2", ["big"]), t("Old", null)],
+    files,
+    [f("a")],
+    { maxTopics: 3 },
+  );
+  const shape = turns.map((turn) => [turn.topics.map((x) => x.name).sort().join("+"), turn.files.map((x) => x.id).sort().join("+")]);
+  // "Old" falls back to file a, so it packs with a's topics; b fits too.
+  assert.deepEqual(shape, [
+    ["A1+A2+Old", "a"],
+    ["B1", "b"],
+    ["Big1+Big2", "big"],
+  ]);
+});
+
+test("planBankTurns never lets one turn exceed the file bounds, but a lone oversized topic still gets a turn", () => {
+  const files = new Map(["a", "b", "c"].map((id) => [id, { id, absolutePath: `/p/${id}`, sizeBytes: 60_000 }]));
+  const turns = planBankTurns(
+    [{ name: "A", sourceContentIds: ["a"] }, { name: "B", sourceContentIds: ["b"] }, { name: "C", sourceContentIds: ["c"] }],
+    files,
+    [],
+    { maxBytes: 150_000 },
+  );
+  assert.deepEqual(turns.map((x) => x.topics.map((t) => t.name).join("+")), ["A+B", "C"]);
+});
+
+test("bank generation grounds each topic in the file it came from, not the subject's first files", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-sourced-"));
+  const { parsedFilePath } = await import("../content.js");
+  const items = [];
+  for (let i = 1; i <= 8; i++) items.push(await addUploadedContent(dir, "s1", { filename: `lecture${i}.md`, text: "x".repeat(40_000) }));
+  await addPlannedTopics(dir, "s1", [{ name: "From lecture 8", sourceContentIds: [items[7].id] }]);
+  const seen = [];
+  await scanSubjectForBankGeneration(dir, "s1", {
+    subjectName: "Bio",
+    runTurn: async (_prompt, opts) => {
+      seen.push(opts.readPaths);
+      return "no usable reply";
+    },
+  });
+  assert.deepEqual(seen, [[parsedFilePath(dir, items[7])]]);
 });

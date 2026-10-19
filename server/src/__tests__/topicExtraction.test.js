@@ -16,6 +16,7 @@ import {
   runExtractionTurn,
   MAX_FILES_PER_BATCH,
   MAX_BATCH_BYTES,
+  topicCapFor,
 } from "../topicExtraction.js";
 
 /** Real PDF binary, generated fresh (never committed) — same technique as
@@ -179,10 +180,18 @@ test("parseExtractionReply caps topic count, dedupes, and rejects implausible na
   topics.push({ name: "a".repeat(200) }); // too long
   topics.push({ name: "line one\nline two" }); // newline
   const reply = "```json athena-topics\n" + JSON.stringify({ topics }) + "\n```";
-  const result = parseExtractionReply(reply);
+  const result = parseExtractionReply(reply, { maxTopics: topicCapFor(1) });
   assert.equal(result.ok, true);
-  assert.ok(result.topics.length <= 12);
+  assert.equal(result.topics.length, 12);
   assert.ok(result.topics.every((t) => !t.name.includes("\n")));
+  assert.equal(parseExtractionReply(reply, { maxTopics: topicCapFor(2) }).topics.length, 20, "two files: up to 24");
+});
+
+test("the topic cap grows with the files in a turn, up to an overall limit (issue #10)", () => {
+  assert.equal(topicCapFor(1), 12);
+  assert.equal(topicCapFor(2), 24);
+  assert.equal(topicCapFor(6), 36);
+  assert.match(buildExtractionPrompt({ subjectName: "Bio", files: [{ absolutePath: "/a" }, { absolutePath: "/b" }] }), /up to 24 topics/);
 });
 
 test("parseExtractionReply reports failure when every proposed entry is rejected", () => {
@@ -218,6 +227,17 @@ test("runExtractionTurn grants read access to the content folder via --add-dir (
   assert.ok(i >= 0, "must pass --add-dir");
   assert.equal(result.argv[i + 1], path.join(os.tmpdir(), "data", "parsed"));
   assert.equal(result.argv.filter((a) => a === "--add-dir").length, 1, "one flag per distinct folder");
+});
+
+test("runExtractionTurn keeps the turn small: only Read, no MCP servers or skills, a short system prompt (issue #10)", async () => {
+  const { env } = await fakeClaudeOnPath();
+  const { argv } = JSON.parse(await runExtractionTurn("prompt", { env, readPaths: ["/x/a.md"] }));
+  assert.equal(argv[argv.indexOf("--tools") + 1], "Read");
+  assert.ok(argv.includes("--strict-mcp-config"));
+  assert.ok(argv.includes("--disable-slash-commands"));
+  assert.match(argv[argv.indexOf("--system-prompt") + 1], /background tasks for a study app/);
+  // Nothing may sit after the variadic --disallowedTools list but its tools.
+  assert.ok(argv.indexOf("--disallowedTools") > argv.indexOf("--system-prompt"));
 });
 
 // --- scanSubjectForTopics (the orchestration) -------------------------------
