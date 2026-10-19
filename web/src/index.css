@@ -73,12 +73,20 @@
 /* overflow-wrap: anywhere lets one long unbroken word (a pasted URL, a
    long subject name from before the 100-char cap) wrap instead of
    stretching the whole page sideways; it also lets flex items shrink. */
+/* Side gutter for every page: tight on phones, roomier on big screens. */
+:root {
+  --page-pad: clamp(1rem, 2.5vw, 2.5rem);
+  /* Study screens: one readable column that grows with the window but
+     never stretches a line of text across a whole wide monitor. */
+  --study-width: clamp(32rem, 55vw, 56rem);
+}
+
 body {
   overflow-wrap: anywhere;
   font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
   -webkit-font-smoothing: antialiased;
   margin: 0;
-  padding: 0 1rem;
+  padding: 0 var(--page-pad);
   color: var(--text);
   background: var(--bg);
 }
@@ -316,15 +324,15 @@ select {
   flex: 1;
 }
 
+/* Full width on every screen: no centred column with empty sides. */
 .dashboard {
-  max-width: 70rem;
-  margin: 0 auto;
+  width: 100%;
 }
 
-/* A full-bleed sticky top bar: the -1rem/1rem margin+padding swap cancels
-   out body's own 1rem side padding so the bar's background and border
+/* A full-bleed sticky top bar: the negative margin + matching padding
+   cancel out body's side padding so the bar's background and border
    reach the viewport edges while its content stays aligned with the page
-   column below. */
+   below. */
 .dashboard-header {
   position: sticky;
   top: 0;
@@ -332,8 +340,8 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.6rem;
-  margin: 0 -1rem 1.5rem;
-  padding: 1rem;
+  margin: 0 calc(-1 * var(--page-pad)) 1.5rem;
+  padding: 1rem var(--page-pad);
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
 }
@@ -555,7 +563,7 @@ select {
 }
 
 .dashboard-subjects {
-  flex: 1;
+  flex: 3 1 0;
   min-width: 0;
 }
 
@@ -601,7 +609,7 @@ select {
 }
 
 .dashboard-sessions {
-  flex: 1;
+  flex: 2 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -613,12 +621,20 @@ select {
   font-size: 0.9rem;
 }
 
+/* Cards fill the width: more columns on wider screens, one on a phone. */
+.subject-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 20rem), 1fr));
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
 .subject-card {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   padding: 1rem;
-  margin-bottom: 1rem;
 }
 
 .subject-card-stats {
@@ -985,7 +1001,7 @@ select {
 }
 
 .study-picker {
-  max-width: 32rem;
+  max-width: var(--study-width);
   margin: 1.5rem auto 0;
 }
 
@@ -1041,19 +1057,19 @@ select {
 .study-picker-info {
   color: var(--text);
   font-size: 0.9rem;
-  max-width: 32rem;
+  max-width: var(--study-width);
   margin: 0 auto 1rem;
 }
 
 .study-picker-error {
   color: var(--danger);
   font-size: 0.9rem;
-  max-width: 32rem;
+  max-width: var(--study-width);
   margin: 0 auto 1rem;
 }
 
 .study-session {
-  max-width: 32rem;
+  max-width: var(--study-width);
   margin: 1.5rem auto 0;
 }
 

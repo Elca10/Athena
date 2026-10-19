@@ -309,6 +309,7 @@ export function Dashboard() {
           {subjects?.length === 0 && !showNewSubject && (
             <div className="dashboard-empty">No subjects yet — click "New subject" above to add your first one.</div>
           )}
+          <div className="subject-grid">
           {subjects?.map((subject) => (
             <SubjectCard
               key={subject.id}
@@ -328,6 +329,7 @@ export function Dashboard() {
               }}
             />
           ))}
+          </div>
         </section>
         <section className="dashboard-sessions">
           {SESSION_COLUMNS.map(({ label, status }) => {
@@ -442,6 +444,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
           {subjects !== null && archivedSubjects.length === 0 && (
             <div className="dashboard-empty">No archived subjects.</div>
           )}
+          <div className="subject-grid">
           {archivedSubjects.map((subject) => (
             <article className="subject-card" key={subject.id}>
               <h3>{subject.name}</h3>
@@ -459,6 +462,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
               </div>
             </article>
           ))}
+          </div>
         </section>
         <section className="dashboard-sessions">
           <h2>Archived sessions</h2>
