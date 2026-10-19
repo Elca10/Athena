@@ -30,6 +30,12 @@ the dashboard.
   `release` channel, a fix pushed to `main` only reaches the user once the
   owner promotes it.
 - Nothing built yet.
+- **Shelved (owner decision 2026-10-19).** Fixes keep happening on the
+  owner's own account from filed issues; no fixer runs on friends'
+  machines. Reasons: it would spend the friend's own usage limits, need
+  push access (or a fork) per friend, and feed untrusted report text into
+  a session that can push. Revisit only if the user base outgrows the
+  owner fixing issues by hand.
 
 ## 2. Deadlines + suggested schedule (v1 section 9, build step 7)
 
@@ -41,6 +47,21 @@ an open owner decision (v1 section 12).
 
 - Stand-in for v1.0: the Calendar button is hidden; subject cards omit
   "next deadline".
+- Calendar decisions (owner, 2026-10-19):
+  - Missed days fix themselves: the schedule is recomputed from the
+    scheduler's current state, nothing to catch up on.
+  - Each planned study block can be marked done (and is marked done
+    automatically when a real session covers it) or deleted when the
+    user decides they don't need it.
+  - The user can move individual blocks and set availability (which days,
+    how long). Moved and deleted blocks are stored as overrides on top of
+    the computed schedule, so it stays deterministic.
+  - The user chooses which assignments/exams to study for; deadlines
+    can come from a Canvas calendar feed (pending design, see the
+    roadmap) as well as by hand.
+  - An ICS feed of planned study blocks that calendar apps can subscribe
+    to. No Google Calendar API (OAuth credentials can't live in a public
+    repo).
 - Nothing built yet. `subjectSummary.js` deliberately leaves out the
   "next deadline" field until this exists.
 
@@ -86,6 +107,31 @@ still covers both OSes in the meantime.
 v1.0 adds a Windows Start Menu/Desktop shortcut to reopen Athena after the
 first install. The macOS equivalent (an app bundle or Dock/Launchpad
 entry) moves here alongside the macOS clean-machine test.
+
+- Built for v0.3.0: `installers/macos.sh` writes
+  `~/Applications/Athena-Studying.app`, which re-runs the checkout's
+  installer with the install-time PATH baked in (Finder's PATH has no
+  node/claude/gh), logs to `~/Library/Logs/Athena-Studying/launcher.log`,
+  and shows a dialog if Athena can't start. Still needs the clean-machine
+  test on a real Mac (section 6).
+
+## Roadmap (owner, 2026-10-19)
+
+Each step is a `--minor` release (strict semver, see README).
+
+| Version | Title | Scope |
+|---|---|---|
+| v0.3.0 | Athena on Mac | Section 7 + the macOS clean-machine test (section 6). |
+| v0.4.0 | Never the same question twice | Section 3: variation + desirable difficulty (deterministic, no model calls). |
+| v0.5.0 | Inside a subject | Section 4: subject detail view. |
+| v0.6.0 | Athena's voice | Section 5: persona doc, carefully revised; prompts brought in line. Owner reviews the draft first. |
+| v0.7.0 | Big ideas | Section 3's structure-building row, **optional**: off unless the user turns it on. |
+| v0.8.0 | Deadlines | Section 2 with the calendar decisions above. May split if Canvas import or the ICS feed grows. |
+| v0.9.0 | Pick your version | Updater follows release tags (beta channel / pinning). |
+| v1.0.0 | Public launch | Clean-machine pass on both OSes, public-ready docs, privacy audit. |
+
+Dropped: Elaboration (section 3's Live follow-up "why"), owner decision
+2026-10-19. Shelved: Bug Fixer (section 1).
 
 ## Already out of scope for v1, still out for v2 unless decided otherwise
 
