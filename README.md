@@ -7,21 +7,158 @@ itself.
 
 ## Before you install
 
-You'll need two accounts, both free to get (one needs a paid plan):
+You'll need two accounts and two small programs. If you've never used
+Claude, Claude Code, or GitHub before, follow every step below in order
+(about 20 minutes). If you already have some of it, skip those steps.
 
-- **A Claude account, Pro or higher.** Athena-Studying runs entirely on
-  your own Claude Code login to ask you questions, grade your answers,
-  and pull the main ideas out of whatever you upload. It never has its
-  own separate AI access — Claude's free plan doesn't include Claude
+- **A Claude account on the Pro plan or higher.** Athena-Studying runs
+  entirely on your own Claude Code login to ask you questions, grade
+  your answers, and pull the main ideas out of whatever you upload. It
+  has no AI access of its own. Claude's free plan doesn't include Claude
   Code, so Pro (or Max/Team/Enterprise) is required.
-- **A free GitHub.com account.** Only used so that if you ever report a
-  bug, it's posted from your own account — nothing else in the app uses
-  it. Don't have one? Create it at `github.com/signup`, it takes about a
-  minute.
+- **A free GitHub account.** Only used so that if you ever report a bug,
+  it's posted from your own account. Nothing else in the app uses it.
+- **Claude Code** (the program Athena-Studying talks to Claude through)
+  and **GitHub CLI** (the program it files bug reports through).
 
-You don't need to set either of these up in advance — the setup wizard
-checks for both right after install and walks you through getting them if
-you don't have them yet.
+### Step 1: Create a Claude account and subscribe to Pro
+
+1. Go to [claude.ai](https://claude.ai) and sign up (with your email or a
+   Google account). Confirm your email if asked.
+2. Upgrade to **Pro**: open the menu under your name or initials
+   (bottom-left corner) and choose **Upgrade plan**, or go to
+   [claude.com/pricing](https://claude.com/pricing). Pick **Pro** and
+   pay. (Already have Max, Team, or Enterprise through work or school?
+   That works too.)
+
+### Step 2: Create a GitHub account
+
+1. Go to [github.com/signup](https://github.com/signup) and follow the
+   prompts: email, a password, and a username. Your username is public
+   (it's shown on any bug report you send), so pick one you're happy
+   for others to see.
+2. GitHub emails you a code to confirm your address. Enter it, and you're
+   done. You can skip any questions about teams or plans; the free plan
+   is all you need.
+
+### Step 3: Open a terminal
+
+The rest of setup happens by pasting commands into a terminal (a window
+where you type commands instead of clicking). You only need it for setup.
+
+- **Windows:** click Start, type **PowerShell**, and open **Windows
+  PowerShell** (not "PowerShell ISE"). Paste with `Ctrl+V` or a right-click.
+- **Mac:** press `Cmd+Space`, type **Terminal**, and press Enter. Paste
+  with `Cmd+V`.
+
+To run a command: paste it, press Enter, and wait until the window shows
+a blinking cursor on a new, empty line before running the next one. Some
+commands print nothing for a minute or two while they download; that's
+normal. A command asking for your **password** on Mac wants your Mac's
+login password. Nothing appears on screen as you type it; that's
+normal too, just type it and press Enter.
+
+### Step 4 (Mac only): Install Homebrew
+
+[Homebrew](https://brew.sh) is the Mac's standard tool for installing
+programs from the terminal. Athena-Studying's installer uses it, and so
+does Step 6. Already have it? Run `brew --version`; if it prints a
+version number, skip to Step 5.
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+It asks for your password, then asks you to press Enter to continue. It
+may also install Apple's "Command Line Tools", which can take 10+
+minutes. **When it finishes, read the end of what it printed:** if
+there's a **Next steps** section with commands in it, copy and run
+those commands too (they make the `brew` command work in new windows).
+Then close Terminal and open a new window.
+
+### Step 5: Install Claude Code and log in
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://claude.ai/install.ps1 | iex
+```
+
+**Mac** (Terminal):
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+```
+
+When it finishes, **close the terminal window and open a new one** (so it
+picks up the newly installed program), then check it worked:
+
+```
+claude --version
+```
+
+You should see a version number. If you see "not recognized" or
+"command not found" instead, see Claude Code's
+[installation troubleshooting](https://code.claude.com/docs/en/troubleshoot-install).
+
+Now log in. Run:
+
+```
+claude
+```
+
+The first time, Claude Code asks a few questions:
+
+1. Pick a color theme (any is fine).
+2. Pick how to log in: choose **Claude account with subscription**.
+3. Your browser opens to claude.ai. Sign in with the account from Step 1
+   if you're not already, and click **Authorize**.
+4. Back in the terminal you should see that login succeeded. Press Enter
+   through any remaining notes. If it asks whether you trust the files in
+   the current folder, that's about the folder the terminal is in, not
+   Athena-Studying; choosing yes is fine.
+
+Once you see a prompt box waiting for you to type, you're logged in. Type
+`/exit` and press Enter to leave Claude Code. You won't need to open it
+yourself again; Athena-Studying uses it in the background.
+
+### Step 6: Install GitHub CLI
+
+**Windows** (PowerShell):
+
+```powershell
+winget install --id GitHub.cli -e --source winget
+```
+
+Approve the Windows permissions prompt if one appears.
+
+**Mac** (Terminal):
+
+```bash
+brew install gh
+```
+
+Then close the terminal window and open a new one, and check it worked:
+
+```
+gh --version
+```
+
+You don't need to log in to GitHub here. The setup wizard does that with
+a **Connect GitHub** button after you install.
+
+### Checklist
+
+Before going on, you should have:
+
+- [ ] A Claude account on Pro or higher
+- [ ] A GitHub account
+- [ ] `claude --version` and `gh --version` both print a version number
+      in a **new** terminal window
+- [ ] Logged in to Claude Code (Step 5)
+
+Keep that new terminal window open: the install command below goes in
+it.
 
 ## Install on Windows
 
@@ -44,9 +181,10 @@ What happens next:
    can take a few minutes the first time.
 4. Your browser opens automatically to the app, and a short **setup
    wizard** walks you through confirming you're on Windows, checking
-   that Claude Code and GitHub are installed and signed in (with an
-   install button for each if they're missing), and creating your first
-   subject.
+   that Claude Code and GitHub are installed and signed in (connecting
+   GitHub with one button, and telling you exactly what to run if
+   anything from "Before you install" is missing), and creating your
+   first subject.
 
 If anything fails partway through, re-run the same command — it's safe to
 run more than once.
@@ -62,8 +200,8 @@ curl -fsSL https://raw.githubusercontent.com/Elca10/Athena/release/installers/ma
 
 What happens next is the same as Windows above, minus the admin prompts:
 if `git` or `Node.js` are missing, the installer installs them via
-[Homebrew](https://brew.sh) (installing Homebrew itself first if you
-don't have it); Athena-Studying downloads into `Athena-Studying` in your
+Homebrew (which it needs you to have installed already, in Step 4 of
+"Before you install"); Athena-Studying downloads into `Athena-Studying` in your
 home folder, starts up, and opens in your browser, where the same setup
 wizard walks you through Claude Code, GitHub, and your first subject.
 
