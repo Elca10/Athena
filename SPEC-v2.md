@@ -56,12 +56,22 @@ an open owner decision (v1 section 12).
   - The user can move individual blocks and set availability (which days,
     how long). Moved and deleted blocks are stored as overrides on top of
     the computed schedule, so it stays deterministic.
+  - **The user's scheduling decisions win.** A moved, deleted or completed
+    block, and the availability settings, are never overridden by the
+    scheduler, deadline pacing or anything else; the computed schedule
+    fills in around them.
   - The user chooses which assignments/exams to study for; deadlines
-    can come from a Canvas calendar feed (pending design, see the
-    roadmap) as well as by hand.
-  - An ICS feed of planned study blocks that calendar apps can subscribe
-    to. No Google Calendar API (OAuth credentials can't live in a public
-    repo).
+    can come from a Canvas calendar feed as well as by hand.
+  - Canvas import is plain code, no model calls: the user pastes their
+    private Canvas calendar-feed URL once, the server fetches and parses
+    the ICS directly, and the user ticks which events to study for and
+    picks the subject. The URL is a secret: stored in the data dir only,
+    redacted from bug reports and logs. It's the only network call Athena
+    makes outside the user's Claude account and GitHub.
+  - Deferred past v0.8.0: an ICS feed of planned study blocks for
+    calendar apps (localhost-only, so Apple Calendar on the same Mac can
+    subscribe but Google Calendar can't). No Google Calendar API (OAuth
+    credentials can't live in a public repo).
 - Nothing built yet. `subjectSummary.js` deliberately leaves out the
   "next deadline" field until this exists.
 
