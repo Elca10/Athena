@@ -6,12 +6,14 @@ import {
   finishSession,
   generateNextLiveQuestion,
   generateNextReadyQuestion,
+  listContent,
   scanBank,
   skipSessionReflection,
   submitLiveAnswer,
   submitReadyAnswer,
   submitReadySelfGrade,
   submitSessionReflection,
+  type ContentItem,
   type LiveHistoryEntry,
   type ReflectionAnswers,
   type SelfGradeStatus,
@@ -66,7 +68,7 @@ export function StudyFlow({
   const [reflectingId, setReflectingId] = useState<string | null>(null);
   const [reflectingHistory, setReflectingHistory] = useState<unknown[]>([]);
   // Set when nothing is due but there are topics: offers "Review ahead".
-  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode } | null>(null);
+  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; contentIds?: string[] } | null>(null);
 
   // Stop early: with answers, go to the end-of-session reflection; with
   // none, just close it. Before this, a session could only end by
@@ -85,15 +87,17 @@ export function StudyFlow({
     }
   }
 
-  async function start(subjectIds: string[], mode: SessionMode, reviewAhead = false) {
+  // `contentIds`: the files the user limited the session to (issue #6).
+  async function start(subjectIds: string[], mode: SessionMode, { reviewAhead = false, contentIds }: { reviewAhead?: boolean; contentIds?: string[] } = {}) {
     setStarting(true);
     setError(null);
     setNothingDue(null);
     try {
-      setSession(await (reviewAhead ? createSession(subjectIds, mode, { reviewAhead }) : createSession(subjectIds, mode)));
+      const options = { ...(reviewAhead ? { reviewAhead } : {}), ...(contentIds?.length ? { contentIds } : {}) };
+      setSession(await (Object.keys(options).length ? createSession(subjectIds, mode, options) : createSession(subjectIds, mode)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start that session.");
-      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode });
+      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode, contentIds });
       setStarting(false);
     }
   }
@@ -108,7 +112,7 @@ export function StudyFlow({
     } catch {
       // Not worth blocking the switch over; worst case it stays listed.
     }
-    await start(abandoned.subjectIds, "live");
+    await start(abandoned.subjectIds, "live", { contentIds: abandoned.contentIds });
   }
 
   return (
@@ -138,7 +142,7 @@ export function StudyFlow({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => start(nothingDue.subjectIds, nothingDue.mode, true)}
+                onClick={() => start(nothingDue.subjectIds, nothingDue.mode, { reviewAhead: true, contentIds: nothingDue.contentIds })}
                 disabled={starting}
               >
                 Review ahead anyway
@@ -176,10 +180,50 @@ function ModePicker({
   initialSubjectId: string;
   readingSubjectIds: string[];
   busy: boolean;
-  onStart: (subjectIds: string[], mode: SessionMode) => void;
+  onStart: (subjectIds: string[], mode: SessionMode, options?: { contentIds?: string[] }) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set([initialSubjectId]));
   const [mode, setMode] = useState<SessionMode>("ready");
+  // Issue #6 ("not all exams are cumulative"): study only chosen files.
+  const [onlySomeFiles, setOnlySomeFiles] = useState(false);
+  const [pickedFiles, setPickedFiles] = useState<Set<string>>(new Set());
+  const [filesBySubject, setFilesBySubject] = useState<Record<string, ContentItem[] | "error">>({});
+
+  useEffect(() => {
+    if (!onlySomeFiles) return;
+    for (const subjectId of selected) {
+      if (filesBySubject[subjectId]) continue;
+      listContent(subjectId)
+        .then((items) => setFilesBySubject((prev) => ({ ...prev, [subjectId]: items })))
+        .catch(() => setFilesBySubject((prev) => ({ ...prev, [subjectId]: "error" })));
+    }
+  }, [onlySomeFiles, selected, filesBySubject]);
+
+  function toggleFile(id: string) {
+    setPickedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Only files still offered count: unticking a subject drops its files.
+  const chosenFiles = [...selected].flatMap((subjectId) => {
+    const items = filesBySubject[subjectId];
+    return Array.isArray(items) ? items.filter((c) => pickedFiles.has(c.id)) : [];
+  });
+  const canStart = !busy && selected.size > 0 && (!onlySomeFiles || chosenFiles.length > 0);
+
+  function startSession() {
+    if (!onlySomeFiles) {
+      onStart([...selected], mode);
+      return;
+    }
+    // Only subjects with a picked file: the others would add nothing.
+    const subjectIds = [...new Set(chosenFiles.map((c) => c.subjectId))];
+    onStart(subjectIds, mode, { contentIds: chosenFiles.map((c) => c.id) });
+  }
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -217,6 +261,51 @@ function ModePicker({
           Live — Athena asks and grades in real time (uses more of your Claude usage)
         </label>
       </fieldset>
+      <fieldset className="study-picker-mode">
+        <legend>Content</legend>
+        <label>
+          <input type="radio" name="study-content" checked={!onlySomeFiles} onChange={() => setOnlySomeFiles(false)} disabled={busy} />
+          Everything in the chosen subjects
+        </label>
+        <label>
+          <input type="radio" name="study-content" checked={onlySomeFiles} onChange={() => setOnlySomeFiles(true)} disabled={busy} />
+          Only some files (e.g. what's on this exam)
+        </label>
+      </fieldset>
+      {onlySomeFiles && (
+        <fieldset className="study-picker-subjects study-picker-files">
+          <legend>Files</legend>
+          {subjects
+            .filter((s) => selected.has(s.id))
+            .map((subject) => {
+              const items = filesBySubject[subject.id];
+              return (
+                <div key={subject.id} className="study-picker-file-group">
+                  {selected.size > 1 && <div className="study-picker-file-subject">{subject.name}</div>}
+                  {items === undefined && <p className="study-picker-hint">Loading files…</p>}
+                  {items === "error" && <p className="study-picker-hint">Couldn't load this subject's files. Go back and try again.</p>}
+                  {Array.isArray(items) && items.length === 0 && (
+                    <p className="study-picker-hint">No content added to {subject.name} yet.</p>
+                  )}
+                  {Array.isArray(items) &&
+                    items.map((item) => (
+                      <label key={item.id}>
+                        <input
+                          type="checkbox"
+                          checked={pickedFiles.has(item.id)}
+                          onChange={() => toggleFile(item.id)}
+                          disabled={busy || !item.topicsExtractedAt}
+                        />
+                        {item.originalFilename}
+                        {!item.topicsExtractedAt && " (not read yet)"}
+                      </label>
+                    ))}
+                </div>
+              );
+            })}
+          {selected.size > 0 && chosenFiles.length === 0 && <p className="study-picker-hint">Pick at least one file to study.</p>}
+        </fieldset>
+      )}
       {subjects
         .filter((s) => selected.has(s.id) && readingSubjectIds.includes(s.id))
         .map((s) => (
@@ -229,8 +318,8 @@ function ModePicker({
         <button
           type="button"
           className="btn-primary"
-          disabled={busy || selected.size === 0}
-          onClick={() => onStart([...selected], mode)}
+          disabled={!canStart}
+          onClick={startSession}
         >
           Start session
         </button>

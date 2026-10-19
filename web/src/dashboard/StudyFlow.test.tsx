@@ -699,3 +699,58 @@ test("the end of a session shows what happened before the reflection questions",
   expect(screen.getByText("Missed")).toBeInTheDocument();
   expect(screen.getByText("What did you learn?")).toBeInTheDocument();
 });
+
+function contentItem(overrides: Partial<api.ContentItem> = {}): api.ContentItem {
+  return {
+    id: "c1",
+    subjectId: "s1",
+    originalFilename: "lecture1.pdf",
+    extension: ".pdf",
+    source: "upload",
+    sizeBytes: 10,
+    addedAt: "2026-01-01T00:00:00.000Z",
+    topicsExtractedAt: "2026-01-01T00:00:00.000Z",
+    unreliablePages: [],
+    ...overrides,
+  };
+}
+
+test("studying only some files sends just the picked files, and their subjects", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    session: baseSession({ currentQuestion: mcQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.listContent).mockImplementation(async (subjectId) =>
+    subjectId === "s1"
+      ? [contentItem(), contentItem({ id: "c2", originalFilename: "lecture2.pdf" }), contentItem({ id: "c3", originalFilename: "new.pdf", topicsExtractedAt: null })]
+      : [contentItem({ id: "c9", subjectId: "s2", originalFilename: "chem.pdf" })],
+  );
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.click(screen.getByRole("checkbox", { name: "Chemistry" }));
+  await user.click(screen.getByRole("radio", { name: /Only some files/ }));
+  expect(screen.getByRole("button", { name: "Start session" })).toBeDisabled();
+  expect(await screen.findByRole("checkbox", { name: /new\.pdf \(not read yet\)/ })).toBeDisabled();
+
+  await user.click(screen.getByRole("checkbox", { name: "lecture2.pdf" }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready", { contentIds: ["c2"] });
+});
+
+test("going back to Everything starts a session over all content again", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({ ok: true, session: baseSession({ currentQuestion: mcQuestion() }) });
+  vi.mocked(api.listContent).mockResolvedValue([contentItem()]);
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.click(screen.getByRole("radio", { name: /Only some files/ }));
+  await user.click(await screen.findByRole("checkbox", { name: "lecture1.pdf" }));
+  await user.click(screen.getByRole("radio", { name: /Everything/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready");
+});

@@ -328,3 +328,16 @@ test("a file over the size limit is refused up front with a plain reason, and th
   expect(api.uploadBinaryContent).not.toHaveBeenCalled();
   expect(api.uploadTextContent).toHaveBeenCalledWith("s1", "notes.md", "notes");
 });
+
+test("removing a read file names the topics that came only from it before confirming", async () => {
+  const user = userEvent.setup();
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  vi.mocked(api.listContent).mockResolvedValue([baseItem({ topicsExtractedAt: "2026-01-01T00:00:00.000Z" })]);
+  vi.mocked(api.getRemovalPreview).mockResolvedValue({ topics: ["Osmosis", "Tonicity"] });
+  render(<AddContentPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
+  await user.click(await screen.findByRole("button", { name: "Remove lecture1.md" }));
+
+  expect(api.getRemovalPreview).toHaveBeenCalledWith("s1", "c1");
+  expect(confirm.mock.calls[0][0]).toMatch(/came only from it and will be removed too[\s\S]*• Osmosis\n• Tonicity/);
+  expect(api.removeContent).not.toHaveBeenCalled();
+});

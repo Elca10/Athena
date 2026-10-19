@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   archiveSession,
   archiveSubject,
+  renameSubject,
   createSubject,
   finishSession,
   getSessionStats,
@@ -319,6 +320,7 @@ export function Dashboard() {
                 setStudySubjectId(subject.id);
                 setView("study");
               }}
+              onRenamed={refresh}
               onArchive={async () => {
                 if (!window.confirm(`Archive "${subject.name}"? It leaves the dashboard; you can restore it from the Archive.`)) return;
                 await archiveSubject(subject.id);
@@ -564,6 +566,7 @@ function SubjectCard({
   readingStage,
   onAddContent,
   onStudy,
+  onRenamed,
   onArchive,
 }: {
   subject: Subject;
@@ -571,11 +574,24 @@ function SubjectCard({
   readingStage?: ReadStage;
   onAddContent: () => void;
   onStudy: () => void;
+  onRenamed: () => void;
   onArchive: () => void;
 }) {
+  const [renaming, setRenaming] = useState(false);
   return (
     <article className="subject-card">
-      <h3>{subject.name}</h3>
+      {renaming ? (
+        <RenameSubjectForm
+          subject={subject}
+          onClose={() => setRenaming(false)}
+          onRenamed={() => {
+            setRenaming(false);
+            onRenamed();
+          }}
+        />
+      ) : (
+        <h3>{subject.name}</h3>
+      )}
       {summary ? (
         <div className="subject-card-stats">
           <span>
@@ -604,11 +620,74 @@ function SubjectCard({
         <button type="button" className="btn-primary" onClick={onStudy}>
           Study
         </button>
+        <button type="button" className="btn-secondary" onClick={() => setRenaming(true)} disabled={renaming}>
+          Rename
+        </button>
         <button type="button" className="btn-secondary" onClick={onArchive}>
           Archive
         </button>
       </div>
     </article>
+  );
+}
+
+// Issue #6: same rules as creating a subject (length cap, no duplicate
+// names); the server's reason is shown as-is when it refuses.
+function RenameSubjectForm({ subject, onClose, onRenamed }: { subject: Subject; onClose: () => void; onRenamed: () => void }) {
+  const [name, setName] = useState(subject.name);
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const trimmed = name.trim().replace(/\s+/g, " ");
+
+  async function submit() {
+    if (!trimmed) return;
+    if (trimmed === subject.name) {
+      onClose();
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      await renameSubject(subject.id, trimmed);
+      onRenamed();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't rename that subject.");
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      className="new-subject-form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && !submitting) {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <input
+        type="text"
+        aria-label={`New name for ${subject.name}`}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        maxLength={100}
+        autoFocus
+        onFocus={(e) => e.target.select()}
+        disabled={submitting}
+      />
+      <button type="submit" className="btn-primary" disabled={!trimmed || submitting}>
+        Save
+      </button>
+      <button type="button" className="btn-secondary" onClick={onClose} disabled={submitting}>
+        Cancel
+      </button>
+      {error && <div className="new-subject-form-error">{error}</div>}
+    </form>
   );
 }
 

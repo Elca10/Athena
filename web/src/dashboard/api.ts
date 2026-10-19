@@ -59,6 +59,8 @@ export type Session = {
   subjectIds: string[];
   /** The topics this session covers, in order: one question each. */
   topicIds?: string[];
+  /** The files this session was limited to; empty or absent means all content. */
+  contentIds?: string[];
   mode: SessionMode;
   status: SessionStatus;
   endedAt: string | null;
@@ -123,6 +125,16 @@ export function createSubject(name: string): Promise<Subject> {
   return postJsonBody("/api/subjects", { name });
 }
 
+export async function renameSubject(id: string, name: string): Promise<Subject> {
+  const res = await fetch(`/api/subjects/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Couldn't rename (${res.status})`));
+  return res.json();
+}
+
 export function getSubjectSummary(id: string): Promise<SubjectSummary> {
   return getJson(`/api/subjects/${id}/summary`);
 }
@@ -158,12 +170,12 @@ export function restoreSession(id: string): Promise<Session> {
 export async function createSession(
   subjectIds: string[],
   mode: SessionMode,
-  { reviewAhead = false }: { reviewAhead?: boolean } = {},
+  { reviewAhead = false, contentIds }: { reviewAhead?: boolean; contentIds?: string[] } = {},
 ): Promise<Session> {
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subjectIds, mode, ...(reviewAhead ? { reviewAhead } : {}) }),
+    body: JSON.stringify({ subjectIds, mode, ...(reviewAhead ? { reviewAhead } : {}), ...(contentIds?.length ? { contentIds } : {}) }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
@@ -371,6 +383,12 @@ export type TopicScanResult = {
 
 export function removeContent(subjectId: string, contentId: string): Promise<void> {
   return deleteJson(`/api/subjects/${subjectId}/content/${contentId}`);
+}
+
+/** Names of the topics that came only from this item, so removing it
+ * would remove them too (issue #6). */
+export async function getRemovalPreview(subjectId: string, contentId: string): Promise<{ topics: string[] }> {
+  return getJson(`/api/subjects/${subjectId}/content/${contentId}/removal`);
 }
 
 export function scanTopics(subjectId: string): Promise<TopicScanResult> {

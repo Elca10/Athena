@@ -1033,3 +1033,55 @@ test("a panel takes keyboard focus, keeps Tab inside, and hands focus back on cl
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   expect(opener).toHaveFocus();
 });
+
+test("Rename on a subject card saves the new name, and a refused name shows the reason and keeps the form", async () => {
+  const user = userEvent.setup();
+  const subject = { id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" };
+  vi.mocked(api.listSubjects).mockResolvedValue([subject]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 0, learning: 0, mastered: 0 },
+    dueCount: 0,
+    bankSize: 0,
+    topicCount: 1,
+    contentCount: 1,
+    unreadContentCount: 0,
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const card = (await screen.findByRole("heading", { name: "Organic Chemistry" })).closest("article") as HTMLElement;
+  await user.click(within(card).getByRole("button", { name: "Rename" }));
+  const input = within(card).getByRole("textbox", { name: "New name for Organic Chemistry" });
+
+  vi.mocked(api.renameSubject).mockRejectedValueOnce(new Error('You already have a subject called "Biology".'));
+  await user.clear(input);
+  await user.type(input, "Biology{Enter}");
+  expect(await within(card).findByText('You already have a subject called "Biology".')).toBeInTheDocument();
+  expect(input).toBeInTheDocument();
+
+  vi.mocked(api.renameSubject).mockResolvedValueOnce({ ...subject, name: "Orgo" });
+  vi.mocked(api.listSubjects).mockResolvedValue([{ ...subject, name: "Orgo" }]);
+  await user.clear(input);
+  await user.type(input, "Orgo{Enter}");
+
+  expect(api.renameSubject).toHaveBeenLastCalledWith("s1", "Orgo");
+  expect(await screen.findByRole("heading", { name: "Orgo" })).toBeInTheDocument();
+});
+
+test("Escape cancels a rename without saving", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Organic Chemistry", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const card = (await screen.findByRole("heading", { name: "Organic Chemistry" })).closest("article") as HTMLElement;
+  await user.click(within(card).getByRole("button", { name: "Rename" }));
+  await user.type(within(card).getByRole("textbox"), " II{Escape}");
+
+  expect(api.renameSubject).not.toHaveBeenCalled();
+  expect(within(card).getByRole("heading", { name: "Organic Chemistry" })).toBeInTheDocument();
+});

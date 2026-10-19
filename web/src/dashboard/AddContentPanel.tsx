@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addPastedNotes,
+  getRemovalPreview,
   listContent,
   removeContent,
   MAX_UPLOAD_BYTES,
@@ -128,7 +129,20 @@ export function AddContentPanel({
   }
 
   async function remove(item: ContentItem) {
-    const extra = item.topicsExtractedAt ? " Topics already found from it will stay." : "";
+    // Topics found only in this file go with it (issue #6); say which.
+    let onlyHere: string[] = [];
+    if (item.topicsExtractedAt) {
+      try {
+        onlyHere = (await getRemovalPreview(subjectId, item.id)).topics;
+      } catch {
+        // No preview: the confirm just won't list them.
+      }
+    }
+    const extra = onlyHere.length
+      ? `\n\nThese topics came only from it and will be removed too, with their practice questions:\n${onlyHere.map((t) => `• ${t}`).join("\n")}`
+      : item.topicsExtractedAt
+        ? "\n\nIts topics also appear in other content, so they'll stay."
+        : "";
     if (!window.confirm(`Remove "${item.originalFilename}"?${extra}`)) return;
     setError(null);
     setBusy(true);
