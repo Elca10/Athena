@@ -2,7 +2,10 @@ name: Release
 
 # Publishes a GitHub Release for every version tag that
 # scripts/promote-release.mjs pushes (atomically with the `release` branch
-# move it ships). The Release notes are the tag's own annotation — the
+# move it ships). Two ways in: promote.yml calls it directly after an
+# automatic promotion (a tag pushed with a workflow's GITHUB_TOKEN never
+# triggers `push: tags`), and the tag push itself triggers it when the
+# script is run by hand. The Release notes are the tag's own annotation — the
 # commit subjects since the previous version, written by the promote
 # script — so this workflow makes no decisions of its own: CI-green,
 # fast-forward-only and the version number were all settled before the
@@ -13,6 +16,12 @@ name: Release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_call:
+    inputs:
+      tag:
+        description: The version tag to publish, e.g. v0.4.2
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -27,7 +36,8 @@ jobs:
       - name: Create GitHub Release from the tag's notes
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          # When called, github.ref_name is the caller's ref, not the tag.
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
           ref=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG")

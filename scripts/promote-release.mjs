@@ -16,29 +16,46 @@
 // tag lands without the branch.
 //
 // Usage: node scripts/promote-release.mjs <commit-sha> [--minor | --major]
-// (default bump is patch: v0.1.0 -> v0.1.1)
+// With no flag, the bump comes from the commits being shipped: a
+// `Release: minor` or `Release: major` trailer on any of them picks that
+// bump (the highest wins), otherwise it's a patch (v0.1.0 -> v0.1.1).
+//
+// Normally this runs on its own: .github/workflows/promote.yml calls it
+// for every `main` commit whose CI finishes green, so the trailer is how
+// a commit asks for a minor/major release. Running it by hand still works
+// (e.g. for a hotfix commit that isn't on main).
 //
 // CI status is read from GitHub's public Actions API — no `gh` and no
-// token needed, same reasoning as the check-run-annotations technique
+// token needed (GITHUB_TOKEN is sent if set, only for the higher rate
+// limit inside Actions), same reasoning as the check-run-annotations technique
 // already used elsewhere in this build (see ~/athena-build/progress.md,
 // priority item 0): a public repo's read endpoints work unauthenticated.
 // Creating the GitHub Release itself does need auth, which is exactly why
 // that half lives in the workflow (its built-in GITHUB_TOKEN) instead.
 
 import { execFileSync } from "node:child_process";
+import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const REPO = "Elca10/Athena";
 const API_BASE = `https://api.github.com/repos/${REPO}`;
 export const FIRST_VERSION = "v0.1.0";
 const VERSION_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
+// Only CI's own runs say whether a commit is green. Other workflows run
+// against the same SHA too — promote.yml itself, still in progress while
+// it asks — and counting them would make every automatic promotion
+// refuse.
+const CI_WORKFLOW = "ci.yml";
+const BUMPS = ["patch", "minor", "major"];
 
 function runGit(args) {
   return execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
 }
 
 async function defaultFetchJson(url) {
-  const res = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
+  const headers = { Accept: "application/vnd.github+json" };
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const res = await fetch(url, { headers });
   if (!res.ok) {
     throw new Error(`GitHub API request to ${url} failed: ${res.status} ${res.statusText}`);
   }
@@ -46,7 +63,7 @@ async function defaultFetchJson(url) {
 }
 
 /**
- * True only if the MOST RECENT workflow run against this exact commit has
+ * True only if the MOST RECENT CI run against this exact commit has
  * finished with every job green. A run still queued/in-progress, or whose
  * most recent attempt failed or was cancelled, is not green — and a commit
  * with no runs at all (never pushed, or pushed somewhere CI doesn't cover)
@@ -54,7 +71,9 @@ async function defaultFetchJson(url) {
  * tests, same DI pattern as installers/bootstrap.mjs's `fetchFn`.
  */
 export async function isCommitCiGreen(commit, { fetchJsonFn = defaultFetchJson } = {}) {
-  const { workflow_runs: runs } = await fetchJsonFn(`${API_BASE}/actions/runs?head_sha=${commit}&per_page=10`);
+  const { workflow_runs: runs } = await fetchJsonFn(
+    `${API_BASE}/actions/workflows/${CI_WORKFLOW}/runs?head_sha=${commit}&per_page=10`,
+  );
   if (!runs || runs.length === 0) return false;
   const [latest] = [...runs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return latest.status === "completed" && latest.conclusion === "success";
@@ -86,6 +105,16 @@ export function nextVersion(tags, bump = "patch") {
   return `v${major}.${minor}.${patch + 1}`;
 }
 
+/**
+ * The bump asked for by `Release:` trailer values (one per line, as
+ * `git log --format=%(trailers:key=Release,valueonly)` prints them): the
+ * highest of minor/major, else patch. Anything else is ignored.
+ */
+export function bumpFromTrailers(out) {
+  const asked = splitLines(out).map((v) => v.toLowerCase());
+  return BUMPS.filter((b) => asked.includes(b)).pop() ?? "patch";
+}
+
 function splitLines(out) {
   return out ? out.split("\n").map((l) => l.trim()).filter(Boolean) : [];
 }
@@ -101,7 +130,7 @@ function splitLines(out) {
  */
 export async function promoteRelease(
   commit,
-  { bump = "patch", checkCiGreen = isCommitCiGreen, runFn = runGit, log = console.log, error = console.error } = {},
+  { bump = null, checkCiGreen = isCommitCiGreen, runFn = runGit, log = console.log, error = console.error } = {},
 ) {
   // --tags: the version tags decide what this release is called, and a
   // plain branch fetch doesn't bring them along.
@@ -111,7 +140,10 @@ export async function promoteRelease(
     // exist on origin yet, so there's nothing to fetch — the push below
     // creates it fresh, which is a normal ref creation, not something
     // --force is needed for.
-    runFn(["fetch", "origin", "release"]);
+    // Explicit destination: the ancestry check below reads
+    // origin/release, which a bare `fetch origin release` only updates
+    // when the clone has a matching fetch refspec.
+    runFn(["fetch", "origin", "+refs/heads/release:refs/remotes/origin/release"]);
   } catch {
     // Not fatal — see above.
   }
@@ -131,6 +163,22 @@ export async function promoteRelease(
     return { promoted: false, reason: "already-released", commit: full, version: existing };
   }
 
+  // Already shipped as part of a later commit: CI for two quick pushes
+  // can finish out of order, and the newer one may have promoted first.
+  // Pushing the older commit would be a rewind git refuses anyway, so
+  // this is "nothing to do", not a failure.
+  let base = null;
+  try {
+    base = runFn(["merge-base", full, "refs/remotes/origin/release"]);
+  } catch {
+    // No release yet (first promotion) or no common history — the push
+    // below decides.
+  }
+  if (base === full) {
+    error(`${full} is already on release — nothing to do.`);
+    return { promoted: false, reason: "already-on-release", commit: full };
+  }
+
   const green = await checkCiGreen(full);
   if (!green) {
     error(`CI is not green for ${full} — refusing to promote.`);
@@ -138,8 +186,13 @@ export async function promoteRelease(
   }
 
   const tags = splitLines(runFn(["tag", "--list", "v*"]));
-  const version = nextVersion(tags, bump);
   const previous = sortedVersionTags(tags).pop();
+  const chosenBump =
+    bump ??
+    (previous
+      ? bumpFromTrailers(runFn(["log", "--format=%(trailers:key=Release,valueonly)", `${previous}..${full}`]))
+      : "patch");
+  const version = nextVersion(tags, chosenBump);
   // The tag's message is the release notes (release.yml publishes it as
   // the GitHub Release body): every commit subject since the previous
   // version, which is why commits here are titled for a reader ("Refs #7:
@@ -179,7 +232,7 @@ export async function promoteRelease(
 }
 
 export function parseArgs(argv) {
-  const bump = argv.includes("--major") ? "major" : argv.includes("--minor") ? "minor" : "patch";
+  const bump = argv.includes("--major") ? "major" : argv.includes("--minor") ? "minor" : null;
   const commit = argv.find((a) => !a.startsWith("--"));
   return { commit, bump };
 }
@@ -191,7 +244,12 @@ async function main() {
     process.exit(1);
   }
   const result = await promoteRelease(commit, { bump });
-  process.exit(result.promoted ? 0 : 1);
+  // Hands the new version to promote.yml's publish job.
+  if (result.promoted && process.env.GITHUB_OUTPUT) {
+    appendFileSync(process.env.GITHUB_OUTPUT, `version=${result.version}\n`);
+  }
+  const nothingToDo = result.reason === "already-released" || result.reason === "already-on-release";
+  process.exit(result.promoted || nothingToDo ? 0 : 1);
 }
 
 // pathToFileURL, not a bare `file://${...}` template: process.argv[1] is a

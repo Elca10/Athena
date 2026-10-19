@@ -1,0 +1,73 @@
+name: Promote release
+
+# Ships every `main` commit whose CI finishes green: runs
+# scripts/promote-release.mjs on it (fast-forward `release` + tag the next
+# version, atomically, never forced), then publishes the GitHub Release.
+# The bump is a patch unless a shipped commit carries a `Release: minor` /
+# `Release: major` trailer (see the script's header).
+#
+# The publish job calls release.yml directly because a tag pushed with
+# this workflow's own GITHUB_TOKEN deliberately doesn't trigger other
+# workflows — release.yml's `push: tags` trigger would never fire for an
+# automatic promotion, and no GitHub Release would ever appear.
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+# One promotion at a time. A newer commit's run waiting here replaces an
+# older waiting one, which is fine: the newer commit ships the older
+# one's changes too.
+concurrency:
+  group: promote-release
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    # Push events only, from this repo: CI also runs for pull requests,
+    # including from forks whose branch happens to be called `main`.
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.promote.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          # Full history and tags: the script picks the version from
+          # existing tags and writes notes from the commits since the last.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # The version tag is annotated, so it needs an author.
+      - name: Set git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+
+      - name: Promote
+        id: promote
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: node scripts/promote-release.mjs "$SHA"
+
+  publish:
+    needs: promote
+    if: needs.promote.outputs.version != ''
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.promote.outputs.version }}

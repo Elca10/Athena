@@ -203,30 +203,45 @@ See [SPEC.md](SPEC.md) for the full design and build order.
 
 ### How to ship an update
 
-Installed copies auto-update from the `release` branch, not `main` — so
-pushing to `main` (including an unattended overnight build run) never
-reaches anyone until you deliberately promote it. To ship whatever is
-currently on `main`:
+Installed copies update from the `release` branch, not `main`, and
+`release` moves on its own: every push to `main` whose CI finishes green
+on all three OSes is promoted automatically by
+`.github/workflows/promote.yml`. It fast-forwards `release` to that commit,
+tags it with the next version and publishes the GitHub Release. A red CI
+run ships nothing. So **pushing to `main` is shipping**, including an
+unattended overnight build run, once its CI passes.
 
-```bash
-node scripts/promote-release.mjs <main-commit-sha>            # v0.4.1 -> v0.4.2
-node scripts/promote-release.mjs <main-commit-sha> --minor    # v0.4.1 -> v0.5.0
-node scripts/promote-release.mjs <main-commit-sha> --major    # v0.4.1 -> v1.0.0
+The bump is a patch unless a commit being shipped asks for more with a
+trailer: the last paragraph of its message is `Release: minor` or
+`Release: major` (the highest one wins):
+
+```
+Refs #7: rate confidence after answering
+
+Release: minor
 ```
 
-This fast-forwards `release` to that commit and tags it with the next
-version, but only if CI has already finished green for it — otherwise it
-refuses and exits non-zero. Branch and tag are pushed atomically (both or
-neither). It never force-pushes: a plain `git push` with no `--force` is
-the actual enforcement, so a `release` that's somehow diverged (it
-shouldn't) will fail loudly instead of being silently rewritten. Running
-it again on an already-released commit does nothing.
+The workflow runs the same script you can run by hand, e.g. for a hotfix
+commit that isn't on `main`:
 
-Versions follow semver: patch for fixes, `--minor` for new features or
-visible behaviour changes, `--major` for changes that break existing
-installs or data. These meanings hold before 1.0 too (a new feature in
+```bash
+node scripts/promote-release.mjs <commit-sha>            # bump from trailers, else patch
+node scripts/promote-release.mjs <commit-sha> --minor    # v0.4.1 -> v0.5.0
+node scripts/promote-release.mjs <commit-sha> --major    # v0.4.1 -> v1.0.0
+```
+
+It only promotes a commit whose CI has already finished green, otherwise
+it refuses and exits non-zero. Branch and tag are pushed atomically (both
+or neither). It never force-pushes: a plain `git push` with no `--force`
+is the actual enforcement, so a `release` that's somehow diverged (it
+shouldn't) will fail loudly instead of being silently rewritten. A commit
+that's already released, or already behind `release`, is a no-op.
+
+Versions follow semver: patch for fixes, minor (`Release: minor`) for new
+features or visible behaviour changes, major (`Release: major`) for changes
+that break existing installs or data. These meanings hold before 1.0 too (a new feature in
 0.x is still `--minor`), so nothing changes at `1.0.0` — the deliberate
-public-launch version — except that they become promises to users. Pushing the
+public-launch version — except that they become promises to users. The
 tag runs `.github/workflows/release.yml`, which publishes a GitHub Release
 whose notes are the commit subjects since the previous version — so write
 commit subjects for a reader. The app shows the version it's running

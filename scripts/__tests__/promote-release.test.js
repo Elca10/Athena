@@ -5,7 +5,14 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { FIRST_VERSION, isCommitCiGreen, nextVersion, parseArgs, promoteRelease } from "../promote-release.mjs";
+import {
+  FIRST_VERSION,
+  bumpFromTrailers,
+  isCommitCiGreen,
+  nextVersion,
+  parseArgs,
+  promoteRelease,
+} from "../promote-release.mjs";
 
 const SCRIPT_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "promote-release.mjs");
 
@@ -46,6 +53,20 @@ test("isCommitCiGreen: true when the latest run completed successfully", async (
     }),
   });
   assert.equal(green, true);
+});
+
+// promote.yml asks while its own run (same head SHA) is still in
+// progress, so counting every workflow's runs would block every
+// automatic promotion.
+test("isCommitCiGreen: only asks about CI's own runs, not every workflow on the commit", async () => {
+  let asked;
+  await isCommitCiGreen("abc123", {
+    fetchJsonFn: async (url) => {
+      asked = url;
+      return { workflow_runs: [] };
+    },
+  });
+  assert.match(asked, /\/actions\/workflows\/ci\.yml\/runs\?head_sha=abc123/);
 });
 
 test("isCommitCiGreen: false when there are no runs at all for this commit", async () => {
@@ -125,9 +146,17 @@ test("nextVersion: first release is FIRST_VERSION, then bumps from the highest s
 });
 
 test("parseArgs: commit plus optional bump flag, in either order", () => {
-  assert.deepEqual(parseArgs(["abc123"]), { commit: "abc123", bump: "patch" });
+  // No flag: null, so promoteRelease reads the bump from the commits.
+  assert.deepEqual(parseArgs(["abc123"]), { commit: "abc123", bump: null });
   assert.deepEqual(parseArgs(["--minor", "abc123"]), { commit: "abc123", bump: "minor" });
   assert.deepEqual(parseArgs(["abc123", "--major"]), { commit: "abc123", bump: "major" });
+});
+
+test("bumpFromTrailers: highest of minor/major wins, anything else is a patch", () => {
+  assert.equal(bumpFromTrailers(""), "patch");
+  assert.equal(bumpFromTrailers("\n\nminor\n\n"), "minor");
+  assert.equal(bumpFromTrailers("minor\nMajor\npatch"), "major");
+  assert.equal(bumpFromTrailers("huge\nyes"), "patch");
 });
 
 test("promoteRelease: refuses a commit that's already a version, without pushing or tagging", async () => {
@@ -404,5 +433,87 @@ test("real git: a later release bumps from the previous tag and lists the commit
     rmSync(bareDir, { recursive: true, force: true });
     rmSync(cloneDir, { recursive: true, force: true });
     rmSync(seedDir, { recursive: true, force: true });
+  }
+});
+
+// A seeded remote at v0.4.2 with main one or more commits ahead, plus a
+// fresh clone of it — the state an automatic promotion actually runs in.
+function laterReleaseFixture(git, commitMessages) {
+  const dirs = ["bare", "clone", "seed"].map((n) => mkdtempSync(path.join(tmpdir(), `athena-promote-${n}-`)));
+  const [bareDir, cloneDir, seedDir] = dirs;
+  execFileSync("git", ["init", "-q", "--bare", bareDir]);
+  git(seedDir, ["init", "-q"]);
+  git(seedDir, ["config", "user.email", "test@example.com"]);
+  git(seedDir, ["config", "user.name", "Test"]);
+  git(seedDir, ["commit", "-q", "--allow-empty", "-m", "already shipped"]);
+  git(seedDir, ["branch", "-M", "main"]);
+  git(seedDir, ["tag", "-a", "v0.4.2", "-m", "earlier release"]);
+  git(seedDir, ["remote", "add", "origin", bareDir]);
+  git(seedDir, ["push", "-q", "origin", "main", "main:release", "refs/tags/v0.4.2"]);
+  const commits = commitMessages.map((m) => {
+    git(seedDir, ["commit", "-q", "--allow-empty", "-m", m]);
+    return git(seedDir, ["rev-parse", "HEAD"]);
+  });
+  git(seedDir, ["push", "-q", "origin", "main"]);
+  execFileSync("git", ["clone", "-q", bareDir, cloneDir]);
+  git(cloneDir, ["config", "user.email", "test@example.com"]);
+  git(cloneDir, ["config", "user.name", "Test"]);
+  return { bareDir, cloneDir, commits, cleanup: () => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })) };
+}
+
+const quiet = { checkCiGreen: async () => true, log: () => {}, error: () => {} };
+
+test("real git: with no bump flag, a Release: minor trailer on any shipped commit makes it a minor", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, [
+    "Refs #11: new study mode\n\nRelease: minor",
+    "Refs #12: a fix on top",
+  ]);
+  try {
+    const result = await promoteRelease(fx.commits[1], { runFn: runGitAt(fx.cloneDir), ...quiet });
+    assert.equal(result.version, "v0.5.0");
+    // Notes stay subject-only — the trailer doesn't leak into them.
+    assert.equal(
+      git(fx.cloneDir, ["tag", "-l", "--format=%(contents)", "v0.5.0"]),
+      "- Refs #12: a fix on top\n- Refs #11: new study mode",
+    );
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("real git: with no bump flag and no trailer, it's a patch", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  // "Release: minor" in the middle of a body is prose, not a trailer.
+  const fx = laterReleaseFixture(git, ["Refs #13: a fix\n\nRelease: minor is not this.\nJust a fix."]);
+  try {
+    const result = await promoteRelease(fx.commits[0], { runFn: runGitAt(fx.cloneDir), ...quiet });
+    assert.equal(result.version, "v0.4.3");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+// Two quick pushes to main: CI for the newer one can finish first and
+// promote it, and then the older one's promotion must be a quiet no-op,
+// not a failed (rejected) push.
+test("real git: promoting a commit that's already behind release is nothing to do, and pushes nothing", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, ["Refs #14: older", "Refs #15: newer"]);
+  try {
+    const newer = await promoteRelease(fx.commits[1], { runFn: runGitAt(fx.cloneDir), ...quiet });
+    assert.equal(newer.version, "v0.4.3");
+    const calls = [];
+    const runFn = (args) => {
+      calls.push(args);
+      return runGitAt(fx.cloneDir)(args);
+    };
+    const older = await promoteRelease(fx.commits[0], { runFn, ...quiet });
+    assert.equal(older.promoted, false);
+    assert.equal(older.reason, "already-on-release");
+    assert.ok(!calls.some((a) => a[0] === "push" || (a[0] === "tag" && a[1] === "-a")));
+    assert.match(git(fx.cloneDir, ["ls-remote", fx.bareDir, "refs/heads/release"]), new RegExp(`^${fx.commits[1]}`));
+  } finally {
+    fx.cleanup();
   }
 });
