@@ -84,9 +84,9 @@ per the 2026-10-11 audit (full table in the build progress log):
 
 | Principle | Gap |
 |---|---|
-| Variation | Ready mode's `pickBankQuestion` ignores question `type`, so one type can repeat across reviews; Live mode doesn't track which types a topic has already been asked. |
+| Variation | **Built (v0.4.0).** Ready mode's `pickBankQuestion` now avoids a topic's recently-asked types (read from existing attempt history, falling back gracefully rather than ever refuse a question); Live mode's prompt steers away from them too (`liveSession.js`'s `recentlyAskedTypes`), from the `type` every answered attempt already carries — no new data, no migration. |
 | Elaboration | Live mode never asks a follow-up "why" after a correct-but-shallow answer — it moves straight to the next topic. |
-| Desirable difficulty | Question difficulty isn't tied to mastery: mastered topics (FSRS state Review) get the same difficulty mix as ones reviewed once; Ready mode ignores `difficulty` when picking. |
+| Desirable difficulty | **Built (v0.4.0).** `scheduler.js`'s `targetDifficultyForCard` derives a target (intro/medium/hard) deterministically from a topic's FSRS state (Review + stability vs. New/Learning/Relearning); Ready mode's `pickBankQuestion` narrows to it when possible, Live mode's prompt names it as a short steer. |
 | Structure building | No per-subject "big ideas" summary: no data model, no post-session prompt to build/revise it, nowhere to show it. |
 | Exam-aware pacing | Depends on section 2 (deadlines) above. |
 
