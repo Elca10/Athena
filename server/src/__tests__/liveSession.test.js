@@ -10,6 +10,7 @@ import { addPreference } from "../preferences.js";
 import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
 import {
   pickNextTopicId,
+  recentlyAskedTypes,
   buildFirstQuestionPrompt,
   parseFirstQuestionReply,
   generateNextLiveQuestion,
@@ -56,6 +57,26 @@ async function seedTwoTopicSession(dir) {
   return { subject, topic1: t1, topic2: t2, session };
 }
 
+// A topic already asked (and answered, in a now-finished session) as
+// "explain_why" once, then asked again in a fresh session — the shape a
+// real repeated review across sessions takes.
+async function seedTwoTopicSessionSingleTopicHistory(dir) {
+  const subject = await createSubject(dir, { name: "Organic Chemistry" });
+  const [topic] = await addPlannedTopics(dir, subject.id, [{ name: "SN1 vs SN2" }]);
+  const priorSession = await createSession(dir, { subjectIds: [subject.id], mode: "live", topicIds: [topic.id] });
+  await setCurrentQuestion(dir, priorSession.id, { topicId: topic.id, prompt: "Prior Q", type: "explain_why" });
+  await recordAnswer(dir, priorSession.id, {
+    topicId: topic.id,
+    prompt: "Prior Q",
+    type: "explain_why",
+    answerText: "a1",
+    answeredAt: new Date().toISOString(),
+  });
+
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "live", topicIds: [topic.id] });
+  return { subject, topic, session };
+}
+
 // --- pickNextTopicId ---------------------------------------------------
 
 test("pickNextTopicId returns the first topic when history is empty", () => {
@@ -76,6 +97,49 @@ test("pickNextTopicId returns null once every topic has a history entry", () => 
 
 test("pickNextTopicId treats a missing history as having nothing asked yet", () => {
   assert.equal(pickNextTopicId(["a"], undefined), "a");
+});
+
+// --- recentlyAskedTypes --------------------------------------------------
+
+function sessionWithHistory(history) {
+  return { history };
+}
+
+test("recentlyAskedTypes returns nothing when the topic has no history anywhere", () => {
+  assert.deepEqual(recentlyAskedTypes([sessionWithHistory([{ topicId: "other", type: "apply", answeredAt: "2026-01-01T00:00:00.000Z" }])], "t1"), []);
+});
+
+test("recentlyAskedTypes returns the most recent distinct types across sessions, most-recent first", () => {
+  const sessions = [
+    sessionWithHistory([
+      { topicId: "t1", type: "free_recall", answeredAt: "2026-01-01T00:00:00.000Z" },
+      { topicId: "t1", type: "apply", answeredAt: "2026-01-03T00:00:00.000Z" },
+    ]),
+    sessionWithHistory([{ topicId: "t1", type: "explain_why", answeredAt: "2026-01-02T00:00:00.000Z" }]),
+  ];
+  assert.deepEqual(recentlyAskedTypes(sessions, "t1"), ["apply", "explain_why"]);
+});
+
+test("recentlyAskedTypes de-duplicates a repeated type and respects the limit", () => {
+  const sessions = [
+    sessionWithHistory([
+      { topicId: "t1", type: "apply", answeredAt: "2026-01-01T00:00:00.000Z" },
+      { topicId: "t1", type: "apply", answeredAt: "2026-01-02T00:00:00.000Z" },
+      { topicId: "t1", type: "free_recall", answeredAt: "2026-01-03T00:00:00.000Z" },
+    ]),
+  ];
+  assert.deepEqual(recentlyAskedTypes(sessions, "t1", { limit: 1 }), ["free_recall"]);
+  assert.deepEqual(recentlyAskedTypes(sessions, "t1"), ["free_recall", "apply"]);
+});
+
+test("recentlyAskedTypes skips entries with no recorded type rather than throwing", () => {
+  const sessions = [sessionWithHistory([{ topicId: "t1", answerText: "an old attempt from before type existed", answeredAt: "2026-01-01T00:00:00.000Z" }])];
+  assert.deepEqual(recentlyAskedTypes(sessions, "t1"), []);
+});
+
+test("recentlyAskedTypes treats a missing sessions list or history as empty", () => {
+  assert.deepEqual(recentlyAskedTypes(undefined, "t1"), []);
+  assert.deepEqual(recentlyAskedTypes([{}], "t1"), []);
 });
 
 // --- buildFirstQuestionPrompt -----------------------------------------------
@@ -117,6 +181,44 @@ test("buildFirstQuestionPrompt appends stored preferences when given any", () =>
   });
   assert.match(prompt, /standing study preferences/);
   assert.match(prompt, /harder questions on proofs/);
+});
+
+test("buildFirstQuestionPrompt adds a short variety steer when there are recently-asked types to avoid", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: false,
+    avoidTypes: ["free_recall", "apply"],
+  });
+  assert.match(prompt, /prefer a type other than: free_recall, apply/);
+});
+
+test("buildFirstQuestionPrompt adds nothing extra when there are no types to avoid", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: false,
+  });
+  assert.doesNotMatch(prompt, /prefer a type other than/);
+});
+
+test("buildFirstQuestionPrompt adds a short difficulty steer when a target difficulty is given", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: false,
+    targetDifficulty: "hard",
+  });
+  assert.match(prompt, /Aim for a hard difficulty question/);
+});
+
+test("buildFirstQuestionPrompt adds nothing extra when no target difficulty is given", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: false,
+  });
+  assert.doesNotMatch(prompt, /Aim for a/);
 });
 
 test("buildFirstQuestionPrompt adds nothing extra when there are no preferences", () => {
@@ -277,6 +379,30 @@ test("generateNextLiveQuestion frames a reviewed topic differently from a brand-
   };
   await generateNextLiveQuestion(dir, session.id, { runTurn });
   assert.match(seenPrompt, /reviewed this topic before/);
+});
+
+test("generateNextLiveQuestion steers the prompt away from a topic's most recently asked type, from real session history", async () => {
+  const dir = await scratchDir();
+  const { session, topic } = await seedTwoTopicSessionSingleTopicHistory(dir);
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return fence({ prompt: "Another angle on SN1 vs SN2.", type: "apply", difficulty: "medium" });
+  };
+  await generateNextLiveQuestion(dir, session.id, { runTurn });
+  assert.match(seenPrompt, /prefer a type other than: explain_why/);
+});
+
+test("generateNextLiveQuestion steers the prompt toward the topic's FSRS-derived target difficulty", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedSession(dir); // brand-new topic: New state
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return fence({ prompt: "What do you think SN1 means?", type: "free_recall", difficulty: "intro" });
+  };
+  await generateNextLiveQuestion(dir, session.id, { runTurn });
+  assert.match(seenPrompt, /Aim for a intro difficulty question/);
 });
 
 test("generateNextLiveQuestion leaves the session untouched when the model call fails", async () => {

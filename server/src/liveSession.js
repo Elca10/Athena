@@ -35,10 +35,10 @@
 // though neither turn ever needed file access in the first place.
 
 import { runCommand, backgroundTurnArgs, LIVE_MODEL } from "./processUtil.js";
-import { getSession, setCurrentQuestion, recordAnswer, promptReflection } from "./sessions.js";
+import { getSession, setCurrentQuestion, recordAnswer, promptReflection, listSessions } from "./sessions.js";
 import { getSubject } from "./subjects.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
-import { RATINGS } from "./scheduler.js";
+import { RATINGS, targetDifficultyForCard } from "./scheduler.js";
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
 
@@ -84,19 +84,64 @@ export function pickNextTopicId(topicIds, history) {
 }
 
 /**
+ * The distinct question types a topic has most recently been asked, most-
+ * recent first — SPEC.md section 3's Variation row: "Live mode doesn't
+ * track which question types a topic has already been asked". Rather than
+ * adding a new per-topic field (and a migration for every topic that
+ * predates it), this scans the type each history entry already carries —
+ * every answered question, Live or Ready, stores its own `type` on the
+ * entry `recordAnswer` appends (liveSession's below, and readySession.js's
+ * auto-graded/self-graded paths both do too) — the same "query the existing
+ * attempt data" approach `sessionStats.js` already uses for streak/accuracy/
+ * calibration. readySession.js imports this (mirroring how it already
+ * imports `pickNextTopicId` from here) so both modes read "recently asked"
+ * the same way. An entry with no `type` (shouldn't happen, but a defensive
+ * guard costs nothing) is just skipped rather than counted as a type of its
+ * own — old attempts without one still work, nothing to migrate. Pure over
+ * an already-fetched sessions list, so it needs no store seam to test.
+ * `limit` caps how many distinct recent types count as "recently used"
+ * (default 2 — enough to rotate away from a repeat without starving a topic
+ * whose bank or model only reliably produces two or three types).
+ */
+export function recentlyAskedTypes(sessions, topicId, { limit = 2 } = {}) {
+  const entries = (sessions ?? [])
+    .flatMap((s) => s.history ?? [])
+    .filter((entry) => entry.topicId === topicId && typeof entry.type === "string" && entry.answeredAt)
+    .sort((a, b) => Date.parse(b.answeredAt) - Date.parse(a.answeredAt));
+  const types = [];
+  for (const entry of entries) {
+    if (!types.includes(entry.type)) types.push(entry.type);
+    if (types.length >= limit) break;
+  }
+  return types;
+}
+
+/**
  * The prompt for one question. Pure, exported for its own test.
  * `isNewTopic` drives section 6's Generation principle: a topic the user
  * has never reviewed gets an attempt-first framing ("what do you think
  * X is / how would you approach it") rather than assuming prior
  * explanation; a topic that's been reviewed before can ask a harder,
- * more specific angle (recall, apply, compare).
+ * more specific angle (recall, apply, compare). `avoidTypes` (from
+ * `recentlyAskedTypes`, above) and `targetDifficulty` (from
+ * `scheduler.js`'s `targetDifficultyForCard`) are each one short, token-cheap
+ * steering line — never a second model call, never a hard constraint the
+ * model must satisfy, since a bank-free Live turn has nothing to fall back
+ * on if the steer can't be honored (unlike Ready mode's `pickBankQuestion`,
+ * which can actually filter candidates).
  */
-export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences }) {
+export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes = [], targetDifficulty }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
   const framingLine = isNewTopic
     ? `The user has never been reviewed on this topic before. Per this app's "generation" study principle, do NOT explain it first — ask a question that invites an attempt or a prediction before any explanation (e.g. "what do you think X means", "how would you approach Y"), pitched at someone encountering it for the first time.`
     : `The user has reviewed this topic before. Ask a question that genuinely tests recall or application, not just recognition — vary the angle from a plain definition.`;
+  const varietyLine = avoidTypes.length
+    ? `\nFor variation across reviews, prefer a type other than: ${avoidTypes.join(", ")}.`
+    : "";
+  const difficultyLine = targetDifficulty
+    ? `\nAim for a ${targetDifficulty} difficulty question, per this topic's current mastery level.`
+    : "";
 
   return `This is a one-shot background task, not a conversation. Don't ask questions back; just produce the one study question below and reply once.
 
@@ -105,7 +150,7 @@ Topic to ask about: "${topic.name}"${notesLine}
 
 ${framingLine}
 
-The question must be answerable from memory with no tools, in a few sentences to a short paragraph — not multiple choice, not fill-in-the-blank. Pick whichever of these types fits best: ${QUESTION_TYPES.join(", ")}. Pick a difficulty of intro, medium, or hard.
+The question must be answerable from memory with no tools, in a few sentences to a short paragraph — not multiple choice, not fill-in-the-blank. Pick whichever of these types fits best: ${QUESTION_TYPES.join(", ")}. Pick a difficulty of intro, medium, or hard.${varietyLine}${difficultyLine}
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
 
@@ -234,7 +279,10 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
 
   const isNewTopic = (topic.fsrs?.reps ?? 0) === 0;
   const preferences = await listPreferences(appDataDir);
-  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences });
+  const sessions = await listSessions(appDataDir, { includeArchived: true });
+  const avoidTypes = recentlyAskedTypes(sessions, topic.id);
+  const targetDifficulty = targetDifficultyForCard(topic.fsrs);
+  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes, targetDifficulty });
 
   let replyText;
   try {
