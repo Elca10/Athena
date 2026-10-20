@@ -242,11 +242,14 @@ features or visible behaviour changes, major (`Release: major`) for changes
 that break existing installs or data. These meanings hold before 1.0 too (a new feature in
 0.x is still `--minor`), so nothing changes at `1.0.0` — the deliberate
 public-launch version — except that they become promises to users. The
-tag runs `.github/workflows/release.yml`, which publishes a GitHub Release
-whose notes are the commit subjects since the previous version — so write
-commit subjects for a reader. The app shows the version it's running
-(health and bug reports) and the version on offer, with a link to its
-release notes.
+tag runs `.github/workflows/release.yml`, which publishes a GitHub Release.
+Its notes are written for users: every note added under
+[`release-notes/`](release-notes/README.md) since the previous version,
+grouped as New, Improved and Fixed, followed by the commit subjects in a
+collapsed block. **Add a note file in the same commit as any change a user
+would notice**; a release with none just says nothing visible changed. The
+app shows the version it's running (health and bug reports) and the
+version on offer, with a link to its release notes.
 
 Once `release` moves, every running copy shows **Update available**
 within about half an hour (the server re-checks `release` every 30

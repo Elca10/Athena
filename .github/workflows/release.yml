@@ -5,9 +5,9 @@ name: Release
 # move it ships). Two ways in: promote.yml calls it directly after an
 # automatic promotion (a tag pushed with a workflow's GITHUB_TOKEN never
 # triggers `push: tags`), and the tag push itself triggers it when the
-# script is run by hand. The Release notes are the tag's own annotation — the
-# commit subjects since the previous version, written by the promote
-# script — so this workflow makes no decisions of its own: CI-green,
+# script is run by hand. The Release notes are the tag's own annotation —
+# the release-notes/ entries and commit subjects since the previous
+# version, written by the promote script — so this workflow makes no decisions of its own: CI-green,
 # fast-forward-only and the version number were all settled before the
 # tag existed. Creating a Release needs write auth, which is why this half
 # lives here (the workflow's own GITHUB_TOKEN) rather than in the

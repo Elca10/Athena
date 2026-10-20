@@ -1,14 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, statSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   FIRST_VERSION,
   bumpFromTrailers,
+  formatReleaseNotes,
   isCommitCiGreen,
+  isReleaseNotePath,
   nextVersion,
   parseArgs,
   promoteRelease,
@@ -418,7 +420,7 @@ test("real git: a later release bumps from the previous tag and lists the commit
     assert.match(git(cloneDir, ["ls-remote", bareDir, "refs/tags/v0.5.0^{}"]), new RegExp(`^${mainCommit}`));
     assert.match(git(cloneDir, ["ls-remote", bareDir, "refs/heads/release"]), new RegExp(`^${mainCommit}`));
     const notes = git(cloneDir, ["tag", "-l", "--format=%(contents)", "v0.5.0"]);
-    assert.equal(notes, "- Refs #10: second fix\n- Refs #9: first fix");
+    assert.match(notes, /- Refs #10: second fix\n- Refs #9: first fix/);
 
     // Promoting the same commit again is a no-op, not a second version.
     const again = await promoteRelease(mainCommit, {
@@ -472,11 +474,10 @@ test("real git: with no bump flag, a Release: minor trailer on any shipped commi
   try {
     const result = await promoteRelease(fx.commits[1], { runFn: runGitAt(fx.cloneDir), ...quiet });
     assert.equal(result.version, "v0.5.0");
-    // Notes stay subject-only — the trailer doesn't leak into them.
-    assert.equal(
-      git(fx.cloneDir, ["tag", "-l", "--format=%(contents)", "v0.5.0"]),
-      "- Refs #12: a fix on top\n- Refs #11: new study mode",
-    );
+    // Notes list subjects only — the trailer doesn't leak into them.
+    const notes = git(fx.cloneDir, ["tag", "-l", "--format=%(contents)", "v0.5.0"]);
+    assert.match(notes, /- Refs #12: a fix on top\n- Refs #11: new study mode\n/);
+    assert.doesNotMatch(notes, /Release: minor/);
   } finally {
     fx.cleanup();
   }
@@ -514,6 +515,112 @@ test("real git: promoting a commit that's already behind release is nothing to d
     assert.ok(!calls.some((a) => a[0] === "push" || (a[0] === "tag" && a[1] === "-a")));
     assert.match(git(fx.cloneDir, ["ls-remote", fx.bareDir, "refs/heads/release"]), new RegExp(`^${fx.commits[1]}`));
   } finally {
+    fx.cleanup();
+  }
+});
+
+test("formatReleaseNotes: notes grouped New / Improved / Fixed, then how to update, then every commit", () => {
+  const out = formatReleaseNotes({
+    notes: {
+      fixed: ["Big slide decks upload again. (#6)"],
+      new: ["- Rename a subject from its card.", "Study only the files you pick.\nHandy before an exam that isn't cumulative."],
+    },
+    subjects: ["Refs #6: rename subjects", "README: typo"],
+  });
+  assert.ok(
+    out.startsWith(
+      [
+        "## New",
+        "",
+        "- Rename a subject from its card.",
+        "- Study only the files you pick.",
+        "  Handy before an exam that isn't cumulative.",
+        "",
+        "## Fixed",
+        "",
+        "- Big slide decks upload again. (#6)",
+        "",
+        "**Getting it:**",
+      ].join("\n"),
+    ),
+    out,
+  );
+  assert.ok(
+    out.endsWith(
+      "<details>\n<summary>Every change in this release</summary>\n\n- Refs #6: rename subjects\n- README: typo\n\n</details>",
+    ),
+    out,
+  );
+  assert.match(out, /\*\*Update now\*\*/);
+});
+
+test("formatReleaseNotes: with no notes it says nothing visible changed, and still lists the commits", () => {
+  const out = formatReleaseNotes({ notes: {}, subjects: ["CI: faster cache"] });
+  assert.match(out, /^Behind-the-scenes changes only/);
+  assert.doesNotMatch(out, /^## /m);
+  assert.match(out, /- CI: faster cache/);
+});
+
+test("isReleaseNotePath: only .md files directly in a known section folder", () => {
+  assert.equal(isReleaseNotePath("release-notes/new/rename.md"), true);
+  assert.equal(isReleaseNotePath("release-notes/fixed/upload.md"), true);
+  assert.equal(isReleaseNotePath("release-notes/README.md"), false);
+  assert.equal(isReleaseNotePath("release-notes/features/rename.md"), false);
+  assert.equal(isReleaseNotePath("release-notes/new/rename.txt"), false);
+});
+
+// A note in a misspelt folder would otherwise be silently left out of
+// its release.
+test("every file under release-notes/ is the README or a note in a known section", () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const walk = (dir) =>
+    readdirSync(path.join(root, dir)).flatMap((name) => {
+      const rel = `${dir}/${name}`;
+      return statSync(path.join(root, rel)).isDirectory() ? walk(rel) : [rel];
+    });
+  for (const file of walk("release-notes")) {
+    if (file === "release-notes/README.md") continue;
+    assert.ok(isReleaseNotePath(file), `${file} isn't in release-notes/new, improved or fixed`);
+  }
+});
+
+test("real git: notes added since the last version ship once, headings intact, read as of the shipped commit", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, ["Refs #20: placeholder"]);
+  const seedDir = mkdtempSync(path.join(tmpdir(), "athena-promote-notes-"));
+  try {
+    // Work in a second clone so the fixture's own commits stay as given.
+    execFileSync("git", ["clone", "-q", "-b", "main", fx.bareDir, seedDir]);
+    git(seedDir, ["config", "user.email", "test@example.com"]);
+    git(seedDir, ["config", "user.name", "Test"]);
+    const add = (rel, text, msg) => {
+      mkdirSync(path.dirname(path.join(seedDir, rel)), { recursive: true });
+      writeFileSync(path.join(seedDir, rel), text);
+      git(seedDir, ["add", "-A"]);
+      git(seedDir, ["commit", "-q", "-m", msg]);
+    };
+    add("release-notes/new/rename.md", "Rename a subject.\n", "Refs #21: rename");
+    add("release-notes/fixed/upload.md", "Uploads work.\n", "Refs #22: upload");
+    add("release-notes/fixed/upload.md", "Big uploads work again.\n", "Notes: clearer wording");
+    add("release-notes/oops/typo.md", "Never shown.\n", "Notes: misfiled");
+    git(seedDir, ["push", "-q", "origin", "main"]);
+    const first = git(seedDir, ["rev-parse", "HEAD"]);
+    git(fx.cloneDir, ["fetch", "-q", "origin"]);
+
+    assert.equal((await promoteRelease(first, { runFn: runGitAt(fx.cloneDir), ...quiet })).version, "v0.4.3");
+    const notes = git(fx.cloneDir, ["tag", "-l", "--format=%(contents)", "v0.4.3"]);
+    assert.match(notes, /^## New\n\n- Rename a subject\.\n\n## Fixed\n\n- Big uploads work again\.\n\n/);
+    assert.doesNotMatch(notes, /Never shown|Uploads work\./);
+
+    // Editing a shipped note doesn't ship it again.
+    add("release-notes/new/rename.md", "Rename a subject from its card.\n", "Notes: reword");
+    git(seedDir, ["push", "-q", "origin", "main"]);
+    const second = git(seedDir, ["rev-parse", "HEAD"]);
+    git(fx.cloneDir, ["fetch", "-q", "origin"]);
+    assert.equal((await promoteRelease(second, { runFn: runGitAt(fx.cloneDir), ...quiet })).version, "v0.4.4");
+    assert.match(git(fx.cloneDir, ["tag", "-l", "--format=%(contents)", "v0.4.4"]), /^Behind-the-scenes changes only/);
+  } finally {
+    rmSync(seedDir, { recursive: true, force: true });
     fx.cleanup();
   }
 });

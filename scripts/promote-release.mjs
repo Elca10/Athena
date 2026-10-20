@@ -6,8 +6,9 @@
 // ATHENA_UPDATE_BRANCH), so nothing reaches a friend's machine until the
 // maintainer deliberately promotes it. The tag is the product's version:
 // pushing it triggers .github/workflows/release.yml, which publishes a
-// GitHub Release whose notes are the tag's message (the commit subjects
-// since the previous version).
+// GitHub Release whose notes are the tag's message: the user-facing notes
+// added under release-notes/ since the previous version (see
+// release-notes/README.md), then every commit subject, folded away.
 //
 // Only promotes a commit whose CI run has actually finished green, and
 // never force-pushes: a plain `git push` without `--force` is itself the
@@ -47,6 +48,17 @@ const VERSION_RE = /^v(\d+)\.(\d+)\.(\d+)$/;
 // refuse.
 const CI_WORKFLOW = "ci.yml";
 const BUMPS = ["patch", "minor", "major"];
+// release-notes/<section>/<anything>.md, in the order a reader wants them.
+const NOTE_SECTIONS = [
+  ["new", "New"],
+  ["improved", "Improved"],
+  ["fixed", "Fixed"],
+];
+const NOTE_PATH_RE = /^release-notes\/([a-z]+)\/[^/]+\.md$/;
+const HOW_TO_UPDATE =
+  "**Getting it:** Athena updates itself. Within about half an hour an **Update available** button " +
+  "appears at the top of the dashboard; click **Update now** and wait about a minute. Your subjects " +
+  "and progress are kept.";
 
 function runGit(args) {
   return execFileSync("git", args, { encoding: "utf8", windowsHide: true }).trim();
@@ -113,6 +125,57 @@ export function nextVersion(tags, bump = "patch") {
 export function bumpFromTrailers(out) {
   const asked = splitLines(out).map((v) => v.toLowerCase());
   return BUMPS.filter((b) => asked.includes(b)).pop() ?? "patch";
+}
+
+/**
+ * The release notes for one version, as Markdown: the user-facing notes
+ * grouped under New / Improved / Fixed, how to get the update, then every
+ * commit subject in a collapsed block for anyone who wants the detail.
+ * `notes` maps a section key (see NOTE_SECTIONS) to note texts; each
+ * becomes one bullet, with any further lines indented to stay inside it.
+ */
+export function formatReleaseNotes({ notes = {}, subjects = [] }) {
+  const parts = [];
+  for (const [key, heading] of NOTE_SECTIONS) {
+    const items = (notes[key] ?? []).map((n) => n.trim()).filter(Boolean);
+    if (items.length === 0) continue;
+    const bullets = items.map((n) => {
+      const [first, ...rest] = n.replace(/^[-*]\s+/, "").split("\n");
+      return [`- ${first}`, ...rest.map((l) => (l.trim() ? `  ${l}` : ""))].join("\n");
+    });
+    parts.push(`## ${heading}\n\n${bullets.join("\n")}`);
+  }
+  if (parts.length === 0) parts.push("Behind-the-scenes changes only. Nothing you'll notice while studying.");
+  parts.push(HOW_TO_UPDATE);
+  const changes = subjects.length ? subjects.map((s) => `- ${s}`).join("\n") : "- No code changes.";
+  parts.push(`<details>\n<summary>Every change in this release</summary>\n\n${changes}\n\n</details>`);
+  return parts.join("\n\n");
+}
+
+/** True for a note file in one of NOTE_SECTIONS' folders. */
+export function isReleaseNotePath(file) {
+  const m = NOTE_PATH_RE.exec(file);
+  return Boolean(m) && NOTE_SECTIONS.some(([key]) => key === m[1]);
+}
+
+/**
+ * The note files added between `previous` and `full`, read as of `full`
+ * and grouped by section. Only files *added* in the range count, so a
+ * note ships exactly once and later edits or deletions never resurface
+ * it; a file outside a known section is ignored (a test keeps the
+ * repo's own release-notes/ free of those).
+ */
+function collectNotes(runFn, previous, full) {
+  const notes = {};
+  const added = splitLines(
+    runFn(["diff", "--name-only", "--diff-filter=A", "--no-renames", previous, full, "--", "release-notes"]),
+  );
+  for (const file of added.sort()) {
+    if (!isReleaseNotePath(file)) continue;
+    const [, section] = NOTE_PATH_RE.exec(file);
+    (notes[section] ??= []).push(runFn(["show", `${full}:${file}`]));
+  }
+  return notes;
 }
 
 function splitLines(out) {
@@ -194,14 +257,17 @@ export async function promoteRelease(
       : "patch");
   const version = nextVersion(tags, chosenBump);
   // The tag's message is the release notes (release.yml publishes it as
-  // the GitHub Release body): every commit subject since the previous
-  // version, which is why commits here are titled for a reader ("Refs #7:
-  // rate confidence after answering") — GitHub links the #N refs.
-  const changes = previous
-    ? splitLines(runFn(["log", "--no-merges", "--format=- %s", `${previous}..${full}`]))
-    : [];
-  const notes = previous ? changes.join("\n") || "- No code changes." : "First tagged release.";
-  runFn(["tag", "-a", version, "-m", notes, full]);
+  // the GitHub Release body): the user-facing notes added since the
+  // previous version, then every commit subject for the detail.
+  const notes = previous
+    ? formatReleaseNotes({
+        notes: collectNotes(runFn, previous, full),
+        subjects: splitLines(runFn(["log", "--no-merges", "--format=%s", `${previous}..${full}`])),
+      })
+    : "First tagged release.";
+  // --cleanup=verbatim: git's default cleanup would strip every line
+  // starting with "#", i.e. the Markdown section headings.
+  runFn(["tag", "-a", "--cleanup=verbatim", version, "-m", notes, full]);
 
   try {
     // Fully-qualified destination (`refs/heads/release`, not bare

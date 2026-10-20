@@ -47,6 +47,7 @@ const ALLOWED_PATH_PATTERNS = [
   /^README\.md$/,
   /^SPEC\.md$/,
   /^SPEC-v2\.md$/,
+  /^release-notes\/.+\.md$/,
   /^LICENSE(\.[A-Za-z0-9]+)?$/,
   /^\.gitignore$/,
   /^\.gitattributes$/,
