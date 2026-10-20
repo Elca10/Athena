@@ -393,9 +393,12 @@ export async function getRemovalPreview(subjectId: string, contentId: string): P
 
 // Mirrors topics.js's record shape (server/src/topics.js). `fsrs.state` is
 // ts-fsrs's State enum (New=0, Learning=1, Review=2, Relearning=3) — see
-// classifyTopicMastery below, which mirrors subjectSummary.js's own
-// classifyMastery so a topic's badge here always agrees with its subject
-// card's new/learning/mastered counts.
+// topicMastery.ts's classifyTopicMastery, which mirrors subjectSummary.js's
+// own classifyMastery so a topic's badge there always agrees with its
+// subject card's new/learning/mastered counts. (Deliberately NOT a pure
+// helper in this file: every panel's test does a blanket `vi.mock("./api")`,
+// which auto-mocks every export here — a pure classifier would silently
+// come back `undefined` in those tests instead of running for real.)
 export type Topic = {
   id: string;
   subjectId: string;
@@ -408,15 +411,6 @@ export type Topic = {
 
 export function listTopics(subjectId: string): Promise<Topic[]> {
   return getJson(`/api/subjects/${subjectId}/topics`);
-}
-
-export type MasteryLabel = "new" | "learning" | "mastered";
-
-export function classifyTopicMastery(topic: Topic): MasteryLabel {
-  const state = topic.fsrs?.state;
-  if (state === 2) return "mastered";
-  if (state === 1 || state === 3) return "learning";
-  return "new";
 }
 
 // GET /api/subjects/:id/reflections (server/src/routes/reflections.js) —

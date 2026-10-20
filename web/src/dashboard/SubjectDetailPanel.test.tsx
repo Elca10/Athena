@@ -120,7 +120,12 @@ test("removing a content file is cancelled if the confirm is declined", async ()
 test("lists past reflections, newest first, skipping blank fields", async () => {
   mockEmpty();
   vi.mocked(api.listReflections).mockResolvedValue([
-    baseReflection({ id: "r1", createdAt: "2026-01-01T00:00:00.000Z", learned: "First reflection" }),
+    baseReflection({
+      id: "r1",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      learned: "First reflection",
+      surprised: "Osmosis is passive, no energy needed.",
+    }),
     baseReflection({ id: "r2", createdAt: "2026-01-05T00:00:00.000Z", learned: "Second reflection", surprised: "" }),
   ]);
   render(<SubjectDetailPanel subjectId="s1" subjectName="Biology" onClose={() => {}} />);
@@ -129,7 +134,9 @@ test("lists past reflections, newest first, skipping blank fields", async () => 
   const reflectionItems = items.filter((li) => li.textContent?.includes("reflection"));
   expect(reflectionItems[0]).toHaveTextContent("Second reflection");
   expect(reflectionItems[1]).toHaveTextContent("First reflection");
-  expect(screen.queryByText(/What surprised you\?/)).toBeInTheDocument(); // present for r1, absent for r2's blank field
+  // r1's surprised field is filled in and shows; r2's is blank and is skipped entirely.
+  expect(within(reflectionItems[1]).getByText(/What surprised you\?/)).toBeInTheDocument();
+  expect(within(reflectionItems[0]).queryByText(/What surprised you\?/)).not.toBeInTheDocument();
 });
 
 test("shows a retryable error instead of hanging on a failed fetch, per section", async () => {

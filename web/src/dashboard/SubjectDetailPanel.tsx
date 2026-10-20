@@ -1,15 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  classifyTopicMastery,
   listContent,
   listReflections,
   listTopics,
   removeContent,
   type ContentItem,
-  type MasteryLabel,
   type Reflection,
   type Topic,
 } from "./api";
+import { classifyTopicMastery, type MasteryLabel } from "./topicMastery";
 import { confirmContentRemoval } from "./contentRemoval";
 import { ContentFileList } from "./ContentFileList";
 import { useEscapeKey } from "../useEscapeKey";
