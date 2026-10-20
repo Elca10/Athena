@@ -97,6 +97,15 @@ files, deadlines, big-ideas summary, and past reflections
 (`GET /api/subjects/:id/reflections` already exists, read-only). Cut
 together with section 3's big-ideas row, which needs somewhere to live.
 
+- **Built (v0.5.0), topics/content/reflections only.** Clicking a subject
+  card's name opens `SubjectDetailPanel.tsx`, a focus-trapped modal (same
+  pattern as Add content/Tune Athena/Report a bug): topics with their
+  mastery badge, content files (reusing Add content's own Remove action),
+  and past reflections, each with its own loading/empty/error state.
+  Deadlines and the big-ideas summary are still not built — no placeholder
+  slot for either yet (section 3's structure-building row and section 2
+  still need to land first).
+
 ## 5. Athena persona doc (v1 section 6, closing paragraph)
 
 A single `PERSONA.md` for Athena (from Hermione's, renamed: positive but
