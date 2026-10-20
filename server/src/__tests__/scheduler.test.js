@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createNewCardState, isDue, reviewCard, listDueTopics, RATINGS } from "../scheduler.js";
+import { State } from "ts-fsrs";
+import { createNewCardState, isDue, reviewCard, listDueTopics, RATINGS, targetDifficultyForCard } from "../scheduler.js";
 
 test("a brand-new card state is due immediately", () => {
   const now = new Date("2026-10-06T12:00:00Z");
@@ -68,6 +69,39 @@ test("reviewCard rejects an unknown rating", () => {
 
 test("RATINGS lists exactly the four accepted rating names", () => {
   assert.deepEqual(RATINGS, ["again", "hard", "good", "easy"]);
+});
+
+// --- targetDifficultyForCard ---------------------------------------------
+
+test("targetDifficultyForCard treats a missing card state as intro, same as isDue treats it as due", () => {
+  assert.equal(targetDifficultyForCard(null), "intro");
+  assert.equal(targetDifficultyForCard(undefined), "intro");
+});
+
+test("targetDifficultyForCard is intro for New, Learning, and Relearning states regardless of stability", () => {
+  assert.equal(targetDifficultyForCard({ state: State.New, stability: 0 }), "intro");
+  assert.equal(targetDifficultyForCard({ state: State.Learning, stability: 2 }), "intro");
+  assert.equal(targetDifficultyForCard({ state: State.Relearning, stability: 50 }), "intro");
+});
+
+test("targetDifficultyForCard is medium for a Review-state topic below the stability threshold", () => {
+  assert.equal(targetDifficultyForCard({ state: State.Review, stability: 5 }), "medium");
+});
+
+test("targetDifficultyForCard is hard for a Review-state topic at or above the stability threshold", () => {
+  assert.equal(targetDifficultyForCard({ state: State.Review, stability: 21 }), "hard");
+  assert.equal(targetDifficultyForCard({ state: State.Review, stability: 163 }), "hard");
+});
+
+test("targetDifficultyForCard reflects real FSRS progression: repeated good reviews move a topic from intro to hard", () => {
+  let now = new Date("2026-10-06T12:00:00Z");
+  let card = createNewCardState(now);
+  assert.equal(targetDifficultyForCard(card), "intro"); // New
+  for (let i = 0; i < 4; i++) {
+    card = reviewCard(card, "good", now);
+    now = new Date(card.due);
+  }
+  assert.equal(targetDifficultyForCard(card), "hard");
 });
 
 test("listDueTopics filters to due topics only and sorts soonest-due first", () => {

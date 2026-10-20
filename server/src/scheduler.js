@@ -13,7 +13,7 @@
 // serializable `fsrs` card state in, returns a new one out, so it's
 // testable with fixture data alone. `topics.js` owns persistence.
 
-import { createEmptyCard, fsrs, Rating } from "ts-fsrs";
+import { createEmptyCard, fsrs, Rating, State } from "ts-fsrs";
 
 const scheduler = fsrs();
 
@@ -83,4 +83,28 @@ export function listDueTopics(topics, now = new Date()) {
   return topics
     .filter((t) => isDue(t.fsrs, now))
     .sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0));
+}
+
+// SPEC.md section 3's Desirable difficulty row: "mastered topics (FSRS
+// state Review) get harder variants; new/learning topics get easier ones."
+// Mature-vs-young within Review is Ada's own call (the spec names no exact
+// number): 21 days (3 weeks) is a common "young vs. mature" boundary
+// already used by other spaced-repetition tools (e.g. Anki's default),
+// picked for that precedent rather than anything tuned against real data
+// here — simplest defensible rule, not a measured constant.
+const STABILITY_HARD_DAYS = 21;
+
+/**
+ * The difficulty variant a topic's current mastery calls for, derived
+ * deterministically from its FSRS card state (never a model call — section
+ * 6's "scheduler ... must be deterministic code"). Anything short of FSRS's
+ * own Review state (New, Learning, and Relearning — a lapsed-and-relearning
+ * topic is, by definition, not holding onto what it knew, so it gets the
+ * same easy treatment as a topic that's never been reviewed) gets "intro";
+ * within Review, `stability` (the fitted memory half-life, in days) picks
+ * "medium" vs. "hard". Pure, exported for its own test.
+ */
+export function targetDifficultyForCard(cardState) {
+  if (!cardState || cardState.state !== State.Review) return "intro";
+  return cardState.stability >= STABILITY_HARD_DAYS ? "hard" : "medium";
 }
