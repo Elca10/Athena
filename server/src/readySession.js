@@ -45,12 +45,13 @@
 // the self-grade step needs them, and they're no longer a secret once the
 // user has already answered.
 
-import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, promptReflection } from "./sessions.js";
+import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, promptReflection, listSessions } from "./sessions.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { listBankQuestions, markQuestionShown, isBankDrained } from "./questionBank.js";
 import { getSubject } from "./subjects.js";
 import { topUpTopicBanks } from "./questionBankGeneration.js";
-import { pickNextTopicId } from "./liveSession.js";
+import { pickNextTopicId, recentlyAskedTypes } from "./liveSession.js";
+import { targetDifficultyForCard } from "./scheduler.js";
 
 /** The two bank question types with a real local answer key — SPEC.md
  * section 5: "Multiple choice, cloze and numeric: auto-graded locally."
@@ -79,14 +80,35 @@ export const SELF_GRADE_STATUSES = ["got_it", "partly", "missed"];
  * this has no further effect; a bank with no generation-flagged question
  * (every top-up, and any initial bank generated for an already-reviewed
  * topic) falls straight through to the normal order.
+ *
+ * `targetDifficulty` and `recentTypes` are section 3's Desirable difficulty
+ * and Variation rows: narrow the candidate pool to the topic's target
+ * difficulty (from `scheduler.js`'s `targetDifficultyForCard`), then narrow
+ * further to exclude recently-asked types (from `recentlyAskedTypes`,
+ * liveSession.js), each applied ONLY when doing so leaves at least one
+ * question — "fall back gracefully when a bank has no question of the
+ * preferred type/difficulty" rather than ever refuse to serve one. Difficulty
+ * narrows first, type second: a bank thin enough to need both relaxed still
+ * gets the mastery-appropriate difficulty before the variety nice-to-have.
+ * Both are plain filters over already-known bank-question fields — no new
+ * data, no migration risk for questions predating either field.
  */
-export function pickBankQuestion(questions, { preferGeneration = false } = {}) {
+export function pickBankQuestion(questions, { preferGeneration = false, targetDifficulty = null, recentTypes = [] } = {}) {
   if (!questions.length) return null;
   if (preferGeneration) {
     const generation = questions.find((q) => q.isGenerationQuestion && q.seenCount === 0);
     if (generation) return generation;
   }
-  return questions.slice().sort((a, b) => {
+  let candidates = questions;
+  if (targetDifficulty) {
+    const atDifficulty = candidates.filter((q) => q.difficulty === targetDifficulty);
+    if (atDifficulty.length) candidates = atDifficulty;
+  }
+  if (recentTypes.length) {
+    const notRecent = candidates.filter((q) => !recentTypes.includes(q.type));
+    if (notRecent.length) candidates = notRecent;
+  }
+  return candidates.slice().sort((a, b) => {
     if (a.seenCount !== b.seenCount) return a.seenCount - b.seenCount;
     const aShown = a.lastShownAt ? Date.parse(a.lastShownAt) : -Infinity;
     const bShown = b.lastShownAt ? Date.parse(b.lastShownAt) : -Infinity;
@@ -230,7 +252,10 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
 
   const bankQuestions = await listBankQuestions(appDataDir, topicId);
   const isNewTopic = (topic.fsrs?.reps ?? 0) === 0;
-  const picked = pickBankQuestion(bankQuestions, { preferGeneration: isNewTopic });
+  const sessions = await listSessions(appDataDir, { includeArchived: true });
+  const recentTypes = recentlyAskedTypes(sessions, topicId);
+  const targetDifficulty = targetDifficultyForCard(topic.fsrs);
+  const picked = pickBankQuestion(bankQuestions, { preferGeneration: isNewTopic, recentTypes, targetDifficulty });
   if (!picked) {
     return { ok: false, noBank: true, topicId, reason: `No bank questions available yet for topic "${topic.name}"` };
   }

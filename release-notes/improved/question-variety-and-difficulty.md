@@ -1,0 +1,1 @@
+Reviewing a topic again? Questions now mix up their type instead of repeating the same style every time, and get harder as you master a topic — easing back up if you're just starting out or need to re-learn something.

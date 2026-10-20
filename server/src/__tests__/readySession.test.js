@@ -87,6 +87,65 @@ test("pickBankQuestion with preferGeneration falls through to the normal order w
   assert.equal(pickBankQuestion([shown, neverShown], { preferGeneration: true }).id, "b");
 });
 
+// --- pickBankQuestion: targetDifficulty (Desirable difficulty) -----------
+
+test("pickBankQuestion narrows to the target difficulty when a matching question exists", () => {
+  const intro = { id: "a", seenCount: 0, lastShownAt: null, difficulty: "intro" };
+  const hard = { id: "b", seenCount: 0, lastShownAt: null, difficulty: "hard" };
+  assert.equal(pickBankQuestion([intro, hard], { targetDifficulty: "hard" }).id, "b");
+});
+
+test("pickBankQuestion falls back to the full bank when no question matches the target difficulty", () => {
+  const intro = { id: "a", seenCount: 1, lastShownAt: "2026-01-01T00:00:00.000Z", difficulty: "intro" };
+  const medium = { id: "b", seenCount: 0, lastShownAt: null, difficulty: "medium" };
+  // Neither is "hard" — never refuse to serve a question just because the
+  // ideal difficulty is missing, per SPEC-v2's "fall back gracefully" rule.
+  assert.equal(pickBankQuestion([intro, medium], { targetDifficulty: "hard" }).id, "b");
+});
+
+test("pickBankQuestion ignores targetDifficulty when none is given", () => {
+  const intro = { id: "a", seenCount: 0, lastShownAt: null, difficulty: "intro" };
+  const hard = { id: "b", seenCount: 1, lastShownAt: new Date().toISOString(), difficulty: "hard" };
+  assert.equal(pickBankQuestion([intro, hard]).id, "a");
+});
+
+// --- pickBankQuestion: recentTypes (Variation) ----------------------------
+
+test("pickBankQuestion avoids a recently-asked type when a different-typed question exists", () => {
+  const recall = { id: "a", seenCount: 0, lastShownAt: null, type: "free_recall" };
+  const apply = { id: "b", seenCount: 0, lastShownAt: null, type: "apply" };
+  assert.equal(pickBankQuestion([recall, apply], { recentTypes: ["free_recall"] }).id, "b");
+});
+
+test("pickBankQuestion falls back to a recently-asked type when it's the only type available", () => {
+  const recallOld = { id: "a", seenCount: 1, lastShownAt: "2026-01-01T00:00:00.000Z", type: "free_recall" };
+  const recallNew = { id: "b", seenCount: 0, lastShownAt: null, type: "free_recall" };
+  assert.equal(pickBankQuestion([recallOld, recallNew], { recentTypes: ["free_recall"] }).id, "b");
+});
+
+test("pickBankQuestion applies targetDifficulty before recentTypes, both as soft, gracefully-relaxed filters", () => {
+  const wrongDifficultyNewType = { id: "a", seenCount: 0, lastShownAt: null, difficulty: "intro", type: "apply" };
+  const rightDifficultyOldType = { id: "b", seenCount: 0, lastShownAt: null, difficulty: "hard", type: "free_recall" };
+  // Only "b" matches the target difficulty, so it wins even though its type
+  // was recently asked and "a" would otherwise satisfy the variety filter.
+  const picked = pickBankQuestion([wrongDifficultyNewType, rightDifficultyOldType], {
+    targetDifficulty: "hard",
+    recentTypes: ["free_recall"],
+  });
+  assert.equal(picked.id, "b");
+});
+
+test("pickBankQuestion's targetDifficulty/recentTypes filters never override preferGeneration", () => {
+  const generation = { id: "a", seenCount: 0, lastShownAt: null, isGenerationQuestion: true, difficulty: "intro", type: "free_recall" };
+  const betterMatch = { id: "b", seenCount: 0, lastShownAt: null, isGenerationQuestion: false, difficulty: "hard", type: "apply" };
+  const picked = pickBankQuestion([generation, betterMatch], {
+    preferGeneration: true,
+    targetDifficulty: "hard",
+    recentTypes: ["free_recall"],
+  });
+  assert.equal(picked.id, "a");
+});
+
 // --- publicQuestionView --------------------------------------------------
 
 test("publicQuestionView strips answer-key fields but keeps choices", () => {
@@ -216,6 +275,45 @@ test("generateNextReadyQuestion does NOT prefer a generation-flagged question fo
 
   const result = await generateNextReadyQuestion(dir, session.id);
   assert.equal(result.session.currentQuestion.prompt, "Plain question, added first");
+});
+
+test("generateNextReadyQuestion prefers the bank question matching a mastered topic's FSRS-derived target difficulty", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  // Four "good" reviews, each one taken exactly when the last came due (so
+  // stability actually grows, same as scheduler.test.js's own real-FSRS
+  // progression check), take the topic from New into Review with enough
+  // stability to target "hard".
+  let now = new Date();
+  for (let i = 0; i < 4; i++) {
+    const reviewed = await recordTopicReview(dir, topic.id, "good", now);
+    now = new Date(reviewed.fsrs.due);
+  }
+  await addBankQuestions(dir, topic.id, subject.id, [
+    shortAnswerQuestion({ prompt: "Intro-level question", difficulty: "intro" }),
+    shortAnswerQuestion({ prompt: "Hard question", difficulty: "hard" }),
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+
+  const result = await generateNextReadyQuestion(dir, session.id);
+  assert.equal(result.session.currentQuestion.prompt, "Hard question");
+});
+
+test("generateNextReadyQuestion avoids a topic's most recently asked type, reading it from the topic's own real history", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [
+    shortAnswerQuestion({ prompt: "Short-answer question", type: "short_answer" }),
+    shortAnswerQuestion({ prompt: "Compare-contrast question", type: "compare_contrast" }),
+  ]);
+  const priorSession = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, priorSession.id); // serves "Short-answer question" (added first, both unseen)
+  await submitReadyAnswer(dir, priorSession.id, { answerText: "it calls itself", confidence: 3 });
+  await submitReadySelfGrade(dir, priorSession.id, { selfGrades: [{ status: "got_it" }, { status: "got_it" }] });
+
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  const result = await generateNextReadyQuestion(dir, session.id);
+  assert.equal(result.session.currentQuestion.prompt, "Compare-contrast question");
 });
 
 test("generateNextReadyQuestion moves the session to waiting for a reflection once every topic has a history entry, rather than completing it outright", async () => {
