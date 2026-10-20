@@ -54,7 +54,10 @@ async function duringTurn(sessionId, fn) {
 
 // Mounted at /api/sessions — top-level, not nested under a subject, since
 // one session can cover multiple subjects (SPEC.md section 4).
-export function makeSessionsRouter(appDataDir) {
+/** `onReadySessionDone(session)`: index.js uses it to write the next
+ * chunk of practice questions in the background (issue #10). Not awaited,
+ * and a no-op by default so tests never start a model turn. */
+export function makeSessionsRouter(appDataDir, { onReadySessionDone = () => {} } = {}) {
   const router = express.Router();
 
   router.get("/", async (req, res) => {
@@ -81,7 +84,7 @@ export function makeSessionsRouter(appDataDir) {
       const contentIds = Array.isArray(req.body?.contentIds) ? req.body.contentIds.filter((id) => typeof id === "string") : null;
       const topicIds = requestedTopicIds.length
         ? requestedTopicIds
-        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds });
+        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds, preferBanked: req.body?.mode === "ready" });
       // An empty session can't ask anything; refuse with a reason instead
       // of creating one that dead-ends on its first question. `nothingDue`
       // lets the UI offer "Review ahead anyway" when there ARE topics.
@@ -177,6 +180,7 @@ export function makeSessionsRouter(appDataDir) {
     }
     try {
       const result = await generateNextReadyQuestion(appDataDir, req.params.id);
+      if (result.done && result.session) onReadySessionDone(result.session);
       if (result.ok && result.session) result.session = publicSessionView(result.session);
       res.json(result);
     } catch (err) {

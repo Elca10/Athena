@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { addPlannedTopics, recordTopicReview } from "../topics.js";
+import { addPlannedTopics, recordTopicReview, markBankGenerated } from "../topics.js";
 import { buildSessionTopicIds, MAX_SESSION_TOPICS } from "../sessionBuilder.js";
 
 async function scratchDir() {
@@ -75,4 +75,12 @@ test("buildSessionTopicIds with reviewAhead includes not-yet-due topics, soonest
   assert.deepEqual(await buildSessionTopicIds(dir, ["subject-1"]), [], "nothing due without reviewAhead");
   // "hard" schedules sooner than "easy".
   assert.deepEqual(await buildSessionTopicIds(dir, ["subject-1"], { reviewAhead: true }), [b.id, a.id]);
+});
+
+test("preferBanked (Ready mode) puts topics that already have questions first, keeping due order (issue #10)", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-prefer-banked-"));
+  const [a, b, c] = await addPlannedTopics(dir, "s1", ["A", "B", "C"]);
+  await markBankGenerated(dir, [c.id]);
+  assert.deepEqual(await buildSessionTopicIds(dir, ["s1"], { preferBanked: true }), [c.id, a.id, b.id]);
+  assert.deepEqual(await buildSessionTopicIds(dir, ["s1"]), [a.id, b.id, c.id], "Live: plain due order");
 });

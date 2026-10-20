@@ -185,21 +185,6 @@ export function spawnCommand(command, args, { cwd } = {}) {
   return spawn(command, args, { cwd, windowsHide: true });
 }
 
-/**
- * `--add-dir` flags so a `claude -p` turn may READ the given directories.
- * Claude Code only allows file access inside its working directory unless
- * told otherwise, and in headless `-p` mode nobody can approve a read
- * outside it, so it's silently refused. Athena's content lives in the app
- * data dir, never the install dir, so every turn that reads content needs
- * its exact folder(s) granted (issue #5: on a default Claude Code setup
- * every read failed and topic extraction found nothing). Only the folders
- * actually holding this turn's files, nothing broader.
- */
-export function readDirArgs(filePaths) {
-  const dirs = [...new Set(filePaths.map((p) => path.dirname(p)))];
-  return dirs.flatMap((dir) => ["--add-dir", dir]);
-}
-
 /** The system prompt for every background `claude -p` turn. Each turn's
  * own prompt carries the full task; this just replaces Claude Code's
  * default coding-assistant prompt. */
@@ -207,13 +192,39 @@ export const BACKGROUND_SYSTEM_PROMPT =
   "You do one-shot background tasks for a study app. Follow the task exactly, use only the tools you are given, and reply in the format it asks for.";
 
 /**
- * Arguments that keep a background turn small (issue #10): only the named
- * built-in tools (none if empty), no MCP servers, no skills, and a short
- * system prompt instead of Claude Code's default. Measured on one tiny
+ * Arguments that keep a background turn small (issue #10): the given
+ * model, only the named built-in tools (none if empty), no MCP servers,
+ * no skills, and a short system prompt instead of Claude Code's default. Measured on one tiny
  * turn: ~28K tokens of context per model call down to ~3K, and every
  * file read is another call. `--tools` also ignores user/project
  * settings, so a turn behaves the same on every machine.
  */
-export function backgroundTurnArgs(tools) {
-  return ["--tools", tools.join(","), "--strict-mcp-config", "--disable-slash-commands", "--system-prompt", BACKGROUND_SYSTEM_PROMPT];
+export function backgroundTurnArgs(tools, { model, effort } = {}) {
+  return [
+    ...(model ? ["--model", model] : []),
+    ...(effort ? ["--effort", effort] : []),
+    "--tools",
+    tools.join(","),
+    "--strict-mcp-config",
+    "--disable-slash-commands",
+    "--system-prompt",
+    BACKGROUND_SYSTEM_PROMPT,
+  ];
 }
+
+// The cheapest model that does each job well (issue #10), rather than
+// whatever the user's Claude Code defaults to (often Opus, which uses up
+// subscription limits fastest). Aliases, so they follow new releases.
+// Measured 2026-10-19 on a 33-slide lecture: Haiku spent ~9K output
+// tokens and 61s listing topics that Sonnet listed (slightly better) in
+// ~0.7K tokens and 7s, so Haiku isn't cheaper here. Low effort cut a
+// 4-topic question turn from ~16K output tokens (2/3 hidden reasoning)
+// and 132s to ~5K and 49s, with questions and worked answers still right.
+/** Naming the topics a set of slides covers. */
+export const TOPIC_MODEL = "sonnet";
+export const TOPIC_EFFORT = "low";
+/** Writing practice questions, model answers and rubrics. */
+export const QUESTION_MODEL = "sonnet";
+export const QUESTION_EFFORT = "low";
+/** Live mode: asking a question and grading the answer in real time. */
+export const LIVE_MODEL = "sonnet";

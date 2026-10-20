@@ -34,7 +34,7 @@
 // `--disallowedTools` deny list rather than a prompt-level request, even
 // though neither turn ever needed file access in the first place.
 
-import { runCommand, backgroundTurnArgs } from "./processUtil.js";
+import { runCommand, backgroundTurnArgs, LIVE_MODEL } from "./processUtil.js";
 import { getSession, setCurrentQuestion, recordAnswer, promptReflection } from "./sessions.js";
 import { getSubject } from "./subjects.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
@@ -175,7 +175,7 @@ export function parseFirstQuestionReply(resultText) {
  * a scratch PATH, so this module's own test never finds the real CLI.
  */
 export async function runFirstQuestionTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([]), "--disallowedTools", ...DENIED_TOOLS], {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([], { model: LIVE_MODEL }), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -332,7 +332,7 @@ export function parseGradingReply(resultText) {
 /** Test seam for the grading model call — same convention as
  * `runFirstQuestionTurn`. */
 export async function runGradingTurn(prompt, { env } = {}) {
-  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([]), "--disallowedTools", ...DENIED_TOOLS], {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([], { model: LIVE_MODEL }), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,

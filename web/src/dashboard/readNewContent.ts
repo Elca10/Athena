@@ -31,6 +31,9 @@ export async function readNewContent(
     try {
       const bank = await scanBank(subjectId);
       if (bank.errors.length) questionsNote = " Some practice questions couldn't be written yet; Athena will offer to try again when you study.";
+      // Written a session's worth at a time (issue #10), so a big upload
+      // doesn't use up a large share of the user's Claude usage at once.
+      else if (bank.remaining) questionsNote = " Practice questions are ready for your next session; Athena writes more after each one.";
     } catch {
       questionsNote = " Practice questions couldn't be written yet; Athena will offer to try again when you study.";
     }

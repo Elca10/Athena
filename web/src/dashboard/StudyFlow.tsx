@@ -597,17 +597,15 @@ function ReadySessionScreen({
   }
 
   // SPEC.md section 5's "empty or thin banks": say so and offer Live or
-  // "generate now" rather than leaving the session dead-ended.
-  // `scanBank`/`scanSubjectForBankGeneration` only ever fills in topics
-  // that don't have a bank yet (`bankGeneratedAt` still null) — scanning
-  // every subject in the session is simplest and safe to repeat; it's a
-  // no-op for a subject whose topics already have one.
+  // "generate now" rather than leaving the session dead-ended. Writes
+  // questions only for this session's own topics that have none yet
+  // (issue #10), not every topic in its subjects; safe to repeat.
   async function generateBankNow() {
     setGenerating(true);
     setGenerateError(null);
     try {
       for (const subjectId of session.subjectIds) {
-        await scanBank(subjectId);
+        await scanBank(subjectId, { topicIds: session.topicIds ?? [] });
       }
       await fetchNext(session.id);
     } catch (err) {

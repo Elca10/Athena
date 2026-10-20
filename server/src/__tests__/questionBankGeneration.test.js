@@ -17,6 +17,8 @@ import {
   MAX_TOPICS_PER_BATCH,
   QUESTIONS_PER_TOPIC,
   planBankTurns,
+  keepBankAhead,
+  BANK_CHUNK_TOPICS,
 } from "../questionBankGeneration.js";
 
 async function scratchDir() {
@@ -48,16 +50,17 @@ function bankReply(topics) {
 
 // --- buildBankPrompt --------------------------------------------------------
 
-test("buildBankPrompt names the subject, lists topics with notes, and points at file paths", () => {
+test("buildBankPrompt names the subject, lists topics with notes, and carries the material inline", () => {
   const prompt = buildBankPrompt({
     subjectName: "Discrete Math",
     topics: [{ name: "Graphs", notes: "adjacency lists" }, { name: "Trees" }],
-    files: [{ absolutePath: "/tmp/a.md" }],
+    files: [{ name: "a.pdf", text: "## Slide 1\nAdjacency lists" }],
   });
   assert.match(prompt, /Discrete Math/);
   assert.match(prompt, /"Graphs" — adjacency lists/);
   assert.match(prompt, /"Trees"/);
-  assert.match(prompt, /\/tmp\/a\.md/);
+  assert.match(prompt, /<file number="1" name="a\.pdf">\n## Slide 1\nAdjacency lists\n<\/file>/);
+  assert.doesNotMatch(prompt, /Read tool/);
 });
 
 test("buildBankPrompt says no material is available when there are no files", () => {
@@ -272,7 +275,7 @@ test("runBankGenerationTurn sends a large prompt over stdin, not argv (Windows c
 test("scanSubjectForBankGeneration does nothing when no topic needs a bank", async () => {
   const dir = await scratchDir();
   const result = await scanSubjectForBankGeneration(dir, "subject-1", { subjectName: "Empty Subject" });
-  assert.deepEqual(result, { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, errors: [] });
+  assert.deepEqual(result, { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, remaining: 0, errors: [] });
 });
 
 test("scanSubjectForBankGeneration generates a bank per topic, grounded in the subject's content files, and marks topics done", async () => {
@@ -300,7 +303,8 @@ test("scanSubjectForBankGeneration generates a bank per topic, grounded in the s
   assert.match(prompts[0], /CS 101/);
   assert.match(prompts[0], /Binary search trees/);
   assert.match(prompts[0], /Hash tables/);
-  assert.match(prompts[0], new RegExp(contentItem.id));
+  assert.match(prompts[0], /name="lecture1\.md">\n# BSTs/);
+  assert.ok(contentItem);
 
   const stored = await listTopics(dir, "subject-1");
   assert.ok(stored.every((t) => typeof t.bankGeneratedAt === "string"));
@@ -478,26 +482,9 @@ test("topUpTopicBank reports a turn failure without throwing", async () => {
   assert.match(result.errors[0], /claude CLI not found/);
 });
 
-test("bank generation grants read access to the grounding files' folder (issue #5)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-readdirs-"));
-  const { addUploadedContent, parsedFilePath } = await import("../content.js");
-  const { addPlannedTopics } = await import("../topics.js");
-  const item = await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Cells" });
-  await addPlannedTopics(dir, "subject-1", ["Mitosis"]);
-  let readPaths = null;
-  await scanSubjectForBankGeneration(dir, "subject-1", {
-    subjectName: "Bio",
-    runTurn: async (_prompt, opts) => {
-      readPaths = opts?.readPaths;
-      return "no usable reply";
-    },
-  });
-  assert.deepEqual(readPaths, [parsedFilePath(dir, item)]);
-});
-
 // Issue #10: each turn reads only its own topics' files.
 test("planBankTurns groups topics by their own files, packs small ones, and falls back only for unknown sources", () => {
-  const f = (id, sizeBytes = 1000) => ({ id, absolutePath: `/p/${id}.md`, sizeBytes });
+  const f = (id, sizeBytes = 1000) => ({ id, name: `${id}.md`, text: "x", sizeBytes });
   const files = new Map([["a", f("a")], ["b", f("b")], ["big", f("big", 200_000)]]);
   const t = (name, sourceContentIds) => ({ name, sourceContentIds });
   const turns = planBankTurns(
@@ -516,7 +503,7 @@ test("planBankTurns groups topics by their own files, packs small ones, and fall
 });
 
 test("planBankTurns never lets one turn exceed the file bounds, but a lone oversized topic still gets a turn", () => {
-  const files = new Map(["a", "b", "c"].map((id) => [id, { id, absolutePath: `/p/${id}`, sizeBytes: 60_000 }]));
+  const files = new Map(["a", "b", "c"].map((id) => [id, { id, name: id, text: "x", sizeBytes: 60_000 }]));
   const turns = planBankTurns(
     [{ name: "A", sourceContentIds: ["a"] }, { name: "B", sourceContentIds: ["b"] }, { name: "C", sourceContentIds: ["c"] }],
     files,
@@ -528,17 +515,77 @@ test("planBankTurns never lets one turn exceed the file bounds, but a lone overs
 
 test("bank generation grounds each topic in the file it came from, not the subject's first files", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-sourced-"));
-  const { parsedFilePath } = await import("../content.js");
   const items = [];
-  for (let i = 1; i <= 8; i++) items.push(await addUploadedContent(dir, "s1", { filename: `lecture${i}.md`, text: "x".repeat(40_000) }));
+  for (let i = 1; i <= 8; i++) items.push(await addUploadedContent(dir, "s1", { filename: `lecture${i}.md`, text: `# Lecture ${i}\n` + "x".repeat(40_000) }));
   await addPlannedTopics(dir, "s1", [{ name: "From lecture 8", sourceContentIds: [items[7].id] }]);
-  const seen = [];
+  const prompts = [];
   await scanSubjectForBankGeneration(dir, "s1", {
     subjectName: "Bio",
-    runTurn: async (_prompt, opts) => {
-      seen.push(opts.readPaths);
+    runTurn: async (prompt) => {
+      prompts.push(prompt);
       return "no usable reply";
     },
   });
-  assert.deepEqual(seen, [[parsedFilePath(dir, items[7])]]);
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /name="lecture8\.md">\n# Lecture 8/);
+  assert.doesNotMatch(prompts[0], /# Lecture 1\n/);
+});
+
+test("a turn over the size bound carries only the slides that mention its topics", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-excerpt-"));
+  const slides = Array.from({ length: 400 }, (_, i) => `## Slide ${i + 1}\n${i === 250 ? "Dijkstra's shortest path algorithm" : "filler ".repeat(70)}`);
+  const item = await addUploadedContent(dir, "s1", { filename: "deck.md", text: slides.join("\n\n") });
+  await addPlannedTopics(dir, "s1", [{ name: "Dijkstra's shortest path", sourceContentIds: [item.id] }]);
+  const prompts = [];
+  await scanSubjectForBankGeneration(dir, "s1", { subjectName: "CS", runTurn: async (p) => (prompts.push(p), "no usable reply") });
+  assert.match(prompts[0], /## Slide 251\nDijkstra/);
+  assert.ok(prompts[0].length < 20_000, `excerpted, not the whole ${slides.join("").length}-char deck`);
+});
+
+// Issue #10: questions are written a chunk at a time, not for every topic.
+test("scanSubjectForBankGeneration writes at most `limit` topics, soonest due first, and says how many remain", async () => {
+  const dir = await scratchDir();
+  await addPlannedTopics(dir, "s1", ["T1", "T2", "T3", "T4", "T5"]);
+  const asked = [];
+  const result = await scanSubjectForBankGeneration(dir, "s1", {
+    subjectName: "S",
+    limit: 2,
+    runTurn: async (prompt) => {
+      const names = [...prompt.matchAll(/^\d+\. "(T\d)"/gm)].map((m) => m[1]);
+      asked.push(...names);
+      return bankReply(names.map((topicName) => ({ topicName, questions: [validQuestion()] })));
+    },
+  });
+  assert.deepEqual(asked, ["T1", "T2"], "the first two in study order");
+  assert.equal(result.topicsProcessed, 2);
+  assert.equal(result.remaining, 3);
+});
+
+test("scanSubjectForBankGeneration with topicIds only writes those topics", async () => {
+  const dir = await scratchDir();
+  const [, t2] = await addPlannedTopics(dir, "s1", ["T1", "T2", "T3"]);
+  const asked = [];
+  await scanSubjectForBankGeneration(dir, "s1", {
+    subjectName: "S",
+    topicIds: [t2.id],
+    runTurn: async (prompt) => (asked.push(...[...prompt.matchAll(/^\d+\. "(T\d)"/gm)].map((m) => m[1])), "no usable reply"),
+  });
+  assert.deepEqual(asked, ["T2"]);
+});
+
+test("keepBankAhead tops up to one chunk of never-studied topics with questions, and makes no call when enough are ready", async () => {
+  const dir = await scratchDir();
+  const names = Array.from({ length: BANK_CHUNK_TOPICS + 5 }, (_, i) => `T${i}`);
+  const topics = await addPlannedTopics(dir, "s1", names);
+  await markBankGenerated(dir, topics.slice(0, BANK_CHUNK_TOPICS - 3).map((t) => t.id));
+  let asked = 0;
+  const runTurn = async (prompt) => {
+    const got = [...prompt.matchAll(/^\d+\. "(T\d+)"/gm)].map((m) => m[1]);
+    asked += got.length;
+    return bankReply(got.map((topicName) => ({ topicName, questions: [validQuestion()] })));
+  };
+  await keepBankAhead(dir, "s1", { subjectName: "S", runTurn });
+  assert.equal(asked, 3, "only enough to make a full chunk");
+  await keepBankAhead(dir, "s1", { subjectName: "S", runTurn });
+  assert.equal(asked, 3, "a full chunk is ready: no model call");
 });

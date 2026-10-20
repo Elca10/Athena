@@ -85,3 +85,11 @@ test("question-writing trouble still reports the topics found, plus a note", asy
   expect(outcome.ok).toBe(true);
   expect(outcome.message).toMatch(/^Found 3 new topics in Biology\. Ready to study\. Practice questions couldn't be written yet/);
 });
+
+test("when more topics are waiting for questions, Done says they're written as you study (issue #10)", async () => {
+  vi.mocked(api.listContent).mockResolvedValue([{ topicsExtractedAt: null } as api.ContentItem]);
+  vi.mocked(api.scanTopics).mockResolvedValue({ ok: true, skipped: false, topicsAdded: 30, filesProcessed: 1, errors: [] } as Awaited<ReturnType<typeof api.scanTopics>>);
+  vi.mocked(api.scanBank).mockResolvedValue({ ok: true, skipped: false, topicsProcessed: 12, questionsAdded: 48, remaining: 18, errors: [] });
+  const out = await readNewContent("s1", "Biology");
+  expect(out.message).toMatch(/Found 30 new topics in Biology\. Ready to study\. Practice questions are ready for your next session; Athena writes more after each one\./);
+});

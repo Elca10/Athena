@@ -148,12 +148,12 @@ test("with files chosen, the nothing-due reason is about those files", async () 
 test("the extraction prompt numbers the files, and replies map numbers to content ids", () => {
   const prompt = buildExtractionPrompt({
     subjectName: "Bio",
-    files: [{ absolutePath: "/x/a.md" }, { absolutePath: "/x/b.md" }],
+    files: [{ name: "a.md", text: "A" }, { name: "b.md", text: "B" }],
     existingTopics: ["Osmosis"],
     batchIndex: 0,
     batchCount: 1,
   });
-  assert.match(prompt, /1\. \/x\/a\.md\n2\. \/x\/b\.md/);
+  assert.match(prompt, /<file number="1" name="a\.md">[\s\S]*<file number="2" name="b\.md">/);
   assert.match(prompt, /list it too, using its exact name/);
   assert.match(prompt, /"files": \[/);
 

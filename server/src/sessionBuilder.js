@@ -38,7 +38,7 @@ function fromContent(contentIds) {
 export async function buildSessionTopicIds(
   appDataDir,
   subjectIds,
-  { limit = MAX_SESSION_TOPICS, now = new Date(), reviewAhead = false, contentIds = null } = {},
+  { limit = MAX_SESSION_TOPICS, now = new Date(), reviewAhead = false, contentIds = null, preferBanked = false } = {},
 ) {
   const uniqueSubjectIds = [...new Set(subjectIds)];
   const fromWanted = fromContent(contentIds);
@@ -49,6 +49,10 @@ export async function buildSessionTopicIds(
         ? (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0))
         : await listDueTopics(appDataDir, subjectId, now)
     ).filter(fromWanted);
+    // Ready mode: topics that already have practice questions first
+    // (they're written a chunk at a time, issue #10), keeping due order
+    // within each group.
+    if (preferBanked) picked.sort((a, b) => Number(!a.bankGeneratedAt) - Number(!b.bankGeneratedAt));
     if (picked.length) queues.push(picked.map((t) => t.id));
   }
 

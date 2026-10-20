@@ -14,11 +14,12 @@
 // topics instead of every turn re-reading the subject's first batch of
 // files. Only a topic with no known source falls back to that first batch.
 
-import { promises as fs } from "node:fs";
-import { runCommand, readDirArgs, backgroundTurnArgs } from "./processUtil.js";
-import { listContent, parsedFilePath } from "./content.js";
+import { runCommand, backgroundTurnArgs, QUESTION_MODEL, QUESTION_EFFORT } from "./processUtil.js";
+import { listContent } from "./content.js";
+import { loadMaterial, excerptFor, materialBlock, MATERIAL_IS_DATA } from "./material.js";
 import { batchFiles, MAX_FILES_PER_BATCH, MAX_BATCH_BYTES } from "./topicExtraction.js";
-import { listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
+import { listTopics, listTopicsNeedingBank, markBankGenerated, getTopicById } from "./topics.js";
+import { MAX_SESSION_TOPICS } from "./sessionBuilder.js";
 import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.js";
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
@@ -29,6 +30,12 @@ const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "Web
  * questions per topic, each with a model answer/rubric) from growing
  * unbounded the way a huge multi-topic subject otherwise would. */
 export const MAX_TOPICS_PER_BATCH = 4;
+
+/** Questions are written a session's worth of topics at a time (issue
+ * #10: writing them for every topic of a big upload at once could use up
+ * a large share of a usage window in one go). After a Ready session,
+ * `keepBankAhead` writes the next chunk in the background. */
+export const BANK_CHUNK_TOPICS = MAX_SESSION_TOPICS;
 
 /** Question-writing turns run at once. Doesn't change how much usage a
  * scan takes, only how long it takes (issue #10: 20 minutes for a big
@@ -81,9 +88,7 @@ const PLAIN_FENCE_RE = /```(?:json)?\s*\n([\s\S]*?)```/g;
  */
 export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic = QUESTIONS_PER_TOPIC, preferences }) {
   const filesBlock = files.length
-    ? `Ground your questions in this material — read these exact paths, and nothing else, using the Read tool:\n${files
-        .map((f) => `- ${f.absolutePath}`)
-        .join("\n")}`
+    ? `Ground your questions in the course material at the end of this message. ${MATERIAL_IS_DATA}`
     : `No uploaded material is available for these topics yet — use your own knowledge of each topic name/notes instead.`;
 
   const topicsBlock = topics
@@ -139,7 +144,11 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
   ],
   "summary": "<one sentence on what was generated>"
 }
-\`\`\`${formatPreferencesBlock(preferences)}`;
+\`\`\`${formatPreferencesBlock(preferences)}${
+    files.length
+      ? `\n\nThe material:\n\n${materialBlock(files)}\n\n(End of material. Reply now, finishing with the athena-question-bank block described above.)`
+      : ""
+  }`;
 }
 
 function cappedStringArray(value, { maxCount, maxChars }) {
@@ -252,8 +261,8 @@ export function parseBankReply(resultText) {
 
 /** Test seam for the model call — same convention as
  * topicExtraction.js's `runExtractionTurn`. */
-export async function runBankGenerationTurn(prompt, { env, readPaths = [] } = {}) {
-  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs(["Read"]), ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
+export async function runBankGenerationTurn(prompt, { env } = {}) {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([], { model: QUESTION_MODEL, effort: QUESTION_EFFORT }), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -284,7 +293,7 @@ export async function runBankGenerationTurn(prompt, { env, readPaths = [] } = {}
  * within topicExtraction.js's per-turn file and size bounds (topics
  * adding no new files always fit). A topic whose own files are over the
  * bounds still gets a turn.
- * `filesById` maps content id -> {id, absolutePath, sizeBytes}, sized by
+ * `filesById` maps content id -> {id, name, text, sizeBytes}, sized by
  * extracted text. Pure, exported for its own test.
  */
 export function planBankTurns(topics, filesById, fallbackFiles, { maxTopics = MAX_TOPICS_PER_BATCH, maxFiles = MAX_FILES_PER_BATCH, maxBytes = MAX_BATCH_BYTES } = {}) {
@@ -328,24 +337,9 @@ async function forEachLimited(items, limit, fn) {
 }
 
 async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics, runTurn = runBankGenerationTurn }) {
-  const content = await listContent(appDataDir, subjectId);
-  const filesById = new Map();
-  const availableFiles = [];
-  for (const item of content) {
-    const absolutePath = parsedFilePath(appDataDir, item);
-    let stat;
-    try {
-      stat = await fs.stat(absolutePath);
-    } catch {
-      continue; // nothing parsed on disk yet for this item — just skip it as grounding material
-    }
-    // Sized by extracted text, not the upload: a slide deck's images
-    // aren't read, only its text is.
-    const file = { ...item, absolutePath, sizeBytes: stat.size };
-    filesById.set(item.id, file);
-    availableFiles.push(file);
-  }
-  const fallbackFiles = batchFiles(availableFiles)[0] ?? [];
+  const material = await loadMaterial(appDataDir, await listContent(appDataDir, subjectId));
+  const filesById = new Map(material.map((f) => [f.id, f]));
+  const fallbackFiles = batchFiles(material)[0] ?? [];
   const preferences = await listPreferences(appDataDir);
 
   // Same `fsrs.reps === 0` check liveSession.js's `isNewTopic` uses — a
@@ -359,12 +353,18 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
   const generatedTopicIds = [];
   let questionsAdded = 0;
 
-  await forEachLimited(turns, MAX_PARALLEL_TURNS, async ({ topics: batch, files }) => {
+  await forEachLimited(turns, MAX_PARALLEL_TURNS, async ({ topics: batch, files: turnFiles }) => {
+    // A turn over the size bound (one long deck) carries only the slides
+    // that mention its topics, shared out between its files.
+    const total = turnFiles.reduce((sum, f) => sum + f.sizeBytes, 0);
+    const share = Math.floor(MAX_BATCH_BYTES / Math.max(1, turnFiles.length));
+    const names = batch.map((t) => t.name);
+    const files = total <= MAX_BATCH_BYTES ? turnFiles : turnFiles.map((f) => ({ ...f, text: excerptFor(f.text, names, share) }));
     const prompt = buildBankPrompt({ subjectName, topics: batch, files, preferences });
 
     let replyText;
     try {
-      replyText = await runTurn(prompt, { readPaths: files.map((f) => f.absolutePath) });
+      replyText = await runTurn(prompt);
     } catch (err) {
       errors.push(`${batch.length} topic(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
       return; // leave this batch's topics unmarked — retryable on the next scan
@@ -398,38 +398,66 @@ async function generateAndStoreBank(appDataDir, subjectId, { subjectName, topics
 const inFlightSubjects = new Set();
 
 /**
- * Scans a subject's topics that have never had an initial question bank
- * (`bankGeneratedAt` still null), runs one background turn per bounded
- * batch of topics, and stores whatever valid questions come back. A topic
- * is marked generated only once it has at least one valid question saved
- * for it — a topic the model skipped entirely, or returned with every
- * question rejected, stays unmarked so the next scan retries it, same
- * "don't silently lose it" posture as `scanSubjectForTopics`.
+ * Writes the initial question bank for a subject's topics that don't have
+ * one yet (`bankGeneratedAt` still null): at most `limit` of them, in the
+ * order a session would study them (soonest due first), or only the given
+ * `topicIds`. A topic is marked generated only once it has at least one
+ * valid question saved for it; one the model skipped stays unmarked so a
+ * later scan retries it, same "don't silently lose it" posture as
+ * `scanSubjectForTopics`. `remaining` is how many topics still have no
+ * questions afterwards.
  */
-export async function scanSubjectForBankGeneration(appDataDir, subjectId, { subjectName, runTurn = runBankGenerationTurn } = {}) {
+export async function scanSubjectForBankGeneration(
+  appDataDir,
+  subjectId,
+  { subjectName, runTurn = runBankGenerationTurn, limit = Infinity, topicIds = null } = {},
+) {
   if (inFlightSubjects.has(subjectId)) {
-    return { ok: true, skipped: true, topicsProcessed: 0, questionsAdded: 0, errors: [] };
+    return { ok: true, skipped: true, topicsProcessed: 0, questionsAdded: 0, remaining: 0, errors: [] };
   }
   inFlightSubjects.add(subjectId);
   try {
-    const needingBank = await listTopicsNeedingBank(appDataDir, subjectId);
-    if (!needingBank.length) {
-      return { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, errors: [] };
+    let needingBank = await listTopicsNeedingBank(appDataDir, subjectId);
+    if (topicIds) {
+      const wanted = new Set(topicIds);
+      needingBank = needingBank.filter((t) => wanted.has(t.id));
+    }
+    // Stable sort: same-due topics keep the order they were found in.
+    const chunk = [...needingBank].sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0)).slice(0, limit);
+    if (!chunk.length) {
+      const remaining = (await listTopicsNeedingBank(appDataDir, subjectId)).length;
+      return { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, remaining, errors: [] };
     }
 
     const { generatedTopicIds, questionsAdded, errors } = await generateAndStoreBank(appDataDir, subjectId, {
       subjectName,
-      topics: needingBank,
+      topics: chunk,
       runTurn,
     });
     if (generatedTopicIds.length) {
       await markBankGenerated(appDataDir, generatedTopicIds);
     }
-
-    return { ok: errors.length === 0, skipped: false, topicsProcessed: generatedTopicIds.length, questionsAdded, errors };
+    const remaining = (await listTopicsNeedingBank(appDataDir, subjectId)).length;
+    return { ok: errors.length === 0, skipped: false, topicsProcessed: generatedTopicIds.length, questionsAdded, remaining, errors };
   } finally {
     inFlightSubjects.delete(subjectId);
   }
+}
+
+/**
+ * Keeps one chunk of never-studied topics with questions ready (issue
+ * #10): if fewer than `BANK_CHUNK_TOPICS` are, writes questions for the
+ * next ones in study order. Does nothing (no model call) when enough are
+ * ready or every topic already has questions. Run after a Ready session.
+ */
+export async function keepBankAhead(appDataDir, subjectId, { subjectName, runTurn = runBankGenerationTurn } = {}) {
+  const topics = await listTopics(appDataDir, subjectId);
+  const ready = topics.filter((t) => t.bankGeneratedAt && (t.fsrs?.reps ?? 0) === 0).length;
+  const want = BANK_CHUNK_TOPICS - ready;
+  if (want <= 0 || !topics.some((t) => !t.bankGeneratedAt)) {
+    return { ok: true, skipped: true, topicsProcessed: 0, questionsAdded: 0, remaining: 0, errors: [] };
+  }
+  return scanSubjectForBankGeneration(appDataDir, subjectId, { subjectName, runTurn, limit: want });
 }
 
 // A separate per-topic guard from `inFlightSubjects` above: a top-up
@@ -440,33 +468,36 @@ export async function scanSubjectForBankGeneration(appDataDir, subjectId, { subj
 const inFlightTopUpTopics = new Set();
 
 /**
- * Tops up one topic's question bank (SPEC.md section 5: "topped up after a
- * Ready session that drained a topic's unused questions"). Reuses the same
- * batch/prompt/parse/store pipeline as `scanSubjectForBankGeneration`, but
- * targets a single already-identified topic instead of scanning a whole
- * subject for topics that have never had a bank — and, unlike that scan,
- * never touches `bankGeneratedAt`, since a topic can only drain after its
- * initial bank already exists. Throws on an unknown topic id (a caller
- * mistake, not a recoverable outcome); a model-call failure or unparseable
- * reply comes back as `{ok: false, ...}` instead, same posture as the
- * subject-wide scan.
+ * Tops up these topics' question banks (SPEC.md section 5: "topped up
+ * after a Ready session that drained a topic's unused questions"), all
+ * from one subject, in as few turns as the batching allows (issue #10:
+ * one turn per topic before). Never touches `bankGeneratedAt`, since a
+ * topic can only drain after its initial bank exists. Unknown ids are
+ * skipped; a model-call failure or unparseable reply comes back as
+ * `{ok: false, ...}`, same posture as the subject-wide scan.
  */
-export async function topUpTopicBank(appDataDir, topicId, { subjectName, runTurn = runBankGenerationTurn } = {}) {
-  if (inFlightTopUpTopics.has(topicId)) {
-    return { ok: true, skipped: true, questionsAdded: 0, errors: [] };
-  }
-  inFlightTopUpTopics.add(topicId);
+export async function topUpTopicBanks(appDataDir, topicIds, { subjectName, runTurn = runBankGenerationTurn } = {}) {
+  const ids = topicIds.filter((id) => !inFlightTopUpTopics.has(id));
+  if (!ids.length) return { ok: true, skipped: true, questionsAdded: 0, errors: [] };
+  for (const id of ids) inFlightTopUpTopics.add(id);
   try {
-    const topic = await getTopicById(appDataDir, topicId);
-    if (!topic) throw new Error(`Topic not found: ${topicId}`);
-
-    const { questionsAdded, errors } = await generateAndStoreBank(appDataDir, topic.subjectId, {
+    const topics = (await Promise.all(ids.map((id) => getTopicById(appDataDir, id)))).filter(Boolean);
+    if (!topics.length) return { ok: true, skipped: true, questionsAdded: 0, errors: [] };
+    const { questionsAdded, errors } = await generateAndStoreBank(appDataDir, topics[0].subjectId, {
       subjectName,
-      topics: [topic],
+      topics,
       runTurn,
     });
     return { ok: errors.length === 0, skipped: false, questionsAdded, errors };
   } finally {
-    inFlightTopUpTopics.delete(topicId);
+    for (const id of ids) inFlightTopUpTopics.delete(id);
   }
+}
+
+/** One topic's top-up. Throws on an unknown topic id (a caller mistake). */
+export async function topUpTopicBank(appDataDir, topicId, options = {}) {
+  if (!inFlightTopUpTopics.has(topicId) && !(await getTopicById(appDataDir, topicId))) {
+    throw new Error(`Topic not found: ${topicId}`);
+  }
+  return topUpTopicBanks(appDataDir, [topicId], options);
 }

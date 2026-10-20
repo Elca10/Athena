@@ -407,11 +407,23 @@ export type BankScanResult = {
   skipped: boolean;
   topicsProcessed: number;
   questionsAdded: number;
+  /** Topics still without practice questions: they're written a chunk at
+   * a time (issue #10), the next chunk after each Ready session. */
+  remaining?: number;
   errors: string[];
 };
 
-export function scanBank(subjectId: string): Promise<BankScanResult> {
-  return postJson(`/api/subjects/${subjectId}/topics/bank/scan`);
+/** Writes practice questions for the next chunk of the subject's topics,
+ * or for exactly `topicIds` (a session's own). */
+export async function scanBank(subjectId: string, { topicIds }: { topicIds?: string[] } = {}): Promise<BankScanResult> {
+  if (!topicIds) return postJson(`/api/subjects/${subjectId}/topics/bank/scan`);
+  const res = await fetch(`/api/subjects/${subjectId}/topics/bank/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topicIds }),
+  });
+  if (!res.ok) throw new Error(`POST /api/subjects/${subjectId}/topics/bank/scan responded ${res.status}`);
+  return res.json();
 }
 
 // Mirrors server/src/bugReport.js's two-step flow (SPEC.md section 10/

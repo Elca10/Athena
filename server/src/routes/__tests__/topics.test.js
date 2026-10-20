@@ -186,7 +186,7 @@ test("POST /:id/topics/bank/scan with no topics needing a bank does nothing", as
     const subject = await createSubject(dir, { name: "Physics" });
     const res = await fetch(`${base(subject.id)}/bank/scan`, { method: "POST" });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, errors: [] });
+    assert.deepEqual(await res.json(), { ok: true, skipped: false, topicsProcessed: 0, questionsAdded: 0, remaining: 0, errors: [] });
   } finally {
     server.close();
   }

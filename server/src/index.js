@@ -27,6 +27,8 @@ import { makeUpdateApplier } from "./updateApply.js";
 import { recordError } from "./errorLog.js";
 import { getAppVersion } from "./bugReport.js";
 import { reconcileInterruptedSessions } from "./sessions.js";
+import { getSubject } from "./subjects.js";
+import { keepBankAhead } from "./questionBankGeneration.js";
 import { ensureKnownCliDirsOnPath } from "./processUtil.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,7 +79,21 @@ export async function createApp() {
   app.use("/api/subjects/:id/content", makeContentRouter(appDataDir));
   app.use("/api/subjects/:id/topics", makeTopicsRouter(appDataDir));
   app.use("/api/subjects/:id/reflections", makeReflectionsRouter(appDataDir));
-  app.use("/api/sessions", makeSessionsRouter(appDataDir));
+  app.use(
+    "/api/sessions",
+    makeSessionsRouter(appDataDir, {
+      // After a Ready session, write the next chunk of practice questions
+      // in the background (issue #10). Never blocks the response.
+      onReadySessionDone: (session) => {
+        for (const subjectId of session.subjectIds) {
+          getSubject(appDataDir, subjectId)
+            .then((subject) => subject && keepBankAhead(appDataDir, subjectId, { subjectName: subject.name }))
+            .then((result) => result?.errors?.length && recordError(`keepBankAhead: ${result.errors.join("; ").slice(0, 300)}`))
+            .catch((err) => recordError(`keepBankAhead: ${err.message ?? err}`));
+        }
+      },
+    }),
+  );
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
   app.use("/api/bug-report", makeBugReportRouter(appDataDir, { appVersion }));

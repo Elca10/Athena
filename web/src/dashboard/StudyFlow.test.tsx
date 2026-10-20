@@ -318,9 +318,9 @@ test("shows the no-bank message without crashing when the next topic has nothing
   expect(onExit).toHaveBeenCalled();
 });
 
-test("the no-bank screen's Generate now button scans the bank then retries the question", async () => {
+test("the no-bank screen's Generate now button writes questions for the session's own topics, then retries", async () => {
   const user = userEvent.setup();
-  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ topicIds: ["t1", "t2"] }));
   vi.mocked(api.generateNextReadyQuestion)
     .mockResolvedValueOnce({
       ok: false,
@@ -336,7 +336,7 @@ test("the no-bank screen's Generate now button scans the bank then retries the q
 
   await user.click(screen.getByRole("button", { name: "Generate question bank now" }));
 
-  expect(api.scanBank).toHaveBeenCalledWith("s1");
+  expect(api.scanBank).toHaveBeenCalledWith("s1", { topicIds: ["t1", "t2"] });
   expect(await screen.findByText("Which organelle produces ATP?")).toBeInTheDocument();
 });
 

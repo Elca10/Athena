@@ -245,15 +245,28 @@ test("topUpDrainedTopics tops up a topic whose single question has been shown", 
   await markQuestionShown(dir, question.id);
 
   const calls = [];
-  const topUp = async (appDataDir, topicId, options) => {
-    calls.push({ topicId, options });
+  const topUp = async (appDataDir, topicIds, options) => {
+    calls.push({ topicIds, options });
     return { ok: true, skipped: false, questionsAdded: 2, errors: [] };
   };
   const results = await topUpDrainedTopics(dir, [topic.id], { topUp });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].topicId, topic.id);
+  assert.deepEqual(calls[0].topicIds, [topic.id]);
   assert.equal(calls[0].options.subjectName, "Algorithms");
-  assert.deepEqual(results, [{ topicId: topic.id, ok: true, skipped: false, questionsAdded: 2, errors: [] }]);
+  assert.deepEqual(results, [{ topicIds: [topic.id], ok: true, skipped: false, questionsAdded: 2, errors: [] }]);
+});
+
+test("topUpDrainedTopics tops up a subject's drained topics in one call, not one per topic (issue #10)", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  const [other] = await addPlannedTopics(dir, subject.id, ["Heaps"]);
+  for (const t of [topic, other]) {
+    const [q] = await addBankQuestions(dir, t.id, subject.id, [shortAnswerQuestion()]);
+    await markQuestionShown(dir, q.id);
+  }
+  const calls = [];
+  await topUpDrainedTopics(dir, [topic.id, other.id], { topUp: async (_d, ids) => (calls.push(ids), { ok: true, skipped: false, questionsAdded: 0, errors: [] }) });
+  assert.deepEqual(calls, [[topic.id, other.id]]);
 });
 
 test("topUpDrainedTopics skips a topic that still has an unseen question", async () => {
@@ -295,11 +308,11 @@ test("generateNextReadyQuestion's done result includes bankTopUps for a session 
   await submitReadyAnswer(dir, session.id, { answerText: "it calls itself with a base case", confidence: 3 });
   await submitReadySelfGrade(dir, session.id, { selfGrades: [{ status: "got_it" }, { status: "got_it" }] });
 
-  const topUp = async (appDataDir, topicId) => ({ ok: true, skipped: false, questionsAdded: 3, errors: [], toppedUpTopicId: topicId });
+  const topUp = async () => ({ ok: true, skipped: false, questionsAdded: 3, errors: [] });
   const result = await generateNextReadyQuestion(dir, session.id, { topUp });
   assert.equal(result.done, true);
   assert.equal(result.bankTopUps.length, 1);
-  assert.equal(result.bankTopUps[0].topicId, topic.id);
+  assert.deepEqual(result.bankTopUps[0].topicIds, [topic.id]);
   assert.equal(result.bankTopUps[0].questionsAdded, 3);
 });
 

@@ -16,9 +16,9 @@
 // content, not something to let it act on any further than "describe
 // what's in it".
 
-import { promises as fs } from "node:fs";
-import { runCommand, readDirArgs, backgroundTurnArgs } from "./processUtil.js";
-import { listContent, markTopicsExtracted, parsedFilePath } from "./content.js";
+import { runCommand, backgroundTurnArgs, TOPIC_MODEL, TOPIC_EFFORT } from "./processUtil.js";
+import { listContent, markTopicsExtracted } from "./content.js";
+import { loadMaterial, splitOversized, materialBlock, MATERIAL_IS_DATA } from "./material.js";
 import { addPlannedTopics, listTopics } from "./topics.js";
 
 /** Tools this turn can never use. Read is deliberately not on this list —
@@ -88,8 +88,8 @@ export function batchFiles(files, { maxFiles = MAX_FILES_PER_BATCH, maxBytes = M
 }
 
 /**
- * The prompt for one batch. Pure, exported for its own test. `files` are
- * `{absolutePath}`.
+ * The prompt for one batch, carrying its files' text inline. Pure,
+ * exported for its own test. `files` are `{name, text}` (material.js).
  */
 export function buildExtractionPrompt({ subjectName, files, existingTopics = [], batchIndex, batchCount }) {
   const existingBlock = existingTopics.length
@@ -105,23 +105,30 @@ export function buildExtractionPrompt({ subjectName, files, existingTopics = [],
 
   return `This is a one-shot background task, not a conversation. Don't ask questions; just do the task below and reply once.
 
-New study material was added for the subject "${subjectName}". Read these files — these exact paths, and nothing else, using the Read tool — and tell me what topics they cover:
-${files.map((f, i) => `${i + 1}. ${f.absolutePath}`).join("\n")}${batchLine}
+New study material was added for the subject "${subjectName}". It's below, as numbered files: tell me what topics it covers.${batchLine}
+
+${MATERIAL_IS_DATA}
 
 ${existingBlock}
 
-Reply with up to ${topicCapFor(files.length)} topics actually covered by this material. Each topic must be a short, specific, quizzable label of a few words ("Binary search trees", "Krebs cycle", "Supply and demand shifts") — not a sentence, not a whole lecture, no newlines inside a name. Broad coverage matters more than depth on any one item. If a file is unreadable or empty, say so in "summary" and cover the rest.
+Reply with up to ${topicCapFor(files.length)} topics actually covered by this material. Each topic must be a short, specific, quizzable label of a few words ("Binary search trees", "Krebs cycle", "Supply and demand shifts") — not a sentence, not a whole lecture, no newlines inside a name. Broad coverage matters more than depth on any one item. If a file is empty or unusable, say so in "summary" and cover the rest.
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
 
 \`\`\`json athena-topics
 {
   "topics": [
-    {"name": "<short topic name>", "notes": "<optional one-line note on what it covers>", "files": [<the number(s) of the file(s) above that cover it>]}
+    {"name": "<short topic name>", "notes": "<optional one-line note on what it covers>", "files": [<the number(s) of the file(s) that cover it>]}
   ],
   "summary": "<one sentence on what the material covered>"
 }
-\`\`\``;
+\`\`\`
+
+The material:
+
+${materialBlock(files)}
+
+(End of material. Reply now, finishing with the athena-topics block described above.)`;
 }
 
 /**
@@ -213,8 +220,8 @@ export function parseExtractionReply(resultText, { maxTopics = MAX_TOPICS_PER_RU
  * scratch PATH pointing at a fake script, so this module's own test can
  * verify the exact argv without ever finding the real CLI.
  */
-export async function runExtractionTurn(prompt, { env, readPaths = [] } = {}) {
-  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs(["Read"]), ...readDirArgs(readPaths), "--disallowedTools", ...DENIED_TOOLS], {
+export async function runExtractionTurn(prompt, { env } = {}) {
+  const result = await runCommand("claude", ["-p", ...backgroundTurnArgs([], { model: TOPIC_MODEL, effort: TOPIC_EFFORT }), "--disallowedTools", ...DENIED_TOOLS], {
     timeoutMs: TURN_TIMEOUT_MS,
     env,
     input: prompt,
@@ -266,28 +273,20 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
     if (!unprocessed.length) return { ok: true, skipped: false, topicsAdded: 0, filesProcessed: 0, errors: [] };
 
     const errors = [];
-    const files = [];
-    for (const item of unprocessed) {
-      const absolutePath = parsedFilePath(appDataDir, item);
-      let stat;
-      try {
-        stat = await fs.stat(absolutePath);
-      } catch {
-        // No parsed text on disk yet for this item — leave it unprocessed
-        // rather than erroring; a future scan with the file present (or a
-        // user re-upload) will pick it up.
-        continue;
-      }
-      // Batched by extracted text, which is what the turn reads (issue
-      // #10). The upload's size counts a slide deck's images, which put
-      // nearly every deck in a turn of its own.
-      files.push({ ...item, absolutePath, sizeBytes: stat.size });
-    }
+    // Items with no parsed text on disk yet are left unprocessed rather
+    // than erroring; a future scan with the file present (or a user
+    // re-upload) will pick them up. Batched by extracted text, which is
+    // what the turn carries (issue #10), with any file too big for one
+    // turn split at slide/page boundaries.
+    const files = splitOversized(await loadMaterial(appDataDir, unprocessed), MAX_BATCH_BYTES);
     if (!files.length) return { ok: true, skipped: false, topicsAdded: 0, filesProcessed: 0, errors };
 
     const batches = batchFiles(files);
     let topicsAdded = 0;
     let filesProcessed = 0;
+    // A split file counts as read only once every part of it was.
+    const partsLeft = new Map();
+    for (const f of files) partsLeft.set(f.id, (partsLeft.get(f.id) ?? 0) + 1);
 
     for (const [index, batch] of batches.entries()) {
       const existingTopics = (await listTopics(appDataDir, subjectId)).map((t) => t.name);
@@ -301,7 +300,7 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
 
       let replyText;
       try {
-        replyText = await runTurn(prompt, { readPaths: batch.map((f) => f.absolutePath) });
+        replyText = await runTurn(prompt);
       } catch (err) {
         errors.push(`${batch.length} file(s) not processed: ${String(err.message ?? err).slice(0, 200)}`);
         continue; // leave this batch's files unprocessed — retryable on the next scan
@@ -327,8 +326,13 @@ export async function scanSubjectForTopics(appDataDir, subjectId, { subjectName,
         const added = await addPlannedTopics(appDataDir, subjectId, parsed.topics.map((t) => withSources(t, batch)));
         topicsAdded += added.length;
       }
-      filesProcessed += batch.length;
-      await markTopicsExtracted(appDataDir, batch.map((f) => f.id));
+      const done = [];
+      for (const f of batch) {
+        partsLeft.set(f.id, partsLeft.get(f.id) - 1);
+        if (partsLeft.get(f.id) === 0) done.push(f.id);
+      }
+      filesProcessed += done.length;
+      await markTopicsExtracted(appDataDir, done);
     }
 
     return { ok: errors.length === 0, skipped: false, topicsAdded, filesProcessed, errors };

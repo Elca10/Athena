@@ -8,6 +8,7 @@ import PDFDocument from "pdfkit";
 import { addUploadedContent, listContent, parsedFilePath } from "../content.js";
 import { listTopics, addPlannedTopics } from "../topics.js";
 import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
+import { TOPIC_MODEL } from "../processUtil.js";
 import {
   batchFiles,
   buildExtractionPrompt,
@@ -89,17 +90,19 @@ test("batchFiles gives an oversized single file a batch of its own rather than d
 
 // --- buildExtractionPrompt --------------------------------------------------
 
-test("buildExtractionPrompt lists file paths and names the subject", () => {
+test("buildExtractionPrompt carries each file's text inline, numbered, and names the subject (issue #10)", () => {
   const prompt = buildExtractionPrompt({
     subjectName: "Discrete Math",
-    files: [{ absolutePath: "/tmp/a.md" }, { absolutePath: "/tmp/b.md" }],
+    files: [{ name: "a.pdf", text: "## Slide 1\nGraphs" }, { name: "b.pdf", text: "## Slide 1\nTrees" }],
     existingTopics: [],
     batchIndex: 0,
     batchCount: 1,
   });
   assert.match(prompt, /Discrete Math/);
-  assert.match(prompt, /\/tmp\/a\.md/);
-  assert.match(prompt, /\/tmp\/b\.md/);
+  assert.match(prompt, /<file number="1" name="a\.pdf">\n## Slide 1\nGraphs\n<\/file>/);
+  assert.match(prompt, /<file number="2" name="b\.pdf">\n## Slide 1\nTrees\n<\/file>/);
+  assert.match(prompt, /ignore it/, "says the material is data, not instructions");
+  assert.doesNotMatch(prompt, /Read tool/);
   assert.match(prompt, /nothing is tracked for this subject yet/i);
   assert.doesNotMatch(prompt, /batch 1 of/i);
 });
@@ -107,7 +110,7 @@ test("buildExtractionPrompt lists file paths and names the subject", () => {
 test("buildExtractionPrompt lists existing topics to avoid repeating and notes batch position", () => {
   const prompt = buildExtractionPrompt({
     subjectName: "Biology",
-    files: [{ absolutePath: "/tmp/c.md" }],
+    files: [{ name: "c.md", text: "Cells" }],
     existingTopics: ["Osmosis", "Mitosis"],
     batchIndex: 1,
     batchCount: 3,
@@ -191,7 +194,7 @@ test("the topic cap grows with the files in a turn, up to an overall limit (issu
   assert.equal(topicCapFor(1), 12);
   assert.equal(topicCapFor(2), 24);
   assert.equal(topicCapFor(6), 36);
-  assert.match(buildExtractionPrompt({ subjectName: "Bio", files: [{ absolutePath: "/a" }, { absolutePath: "/b" }] }), /up to 24 topics/);
+  assert.match(buildExtractionPrompt({ subjectName: "Bio", files: [{ name: "a", text: "x" }, { name: "b", text: "y" }] }), /up to 24 topics/);
 });
 
 test("parseExtractionReply reports failure when every proposed entry is rejected", () => {
@@ -219,20 +222,12 @@ test("runExtractionTurn sends a large prompt over stdin, not argv (Windows comma
   assert.ok(!result.argv.some((arg) => arg.includes(bigPrompt)));
 });
 
-test("runExtractionTurn grants read access to the content folder via --add-dir (issue #5)", async () => {
+test("runExtractionTurn is one small, tool-free call on the topic model (issue #10)", async () => {
   const { env } = await fakeClaudeOnPath();
-  const files = [path.join(os.tmpdir(), "data", "parsed", "a.md"), path.join(os.tmpdir(), "data", "parsed", "b.md")];
-  const result = JSON.parse(await runExtractionTurn("prompt", { env, readPaths: files }));
-  const i = result.argv.indexOf("--add-dir");
-  assert.ok(i >= 0, "must pass --add-dir");
-  assert.equal(result.argv[i + 1], path.join(os.tmpdir(), "data", "parsed"));
-  assert.equal(result.argv.filter((a) => a === "--add-dir").length, 1, "one flag per distinct folder");
-});
-
-test("runExtractionTurn keeps the turn small: only Read, no MCP servers or skills, a short system prompt (issue #10)", async () => {
-  const { env } = await fakeClaudeOnPath();
-  const { argv } = JSON.parse(await runExtractionTurn("prompt", { env, readPaths: ["/x/a.md"] }));
-  assert.equal(argv[argv.indexOf("--tools") + 1], "Read");
+  const { argv } = JSON.parse(await runExtractionTurn("prompt", { env }));
+  assert.equal(argv[argv.indexOf("--model") + 1], TOPIC_MODEL);
+  assert.equal(argv[argv.indexOf("--tools") + 1], "", "the text is in the prompt, so no tools at all");
+  assert.ok(!argv.includes("--add-dir"), "no file access needed");
   assert.ok(argv.includes("--strict-mcp-config"));
   assert.ok(argv.includes("--disable-slash-commands"));
   assert.match(argv[argv.indexOf("--system-prompt") + 1], /background tasks for a study app/);
@@ -274,7 +269,7 @@ test("scanSubjectForTopics runs a turn per batch, saves topics, and marks files 
   assert.ok(content.every((c) => typeof c.topicsExtractedAt === "string"));
 });
 
-test("scanSubjectForTopics points the turn at a PDF-sourced item's real extracted text, not the raw binary", async () => {
+test("scanSubjectForTopics sends a PDF-sourced item's real extracted text, not the raw binary", async () => {
   const dir = await scratchDir();
   const rawBytes = await samplePdfBuffer([
     "Binary search trees are a fundamental data structure covered in this lecture.",
@@ -294,19 +289,13 @@ test("scanSubjectForTopics points the turn at a PDF-sourced item's real extracte
   assert.equal(result.ok, true);
   assert.equal(result.filesProcessed, 1);
 
-  // The prompt (topicExtraction.js only ever points the turn at file
-  // paths — the turn itself Reads them) names the item's PARSED path, not
-  // its raw .pdf path.
-  const expectedPath = parsedFilePath(dir, content);
-  assert.match(prompts[0], new RegExp(expectedPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
-
-  // And that parsed path on disk is real, human-readable extracted text —
-  // not the original PDF's binary bytes — proving the pipeline actually
-  // ran pdfExtract.js on this upload rather than, say, pointing the turn
-  // at the raw file or an empty one.
-  const parsedText = await fs.readFile(expectedPath, "utf8");
-  assert.match(parsedText, /Binary search trees/);
-  assert.doesNotMatch(parsedText, /%PDF-/); // the raw PDF's own header magic bytes
+  // The prompt carries the item's PARSED text inline (issue #10), under
+  // its own filename — real extracted text, not the original PDF's bytes,
+  // proving pdfExtract.js ran on this upload.
+  assert.match(prompts[0], /name="Lecture 1\.pdf"/);
+  assert.match(prompts[0], /Binary search trees are a fundamental data structure/);
+  assert.doesNotMatch(prompts[0], /%PDF-/); // the raw PDF's own header magic bytes
+  assert.match(await fs.readFile(parsedFilePath(dir, content), "utf8"), /Binary search trees/);
 });
 
 test("scanSubjectForTopics never re-sends content whose topics were already extracted", async () => {
@@ -395,13 +384,12 @@ test("scanSubjectForTopics only sends newly-added files, with already-tracked to
     },
   });
 
-  // The prompt is keyed on each content item's id-based parsed-file path
-  // (content.js never files anything under the user's own filename), so
-  // the second item's file path is what proves only the new file was
-  // sent — not the first's, which was already processed.
+  // Only the new file's text was sent, not the first's, which was
+  // already processed.
   assert.match(seenPrompt, /Already tracked/);
-  assert.match(seenPrompt, new RegExp(second.id));
-  assert.doesNotMatch(seenPrompt, new RegExp(first.id));
+  assert.match(seenPrompt, /# Lecture 2/);
+  assert.doesNotMatch(seenPrompt, /# Lecture 1/);
+  assert.ok(second && first);
   assert.equal((await listTopics(dir, "subject-1")).length, 2);
 });
 
@@ -418,17 +406,34 @@ test("issue #5: zero topics on a subject with none yet is an error and the files
   assert.equal((await listContent(dir, "subject-1"))[0].topicsExtractedAt ?? null, null);
 });
 
-test("issue #5 recovery: content wrongly marked read on a subject with no topics is read again, with its folder granted", async () => {
+test("issue #5 recovery: content wrongly marked read on a subject with no topics is read again", async () => {
   const dir = await scratchDir();
   const item = await addUploadedContent(dir, "subject-1", { filename: "lecture1.md", text: "# Lecture 1" });
   const { markTopicsExtracted } = await import("../content.js");
   await markTopicsExtracted(dir, [item.id]); // what the bug left behind
-  let readPaths = null;
-  const goodTurn = async (_prompt, opts) => {
-    readPaths = opts?.readPaths;
+  let sent = null;
+  const goodTurn = async (prompt) => {
+    sent = prompt;
     return "```json athena-topics\n" + JSON.stringify({ topics: ["Mitosis"], summary: "cells" }) + "\n```";
   };
   const result = await scanSubjectForTopics(dir, "subject-1", { subjectName: "S", runTurn: goodTurn });
   assert.equal(result.topicsAdded, 1);
-  assert.deepEqual(readPaths, [parsedFilePath(dir, item)]);
+  assert.match(sent, /# Lecture 1/);
+});
+
+test("a file too big for one turn is split, and only counts as read once every part was (issue #10)", async () => {
+  const dir = await scratchDir();
+  const slides = Array.from({ length: 300 }, (_, i) => `## Slide ${i + 1}\n${"word ".repeat(150)}`).join("\n\n");
+  const item = await addUploadedContent(dir, "subject-1", { filename: "huge.md", text: slides });
+  let calls = 0;
+  const flaky = async () => {
+    calls++;
+    if (calls === 2) throw new Error("rate limited");
+    return "```json athena-topics\n" + JSON.stringify({ topics: [{ name: `Topic ${calls}`, files: [1] }], summary: "ok" }) + "\n```";
+  };
+  const result = await scanSubjectForTopics(dir, "subject-1", { subjectName: "S", runTurn: flaky });
+  assert.ok(calls > 1, "split into several turns");
+  assert.equal(result.filesProcessed, 0);
+  assert.equal((await listContent(dir, "subject-1"))[0].topicsExtractedAt, null, "a failed part leaves the file unread");
+  assert.ok((await listTopics(dir, "subject-1")).every((t) => t.sourceContentIds[0] === item.id), "parts' topics point at the file");
 });

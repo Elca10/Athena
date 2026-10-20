@@ -2,7 +2,7 @@ import express from "express";
 import { getSubject } from "../subjects.js";
 import { listTopics, listDueTopics, recordTopicReview } from "../topics.js";
 import { scanSubjectForTopics } from "../topicExtraction.js";
-import { scanSubjectForBankGeneration } from "../questionBankGeneration.js";
+import { scanSubjectForBankGeneration, BANK_CHUNK_TOPICS } from "../questionBankGeneration.js";
 import { listBankQuestions } from "../questionBank.js";
 import { RATINGS } from "../scheduler.js";
 
@@ -48,7 +48,13 @@ export function makeTopicsRouter(appDataDir) {
   router.post("/bank/scan", async (req, res) => {
     const subject = await requireSubject(req, res);
     if (!subject) return;
-    const result = await scanSubjectForBankGeneration(appDataDir, req.params.id, { subjectName: subject.name });
+    // One chunk of topics at a time (issue #10), or exactly the given
+    // topics (a Ready session's own, when it ran out of questions).
+    const topicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds.filter((id) => typeof id === "string") : null;
+    const result = await scanSubjectForBankGeneration(appDataDir, req.params.id, {
+      subjectName: subject.name,
+      ...(topicIds ? { topicIds } : { limit: BANK_CHUNK_TOPICS }),
+    });
     res.json(result);
   });
 

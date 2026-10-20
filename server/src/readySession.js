@@ -49,7 +49,7 @@ import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, prom
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { listBankQuestions, markQuestionShown, isBankDrained } from "./questionBank.js";
 import { getSubject } from "./subjects.js";
-import { topUpTopicBank } from "./questionBankGeneration.js";
+import { topUpTopicBanks } from "./questionBankGeneration.js";
 import { pickNextTopicId } from "./liveSession.js";
 
 /** The two bank question types with a real local answer key — SPEC.md
@@ -166,25 +166,27 @@ export function mapSelfGradeToRating(selfGrades) {
  * returned array alongside a successful one rather than thrown, same
  * "real, recoverable outcome" posture a single failed turn already gets
  * elsewhere in this module. Exported for its own test; `topUp` is a test
- * seam for `topUpTopicBank`.
+ * seam for `topUpTopicBanks`.
  */
-export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTopicBank } = {}) {
-  const results = [];
-  const subjectNames = new Map();
+export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTopicBanks } = {}) {
+  // Drained topics grouped by subject: one top-up (as few turns as the
+  // batching allows) per subject, not one turn per topic (issue #10).
+  const drainedBySubject = new Map();
   for (const topicId of topicIds) {
     const questions = await listBankQuestions(appDataDir, topicId);
     if (!isBankDrained(questions)) continue;
 
     const topic = await getTopicById(appDataDir, topicId);
     if (!topic) continue; // a session's own topicIds were already resolved when it was built
+    if (!drainedBySubject.has(topic.subjectId)) drainedBySubject.set(topic.subjectId, []);
+    drainedBySubject.get(topic.subjectId).push(topicId);
+  }
 
-    if (!subjectNames.has(topic.subjectId)) {
-      const subject = await getSubject(appDataDir, topic.subjectId);
-      subjectNames.set(topic.subjectId, subject?.name ?? "");
-    }
-
-    const result = await topUp(appDataDir, topicId, { subjectName: subjectNames.get(topic.subjectId) });
-    results.push({ topicId, ...result });
+  const results = [];
+  for (const [subjectId, ids] of drainedBySubject) {
+    const subject = await getSubject(appDataDir, subjectId);
+    const result = await topUp(appDataDir, ids, { subjectName: subject?.name ?? "" });
+    results.push({ topicIds: ids, ...result });
   }
   return results;
 }
@@ -209,7 +211,7 @@ export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTo
  * Validation errors (bad session id, wrong mode, a question already
  * served, no topics at all) throw, same as Live.
  */
-export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp = topUpTopicBank } = {}) {
+export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp = topUpTopicBanks } = {}) {
   const session = await getSession(appDataDir, sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
   if (session.mode !== "ready") throw new Error(`generateNextReadyQuestion only applies to ready-mode sessions: ${sessionId}`);
