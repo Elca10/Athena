@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { isSetupComplete, markSetupComplete } from "../setupState.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-setupstate-"));
+  return makeTempDir("athena-setupstate-");
 }
 
 test("isSetupComplete is false before anything has been marked", async () => {

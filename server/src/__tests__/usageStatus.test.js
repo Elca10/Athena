@@ -1,8 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import {
   parseResetsAt,
   parseUsageCommandText,
@@ -10,9 +8,10 @@ import {
   checkUsageNow,
   getCachedUsageStatus,
 } from "../usageStatus.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-usage-status-"));
+  return makeTempDir("athena-usage-status-");
 }
 
 // An env whose PATH points nowhere real -- same technique setupChecks.test.js

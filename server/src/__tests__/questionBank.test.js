@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { listBankQuestions, addBankQuestions, getBankQuestionById, markQuestionShown, isBankDrained } from "../questionBank.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-question-bank-"));
+  return makeTempDir("athena-question-bank-");
 }
 
 test("listBankQuestions starts empty for any topic id", async () => {

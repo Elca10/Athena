@@ -33,8 +33,9 @@ test.before(async () => {
   process.env.ATHENA_DATA_DIR = scratchDir;
 });
 
-test.after(() => {
+test.after(async () => {
   delete process.env.ATHENA_DATA_DIR;
+  await fs.rm(scratchDir, { recursive: true, force: true });
 });
 
 test("GET /api/health reports ok and an unset-up app", async () => {

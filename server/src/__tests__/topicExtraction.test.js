@@ -19,11 +19,12 @@ import {
   MAX_BATCH_BYTES,
   topicCapFor,
 } from "../topicExtraction.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 /** Real PDF binary, generated fresh (never committed) — same technique as
  * pdfExtract.test.js/content.test.js. */
 async function samplePdfBuffer(pages) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-topic-extraction-pdf-"));
+  const dir = await makeTempDir("athena-topic-extraction-pdf-");
   const filePath = path.join(dir, "sample.pdf");
   await new Promise((resolve, reject) => {
     const doc = new PDFDocument({ autoFirstPage: false });
@@ -41,7 +42,7 @@ async function samplePdfBuffer(pages) {
 }
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-topic-extraction-"));
+  return makeTempDir("athena-topic-extraction-");
 }
 
 // An env whose PATH points nowhere real — same technique

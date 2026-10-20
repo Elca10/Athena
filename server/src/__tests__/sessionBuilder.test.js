@@ -1,13 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { addPlannedTopics, recordTopicReview, markBankGenerated } from "../topics.js";
 import { buildSessionTopicIds, MAX_SESSION_TOPICS } from "../sessionBuilder.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-session-builder-"));
+  return makeTempDir("athena-session-builder-");
 }
 
 test("buildSessionTopicIds returns nothing for an empty subject list", async () => {
@@ -78,7 +76,7 @@ test("buildSessionTopicIds with reviewAhead includes not-yet-due topics, soonest
 });
 
 test("preferBanked (Ready mode) puts topics that already have questions first, keeping due order (issue #10)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-prefer-banked-"));
+  const dir = await makeTempDir("athena-prefer-banked-");
   const [a, b, c] = await addPlannedTopics(dir, "s1", ["A", "B", "C"]);
   await markBankGenerated(dir, [c.id]);
   assert.deepEqual(await buildSessionTopicIds(dir, ["s1"], { preferBanked: true }), [c.id, a.id, b.id]);

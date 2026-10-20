@@ -2,17 +2,17 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import { createWriteStream } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import express from "express";
 import PDFDocument from "pdfkit";
 import { createSubject } from "../../subjects.js";
 import { makeContentRouter } from "../content.js";
+import { makeTempDir } from "../../testHelpers/tempDir.js";
 
 /** Real PDF binary, generated fresh (never committed) — same technique as
  * content.test.js/pdfExtract.test.js. */
 async function samplePdfBuffer(pages) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-content-route-pdf-"));
+  const dir = await makeTempDir("athena-content-route-pdf-");
   const filePath = path.join(dir, "sample.pdf");
   await new Promise((resolve, reject) => {
     const doc = new PDFDocument({ autoFirstPage: false });
@@ -30,7 +30,7 @@ async function samplePdfBuffer(pages) {
 }
 
 async function startApp() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-content-route-"));
+  const dir = await makeTempDir("athena-content-route-");
   const app = express();
   app.use(express.json());
   app.use("/api/subjects/:id/content", makeContentRouter(dir));

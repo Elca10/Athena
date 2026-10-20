@@ -19,13 +19,14 @@ import { recordError, clearRecentErrors } from "../errorLog.js";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics } from "../topics.js";
 import { fakeGhOnPath } from "./fakeGhOnPath.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 function emptyPathEnv() {
   return { PATH: os.tmpdir() };
 }
 
 async function scratchDataDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-bugreport-test-"));
+  return makeTempDir("athena-bugreport-test-");
 }
 
 test("getAppVersion: a real git checkout reports the actual HEAD commit", async () => {
@@ -39,29 +40,25 @@ test("getAppVersion: a real git checkout reports the actual HEAD commit", async 
 });
 
 test("getAppVersion: a non-git directory reports commit: null, not a throw", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-not-a-repo-"));
+  const dir = await makeTempDir("athena-not-a-repo-");
   const version = await getAppVersion(dir);
   assert.equal(version.commit, null);
   assert.equal(typeof version.packageVersion, "string");
 });
 
 test("getAppVersion: the release tag names the version, with distance past it on a dev checkout", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-version-"));
+  const dir = await makeTempDir("athena-version-");
   const git = (...args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
-  try {
-    git("init", "-q");
-    git("config", "user.email", "test@example.com");
-    git("config", "user.name", "Test");
-    git("commit", "-q", "--allow-empty", "-m", "one");
-    // No tag yet: falls back to package.json's version.
-    assert.equal((await getAppVersion(dir)).version, (await getAppVersion(dir)).packageVersion);
-    git("tag", "-a", "v0.3.0", "-m", "- one");
-    assert.equal((await getAppVersion(dir)).version, "v0.3.0");
-    git("commit", "-q", "--allow-empty", "-m", "two");
-    assert.match((await getAppVersion(dir)).version, /^v0\.3\.0-1-g[0-9a-f]+$/);
-  } finally {
-    await fs.rm(dir, { recursive: true, force: true });
-  }
+  git("init", "-q");
+  git("config", "user.email", "test@example.com");
+  git("config", "user.name", "Test");
+  git("commit", "-q", "--allow-empty", "-m", "one");
+  // No tag yet: falls back to package.json's version.
+  assert.equal((await getAppVersion(dir)).version, (await getAppVersion(dir)).packageVersion);
+  git("tag", "-a", "v0.3.0", "-m", "- one");
+  assert.equal((await getAppVersion(dir)).version, "v0.3.0");
+  git("commit", "-q", "--allow-empty", "-m", "two");
+  assert.match((await getAppVersion(dir)).version, /^v0\.3\.0-1-g[0-9a-f]+$/);
 });
 
 test("getOsSummary reports this process's real platform/arch", () => {
@@ -207,7 +204,7 @@ test("interpretGhIssueCreateResult: an unrecognized failure still reports someth
 });
 
 test("fileBugReportIssue: sends title/body via argv/stdin and returns the fake issue URL", async () => {
-  const captureFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "athena-gh-capture-")), "capture.json");
+  const captureFile = path.join(await makeTempDir("athena-gh-capture-"), "capture.json");
   const { env } = await fakeGhOnPath({ mode: "success", labelExists: false, captureFile });
 
   const result = await fileBugReportIssue({ title: "Bug report: things broke", body: "full body text\nhere" }, { env });
@@ -219,7 +216,7 @@ test("fileBugReportIssue: sends title/body via argv/stdin and returns the fake i
 });
 
 test("fileBugReportIssue: adds --label when the label already exists on the repo", async () => {
-  const captureFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "athena-gh-capture-")), "capture.json");
+  const captureFile = path.join(await makeTempDir("athena-gh-capture-"), "capture.json");
   const { env } = await fakeGhOnPath({ mode: "success", labelExists: true, captureFile });
 
   await fileBugReportIssue({ title: "t", body: "b" }, { env });
@@ -229,7 +226,7 @@ test("fileBugReportIssue: adds --label when the label already exists on the repo
 });
 
 test("fileBugReportIssue: never adds --label when it doesn't exist on the repo", async () => {
-  const captureFile = path.join(await fs.mkdtemp(path.join(os.tmpdir(), "athena-gh-capture-")), "capture.json");
+  const captureFile = path.join(await makeTempDir("athena-gh-capture-"), "capture.json");
   const { env } = await fakeGhOnPath({ mode: "success", labelExists: false, captureFile });
 
   await fileBugReportIssue({ title: "t", body: "b" }, { env });

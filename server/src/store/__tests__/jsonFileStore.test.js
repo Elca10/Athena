@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { makeJsonFileStore, __setBackupThrottleForTests } from "../jsonFileStore.js";
+import { makeTempDir } from "../../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-jsonfilestore-"));
+  return makeTempDir("athena-jsonfilestore-");
 }
 
 test("read() returns a fresh copy of defaultValue when the file doesn't exist yet", async () => {

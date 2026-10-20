@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   listSessions,
   getSession,
@@ -16,9 +13,10 @@ import {
   archiveSession,
   restoreSession,
 } from "../sessions.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-sessions-"));
+  return makeTempDir("athena-sessions-");
 }
 
 test("listSessions starts empty", async () => {

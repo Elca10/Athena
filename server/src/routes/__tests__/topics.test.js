@@ -1,16 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import express from "express";
 import { createSubject } from "../../subjects.js";
 import { addPlannedTopics } from "../../topics.js";
 import { addBankQuestions } from "../../questionBank.js";
 import { makeTopicsRouter } from "../topics.js";
+import { makeTempDir } from "../../testHelpers/tempDir.js";
 
 async function startApp() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-topics-route-"));
+  const dir = await makeTempDir("athena-topics-route-");
   const app = express();
   app.use(express.json());
   app.use("/api/subjects/:id/topics", makeTopicsRouter(dir));

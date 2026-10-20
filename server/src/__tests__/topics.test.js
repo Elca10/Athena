@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import {
   listTopics,
   getTopicById,
@@ -13,9 +10,10 @@ import {
   listTopicsNeedingBank,
   markBankGenerated,
 } from "../topics.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-topics-"));
+  return makeTempDir("athena-topics-");
 }
 
 test("listTopics starts empty for any subject id", async () => {

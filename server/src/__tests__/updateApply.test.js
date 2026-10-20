@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import express from "express";
 import { makeUpdateApplier, readLastUpdate, DRAINING_MESSAGE } from "../updateApply.js";
@@ -9,9 +8,10 @@ import { activeModelCalls, runCommand } from "../processUtil.js";
 import { makeJsonFileStore, waitForWritesIdle } from "../store/jsonFileStore.js";
 import { createSession, getSession, reconcileInterruptedSessions, setCurrentQuestion } from "../sessions.js";
 import { fakeClaudeOnPath } from "./fakeClaudeOnPath.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-update-apply-"));
+  return makeTempDir("athena-update-apply-");
 }
 
 const AVAILABLE = { available: true, current: "aaa", latest: "bbb", checkedAt: "t" };

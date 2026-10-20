@@ -4,7 +4,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { addPlannedTopics, listTopics, removeContentFromTopics, inferTopicSources, topicsOnlyFrom } from "../topics.js";
 import { addBankQuestions, listBankQuestions } from "../questionBank.js";
@@ -13,9 +12,10 @@ import { buildSessionTopicIds, explainNothingDue } from "../sessionBuilder.js";
 import { buildExtractionPrompt, parseExtractionReply, withSources } from "../topicExtraction.js";
 import { createSubject, renameSubject, archiveSubject } from "../subjects.js";
 import { createSession, getSession } from "../sessions.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-provenance-"));
+  return makeTempDir("athena-provenance-");
 }
 
 const QUESTION = {

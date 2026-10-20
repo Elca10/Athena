@@ -12,8 +12,8 @@
 // that calls out to a plain `.js` file via `node`, versus a POSIX file
 // whose shebang points straight at this process's own `node` binary.
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 const HELPER_BODY = `
 const chunks = [];
@@ -29,7 +29,7 @@ process.stdin.on("end", () => {
  * `{argv, stdinLength}` as its stdout. Pass `env` straight through to the
  * `{env}` option every `run*Turn(prompt, {env})` function already accepts. */
 export async function fakeClaudeOnPath() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-fake-claude-"));
+  const dir = await makeTempDir("athena-fake-claude-");
   if (process.platform === "win32") {
     const helperPath = path.join(dir, "fakeClaudeHelper.js");
     await fs.writeFile(helperPath, HELPER_BODY);

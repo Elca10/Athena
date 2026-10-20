@@ -1,15 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, recordTopicReview } from "../topics.js";
 import { addBankQuestions } from "../questionBank.js";
 import { computeMasteryCounts, getSubjectSummary } from "../subjectSummary.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-subject-summary-"));
+  return makeTempDir("athena-subject-summary-");
 }
 
 function fakeTopic(state) {
@@ -78,7 +76,7 @@ test("getSubjectSummary is scoped to its own subject, not any other subject's to
 });
 
 test("getSubjectSummary counts content, and content not yet read for topics", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-summary-content-"));
+  const dir = await makeTempDir("athena-summary-content-");
   const subject = await createSubject(dir, { name: "Chem" });
   await addPlannedTopics(dir, subject.id, ["Atoms"]);
   const { addPastedNotes, markTopicsExtracted } = await import("../content.js");
@@ -91,7 +89,7 @@ test("getSubjectSummary counts content, and content not yet read for topics", as
 });
 
 test("getSubjectSummary: with no topics at all, all content counts as unread (issue #5 recovery)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-summary-notopics-"));
+  const dir = await makeTempDir("athena-summary-notopics-");
   const subject = await createSubject(dir, { name: "Bio" });
   const { addPastedNotes, markTopicsExtracted } = await import("../content.js");
   const item = await addPastedNotes(dir, subject.id, { text: "Cells." });

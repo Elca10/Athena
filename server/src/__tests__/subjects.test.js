@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { listSubjects, getSubject, createSubject, archiveSubject, restoreSubject } from "../subjects.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-subjects-"));
+  return makeTempDir("athena-subjects-");
 }
 
 test("listSubjects starts empty", async () => {
@@ -78,7 +76,7 @@ test("createSubject never collides on id across concurrent creates", async () =>
 });
 
 test("createSubject rejects a duplicate name (case-insensitive), pointing to Restore for an archived one", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-subjects-dup-"));
+  const dir = await makeTempDir("athena-subjects-dup-");
   const bio = await createSubject(dir, { name: "Biology" });
   await assert.rejects(createSubject(dir, { name: "  biology " }), /already have a subject called "Biology"/);
   await archiveSubject(dir, bio.id);
@@ -87,7 +85,7 @@ test("createSubject rejects a duplicate name (case-insensitive), pointing to Res
 });
 
 test("createSubject caps the name length and collapses inner whitespace", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-subjects-len-"));
+  const dir = await makeTempDir("athena-subjects-len-");
   await assert.rejects(createSubject(dir, { name: "A".repeat(101) }), /at most 100 characters/);
   assert.equal((await createSubject(dir, { name: "Organic   Chemistry" })).name, "Organic Chemistry");
 });

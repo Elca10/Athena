@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
 import { createWriteStream } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import PDFDocument from "pdfkit";
 import AdmZip from "adm-zip";
 import { listContent, addUploadedContent, addPastedNotes, buildPdfParsedText, MAX_BINARY_CONTENT_BYTES } from "../content.js";
 import { appDataSubdirs } from "../dataDir.js";
 import { makeJsonFileStore } from "../store/jsonFileStore.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 const PRESENTATION_NS =
   'xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" ' +
@@ -52,7 +52,7 @@ function samplePptxBuffer(slideTexts) {
 }
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-content-"));
+  return makeTempDir("athena-content-");
 }
 
 /** Generates a real multi-page PDF with pdfkit (never committed — written
@@ -422,7 +422,7 @@ test("a PDF upload counts toward the same per-subject item limit as text uploads
 
 test("removeContent deletes the item and its raw + parsed files, only within its own subject", async () => {
   const { removeContent, contentDirsFor } = await import("../content.js");
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-content-remove-"));
+  const dir = await makeTempDir("athena-content-remove-");
   const item = await addUploadedContent(dir, "s1", { filename: "wrong.md", text: "oops" });
   const keep = await addUploadedContent(dir, "s1", { filename: "right.md", text: "keep" });
   const dirs = contentDirsFor(dir, "s1");

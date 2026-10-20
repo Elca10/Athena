@@ -1,8 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, recordTopicReview } from "../topics.js";
 import { createSession, getSession, setCurrentQuestion, recordAnswer } from "../sessions.js";
@@ -20,9 +18,10 @@ import {
   runGradingTurn,
   submitLiveAnswer,
 } from "../liveSession.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-live-session-"));
+  return makeTempDir("athena-live-session-");
 }
 
 // Same technique topicExtraction.test.js uses: an env whose PATH points
@@ -791,7 +790,7 @@ test("submitLiveAnswer rejects a missing or out-of-range confidence", async () =
 });
 
 test("generateNextLiveQuestion never runs a model turn for a session waiting on its reflection (ended early)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-live-pending-"));
+  const dir = await makeTempDir("athena-live-pending-");
   const { createSession, promptReflection } = await import("../sessions.js");
   const session = await createSession(dir, { subjectIds: ["s1"], mode: "live", topicIds: ["t1", "t2"] });
   await promptReflection(dir, session.id);

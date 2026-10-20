@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { listPreferences, addPreference, deletePreference } from "../preferences.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-preferences-"));
+  return makeTempDir("athena-preferences-");
 }
 
 test("listPreferences starts empty", async () => {
@@ -71,7 +69,7 @@ test("addPreference never collides on id across concurrent adds", async () => {
 });
 
 test("addPreference rejects the same preference twice (case-insensitive)", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-prefs-dup-"));
+  const dir = await makeTempDir("athena-prefs-dup-");
   await addPreference(dir, { text: "Harder questions on proofs" });
   await assert.rejects(addPreference(dir, { text: "  harder questions on proofs " }), /already have that preference/);
   assert.equal((await listPreferences(dir)).length, 1);

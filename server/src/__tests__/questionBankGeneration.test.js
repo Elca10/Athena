@@ -1,8 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
 import os from "node:os";
-import path from "node:path";
 import { addUploadedContent } from "../content.js";
 import { addPlannedTopics, listTopics, markBankGenerated, recordTopicReview } from "../topics.js";
 import { listBankQuestions, addBankQuestions } from "../questionBank.js";
@@ -20,9 +18,10 @@ import {
   keepBankAhead,
   BANK_CHUNK_TOPICS,
 } from "../questionBankGeneration.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-generation-"));
+  return makeTempDir("athena-bank-generation-");
 }
 
 // Same technique topicExtraction.test.js uses to make "claude not found"
@@ -514,7 +513,7 @@ test("planBankTurns never lets one turn exceed the file bounds, but a lone overs
 });
 
 test("bank generation grounds each topic in the file it came from, not the subject's first files", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-sourced-"));
+  const dir = await makeTempDir("athena-bank-sourced-");
   const items = [];
   for (let i = 1; i <= 8; i++) items.push(await addUploadedContent(dir, "s1", { filename: `lecture${i}.md`, text: `# Lecture ${i}\n` + "x".repeat(40_000) }));
   await addPlannedTopics(dir, "s1", [{ name: "From lecture 8", sourceContentIds: [items[7].id] }]);
@@ -532,7 +531,7 @@ test("bank generation grounds each topic in the file it came from, not the subje
 });
 
 test("a turn over the size bound carries only the slides that mention its topics", async () => {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-bank-excerpt-"));
+  const dir = await makeTempDir("athena-bank-excerpt-");
   const slides = Array.from({ length: 400 }, (_, i) => `## Slide ${i + 1}\n${i === 250 ? "Dijkstra's shortest path algorithm" : "filler ".repeat(70)}`);
   const item = await addUploadedContent(dir, "s1", { filename: "deck.md", text: slides.join("\n\n") });
   await addPlannedTopics(dir, "s1", [{ name: "Dijkstra's shortest path", sourceContentIds: [item.id] }]);

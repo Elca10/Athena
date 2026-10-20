@@ -1,8 +1,5 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, listTopics, getTopicById, recordTopicReview } from "../topics.js";
 import { addBankQuestions, listBankQuestions, markQuestionShown } from "../questionBank.js";
@@ -18,9 +15,10 @@ import {
   submitReadySelfGrade,
   topUpDrainedTopics,
 } from "../readySession.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-ready-session-"));
+  return makeTempDir("athena-ready-session-");
 }
 
 // A session reaching its natural end always re-checks its topics for a

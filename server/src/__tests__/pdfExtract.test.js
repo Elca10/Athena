@@ -1,14 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
 import { createWriteStream } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import PDFDocument from "pdfkit";
 import { extractPdfPages, pageLooksUnreliable, UNRELIABLE_EXTRACTION_MARKER } from "../pdfExtract.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-pdf-extract-"));
+  return makeTempDir("athena-pdf-extract-");
 }
 
 /** Generates a real multi-page PDF with pdfkit (never committed to the

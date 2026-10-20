@@ -20,8 +20,8 @@
 // the argv array itself, and the full stdin body — without needing gh's
 // own stdout to carry that information back.
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 const HELPER_BODY = `
 const chunks = [];
@@ -71,7 +71,7 @@ process.stdin.on("end", () => {
  * bugReport.js already accepts.
  */
 export async function fakeGhOnPath({ mode = "success", labelExists = false, url, captureFile } = {}) {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-fake-gh-"));
+  const dir = await makeTempDir("athena-fake-gh-");
   if (process.platform === "win32") {
     const helperPath = path.join(dir, "fakeGhHelper.js");
     await fs.writeFile(helperPath, HELPER_BODY);

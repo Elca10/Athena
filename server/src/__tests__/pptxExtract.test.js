@@ -1,14 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { promises as fs } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import AdmZip from "adm-zip";
 import { extractPptxSlides } from "../pptxExtract.js";
 import { UNRELIABLE_EXTRACTION_MARKER } from "../pdfExtract.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-pptx-extract-"));
+  return makeTempDir("athena-pptx-extract-");
 }
 
 function escapeXml(text) {

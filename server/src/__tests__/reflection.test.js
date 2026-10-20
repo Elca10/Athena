@@ -1,13 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { createSession, getSession, promptReflection, endSession } from "../sessions.js";
 import { listReflectionsForSubject, submitSessionReflection, skipSessionReflection } from "../reflection.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-reflection-"));
+  return makeTempDir("athena-reflection-");
 }
 
 test("listReflectionsForSubject starts empty", async () => {

@@ -1,16 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { createSubject } from "../subjects.js";
 import { createSession, setCurrentQuestion, recordAnswer, archiveSession } from "../sessions.js";
 import { appDataSubdirs } from "../dataDir.js";
 import { makeJsonFileStore } from "../store/jsonFileStore.js";
 import { computeStreakDays, computeAccuracy, computeCalibration, getSessionStats } from "../sessionStats.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-session-stats-"));
+  return makeTempDir("athena-session-stats-");
 }
 
 // createSession always stamps `startedAt` with the real current time, with
