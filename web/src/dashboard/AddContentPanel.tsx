@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   addPastedNotes,
-  getRemovalPreview,
   listContent,
   removeContent,
   MAX_UPLOAD_BYTES,
@@ -9,6 +8,8 @@ import {
   uploadTextContent,
   type ContentItem,
 } from "./api";
+import { confirmContentRemoval } from "./contentRemoval";
+import { ContentFileList } from "./ContentFileList";
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -37,16 +38,6 @@ function readAsText(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error ?? new Error("Couldn't read that file"));
     reader.readAsText(file);
   });
-}
-
-// `unreliablePages` holds 1-based page numbers for a PDF, slide numbers
-// for a PPTX (same field name for both — see content.js's record
-// comment); word it to match so a PPTX's note doesn't say "page".
-function formatUnreliableNote(item: ContentItem): string | null {
-  if (!item.unreliablePages.length) return null;
-  const unit = item.extension === ".pptx" ? "slide" : "page";
-  const label = item.unreliablePages.length === 1 ? unit : `${unit}s`;
-  return `⚠️ extraction looked unreliable on ${label} ${item.unreliablePages.join(", ")} — check the source file`;
 }
 
 export function AddContentPanel({
@@ -129,21 +120,7 @@ export function AddContentPanel({
   }
 
   async function remove(item: ContentItem) {
-    // Topics found only in this file go with it (issue #6); say which.
-    let onlyHere: string[] = [];
-    if (item.topicsExtractedAt) {
-      try {
-        onlyHere = (await getRemovalPreview(subjectId, item.id)).topics;
-      } catch {
-        // No preview: the confirm just won't list them.
-      }
-    }
-    const extra = onlyHere.length
-      ? `\n\nThese topics came only from it and will be removed too, with their practice questions:\n${onlyHere.map((t) => `• ${t}`).join("\n")}`
-      : item.topicsExtractedAt
-        ? "\n\nIts topics also appear in other content, so they'll stay."
-        : "";
-    if (!window.confirm(`Remove "${item.originalFilename}"?${extra}`)) return;
+    if (!(await confirmContentRemoval(subjectId, item))) return;
     setError(null);
     setBusy(true);
     try {
@@ -275,34 +252,7 @@ export function AddContentPanel({
         {error && <div className="content-panel-error">{error}</div>}
 
         {items === null && <div className="dashboard-empty">Loading…</div>}
-        {items?.length === 0 && <div className="dashboard-empty">No content added yet.</div>}
-        {items !== null && items.length > 0 && (
-          <ul className="content-panel-list">
-            {items.map((item) => {
-              const unreliableNote = formatUnreliableNote(item);
-              return (
-                <li key={item.id}>
-                  <span className="content-panel-item">
-                    <span>{item.originalFilename}</span>
-                    <span className="content-panel-item-side">
-                      <span className="content-panel-item-status">{item.topicsExtractedAt ? "Read" : "Not read yet"}</span>
-                      <button
-                        type="button"
-                        className="content-panel-remove"
-                        onClick={() => remove(item)}
-                        disabled={busy}
-                        aria-label={`Remove ${item.originalFilename}`}
-                      >
-                        Remove
-                      </button>
-                    </span>
-                  </span>
-                  {unreliableNote && <span className="content-panel-unreliable">{unreliableNote}</span>}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        {items !== null && <ContentFileList items={items} busy={busy} onRemove={remove} />}
       </section>
     </div>
   );

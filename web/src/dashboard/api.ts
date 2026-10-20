@@ -391,6 +391,40 @@ export async function getRemovalPreview(subjectId: string, contentId: string): P
   return getJson(`/api/subjects/${subjectId}/content/${contentId}/removal`);
 }
 
+// Mirrors topics.js's record shape (server/src/topics.js). `fsrs.state` is
+// ts-fsrs's State enum (New=0, Learning=1, Review=2, Relearning=3) — see
+// classifyTopicMastery below, which mirrors subjectSummary.js's own
+// classifyMastery so a topic's badge here always agrees with its subject
+// card's new/learning/mastered counts.
+export type Topic = {
+  id: string;
+  subjectId: string;
+  name: string;
+  notes: string;
+  createdAt: string;
+  fsrs: { state: number } & Record<string, unknown>;
+  bankGeneratedAt: string | null;
+};
+
+export function listTopics(subjectId: string): Promise<Topic[]> {
+  return getJson(`/api/subjects/${subjectId}/topics`);
+}
+
+export type MasteryLabel = "new" | "learning" | "mastered";
+
+export function classifyTopicMastery(topic: Topic): MasteryLabel {
+  const state = topic.fsrs?.state;
+  if (state === 2) return "mastered";
+  if (state === 1 || state === 3) return "learning";
+  return "new";
+}
+
+// GET /api/subjects/:id/reflections (server/src/routes/reflections.js) —
+// read-only; reflections are written through /api/sessions/:id/reflection.
+export function listReflections(subjectId: string): Promise<Reflection[]> {
+  return getJson(`/api/subjects/${subjectId}/reflections`);
+}
+
 export function scanTopics(subjectId: string): Promise<TopicScanResult> {
   return postJson(`/api/subjects/${subjectId}/topics/scan`);
 }

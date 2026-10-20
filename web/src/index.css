@@ -1442,3 +1442,83 @@ select {
   padding: 2px 8px;
   font-size: 0.8rem;
 }
+
+/* A plain button styled to look like the subject card's old static h3,
+   so clicking the name opens the subject detail view without the card
+   itself needing to be one big click target (that would fight the
+   Add content/Study/Rename/Archive buttons already inside it). */
+.subject-card-title {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.subject-card-title:hover h3 {
+  text-decoration: underline;
+}
+
+.subject-detail-panel {
+  width: 36rem;
+  padding: 1rem;
+}
+
+.subject-detail-section {
+  margin-top: 1.25rem;
+}
+
+.subject-detail-section h3 {
+  margin: 0 0 0.4rem;
+  font-size: 1rem;
+}
+
+.subject-detail-topic-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.subject-detail-topic-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.topic-mastery {
+  flex-shrink: 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.topic-mastery-mastered {
+  color: var(--status-good);
+}
+
+.subject-detail-reflection-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.subject-detail-reflection-list li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.subject-detail-reflection-date {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.subject-detail-reflection-field {
+  margin: 0.2rem 0;
+  font-size: 0.9rem;
+}

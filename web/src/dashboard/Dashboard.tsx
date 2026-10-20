@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { TuneAthenaPanel } from "./TuneAthenaPanel";
 import { AddContentPanel } from "./AddContentPanel";
+import { SubjectDetailPanel } from "./SubjectDetailPanel";
 import { SessionStatsTiles, UsageTile } from "./StatsTiles";
 import { readNewContent, type ReadStage } from "./readNewContent";
 import { ReportBugPanel } from "./ReportBugPanel";
@@ -34,7 +35,11 @@ import { ThemeToggle } from "../theme/ThemeToggle";
 // TuneAthenaPanel (SPEC.md section 8). Each subject's "Add content"
 // opens AddContentPanel (SPEC.md section 7). Each subject's "Study"
 // opens StudyFlow (mode picker, both Ready's and Live's session screens,
-// and the shared end-of-session reflection prompt). A Waiting session
+// and the shared end-of-session reflection prompt). Clicking a subject
+// card's name opens SubjectDetailPanel (SPEC-v2.md section 4: topics with
+// mastery, content files, past reflections) — same openPanel()-gated modal
+// pattern as the others, so it can never stack with Add content/Tune/Bug
+// report. A Waiting session
 // row's "Resume" button opens the same StudyFlow, skipping the mode
 // picker, right back into wherever that session left off (mid-question,
 // mid-self-grade in Ready, or awaiting the reflection prompt). A
@@ -60,6 +65,7 @@ export function Dashboard() {
   const [showBugReport, setShowBugReport] = useState(false);
   const [showNewSubject, setShowNewSubject] = useState(false);
   const [contentSubjectId, setContentSubjectId] = useState<string | null>(null);
+  const [detailSubjectId, setDetailSubjectId] = useState<string | null>(null);
   const [studySubjectId, setStudySubjectId] = useState<string | null>(null);
   const [resumeSession, setResumeSession] = useState<Session | null>(null);
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
@@ -185,10 +191,11 @@ export function Dashboard() {
 
   // Only one panel at a time: opening one closes any other, so they can
   // never stack on top of each other.
-  function openPanel(panel: "bug" | "tune" | "content", subjectId?: string) {
+  function openPanel(panel: "bug" | "tune" | "content" | "detail", subjectId?: string) {
     setShowBugReport(panel === "bug");
     setShowTune(panel === "tune");
     setContentSubjectId(panel === "content" ? subjectId ?? null : null);
+    setDetailSubjectId(panel === "detail" ? subjectId ?? null : null);
   }
 
   const noticeBanner = notice && (
@@ -288,6 +295,14 @@ export function Dashboard() {
           onDone={() => startReading(contentSubjectId)}
         />
       )}
+      {detailSubjectId && (
+        <SubjectDetailPanel
+          subjectId={detailSubjectId}
+          subjectName={subjectName(detailSubjectId)}
+          onClose={() => setDetailSubjectId(null)}
+          onContentChanged={refresh}
+        />
+      )}
       <div className="dashboard-body">
         <section className="dashboard-subjects">
           <div className="dashboard-subjects-header">
@@ -316,6 +331,7 @@ export function Dashboard() {
               subject={subject}
               summary={summaries[subject.id]}
               readingStage={reading[subject.id]}
+              onOpenDetail={() => openPanel("detail", subject.id)}
               onAddContent={() => openPanel("content", subject.id)}
               onStudy={() => {
                 setStudySubjectId(subject.id);
@@ -568,6 +584,7 @@ function SubjectCard({
   subject,
   summary,
   readingStage,
+  onOpenDetail,
   onAddContent,
   onStudy,
   onRenamed,
@@ -576,6 +593,7 @@ function SubjectCard({
   subject: Subject;
   summary: SubjectSummary | undefined;
   readingStage?: ReadStage;
+  onOpenDetail: () => void;
   onAddContent: () => void;
   onStudy: () => void;
   onRenamed: () => void;
@@ -594,7 +612,9 @@ function SubjectCard({
           }}
         />
       ) : (
-        <h3>{subject.name}</h3>
+        <button type="button" className="subject-card-title" onClick={onOpenDetail}>
+          <h3>{subject.name}</h3>
+        </button>
       )}
       {summary ? (
         <div className="subject-card-stats">
