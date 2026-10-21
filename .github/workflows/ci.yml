@@ -123,6 +123,10 @@ jobs:
 
       - name: Privacy guard (full tree)
         run: node scripts/check-privacy.js
+      # The sibling belt-and-braces guard for release trailers — a
+      # standalone job below (release-trailer-check), not a step here,
+      # because it needs real commit history to diff against and this
+      # job's checkout is intentionally shallow (fetch-depth: 1, above).
 
       - name: Run updater (one-click update) tests
         run: node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=./scripts/ci/githubTestReporter.mjs --test-reporter-destination=stdout "installers/__tests__/updater.test.js"
@@ -137,3 +141,29 @@ jobs:
 
       - name: Check for leaked temp dirs
         run: node scripts/ci/tmpDirGuard.mjs check ${{ runner.temp }}/athena-tmpdir-baseline.json
+
+  # Fast guard for the mistake that shipped commit 674ba04 as a patch
+  # instead of a minor: a `Release: minor` trailer separated from the
+  # message's final paragraph by a blank line, which git silently never
+  # parses as a trailer at all (scripts/promote-release.mjs's
+  # findMisplacedReleaseTrailers — the SAME function promote-release.mjs
+  # itself calls before ever promoting a release, via
+  # scripts/ci/check-release-trailers.mjs, so this and the real release
+  # gate can never disagree). A separate, single-OS job rather than a step
+  # in `test` above: pure git/node, nothing OS-specific worth tripling,
+  # and it needs real commit history (`before..HEAD`) that the `test`
+  # job's shallow (fetch-depth: 1) checkout doesn't have.
+  release-trailer-check:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Release trailer check
+        run: node scripts/ci/check-release-trailers.mjs

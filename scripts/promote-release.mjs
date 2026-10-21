@@ -127,6 +127,82 @@ export function bumpFromTrailers(out) {
   return BUMPS.filter((b) => asked.includes(b)).pop() ?? "patch";
 }
 
+// Matches a line that's NOTHING BUT "release: <one-word-value>"
+// (case-insensitive key, trimmed), so this catches the mistake even where
+// git's own trailer parser doesn't (that's the whole point — see
+// findMisplacedReleaseTrailers) while leaving ordinary prose alone — e.g.
+// "Release: minor is not this. Just a fix." is a sentence that happens to
+// start with the word "Release:", not an attempted trailer, and the
+// trailing words make `\s*$` fail to match it.
+const RELEASE_LINE_RE = /^release:\s*\S+\s*$/im;
+// Control characters that can't appear in a commit's subject/body, used to
+// pull sha + full raw body + parsed trailer value out of one `git log`
+// call per commit without ambiguity.
+const FIELD_SEP = "\x01";
+const BODY_SEP = "\x02";
+const RECORD_SEP = "\x03";
+
+/**
+ * Commits in the range covered by `revArgs` (anything `git log` accepts
+ * after `--format=...`, e.g. [`${previous}..${full}`] or [`-20`, `HEAD`])
+ * that write a `Release:` line but where git's own trailer parser didn't
+ * read it as a valid minor/major trailer. This is exactly the mistake
+ * that shipped commit 674ba04 as a patch instead of a minor: `Release:
+ * minor`, a blank line, then `Co-Authored-By: ...` — git only parses
+ * trailers out of a message's FINAL paragraph, and the blank line starts
+ * a new one, so the trailer was silently never read at all.
+ *
+ * Returns one `{ sha, subject, value }` entry per affected commit (`value`
+ * is the lowercased, trimmed parsed trailer value — "" when git found no
+ * trailer at all). Empty means every `Release:` line in range was a real,
+ * valid trailer (or there were none) — safe to promote.
+ */
+export function findMisplacedReleaseTrailers(runFn, revArgs) {
+  const format = `%H${FIELD_SEP}%B${BODY_SEP}%(trailers:key=Release,valueonly)${RECORD_SEP}`;
+  const out = runFn(["log", `--format=${format}`, ...revArgs]);
+  const records = out
+    .split(RECORD_SEP)
+    .map((r) => r.replace(/^\n/, ""))
+    .filter((r) => r.trim().length > 0);
+
+  const problems = [];
+  for (const record of records) {
+    const fieldIdx = record.indexOf(FIELD_SEP);
+    const bodyIdx = record.indexOf(BODY_SEP);
+    const sha = record.slice(0, fieldIdx);
+    const body = record.slice(fieldIdx + FIELD_SEP.length, bodyIdx);
+    const value = record
+      .slice(bodyIdx + BODY_SEP.length)
+      .trim()
+      .toLowerCase();
+    if (!RELEASE_LINE_RE.test(body)) continue;
+    if (value === "minor" || value === "major") continue;
+    problems.push({ sha, subject: body.split("\n")[0], value });
+  }
+  return problems;
+}
+
+/**
+ * Human-readable error for `findMisplacedReleaseTrailers`' output, naming
+ * each affected commit and the fix — "put Release: on the last paragraph,
+ * directly above Co-Authored-By" — rather than just failing silently into
+ * a wrong version number.
+ */
+export function formatMisplacedReleaseTrailerError(problems) {
+  return problems
+    .map(({ sha, subject, value }) => {
+      const reason = value
+        ? `parsed as "${value}", which is not minor or major`
+        : "not recognized as a trailer at all — probably separated from the message's final paragraph by a blank line";
+      return (
+        `  ${sha.slice(0, 7)} (${subject}): has a "Release:" line but it's ${reason}. ` +
+        `Fix: put "Release: minor" or "Release: major" on the last paragraph, directly above Co-Authored-By ` +
+        `(no blank line between them — git only reads trailers from a message's final paragraph).`
+      );
+    })
+    .join("\n");
+}
+
 /**
  * The release notes for one version, as Markdown: the user-facing notes
  * grouped under New / Improved / Fixed, how to get the update, then every
@@ -250,6 +326,21 @@ export async function promoteRelease(
 
   const tags = splitLines(runFn(["tag", "--list", "v*"]));
   const previous = sortedVersionTags(tags).pop();
+
+  // Only matters on the automatic path (no explicit --minor/--major): an
+  // operator passing the flag by hand has already made the call, so there's
+  // nothing to silently get wrong.
+  if (bump === null && previous) {
+    const problems = findMisplacedReleaseTrailers(runFn, [`${previous}..${full}`]);
+    if (problems.length > 0) {
+      error(
+        `Refusing to promote ${full} — malformed Release: trailer would silently mis-version this release:\n` +
+          `${formatMisplacedReleaseTrailerError(problems)}`,
+      );
+      return { promoted: false, reason: "malformed-release-trailer", commit: full, problems };
+    }
+  }
+
   const chosenBump =
     bump ??
     (previous

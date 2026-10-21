@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import {
   FIRST_VERSION,
   bumpFromTrailers,
+  findMisplacedReleaseTrailers,
+  formatMisplacedReleaseTrailerError,
   formatReleaseNotes,
   isCommitCiGreen,
   isReleaseNotePath,
@@ -159,6 +161,90 @@ test("bumpFromTrailers: highest of minor/major wins, anything else is a patch", 
   assert.equal(bumpFromTrailers("\n\nminor\n\n"), "minor");
   assert.equal(bumpFromTrailers("minor\nMajor\npatch"), "major");
   assert.equal(bumpFromTrailers("huge\nyes"), "patch");
+});
+
+// A throwaway one-commit-per-message repo, for exercising
+// findMisplacedReleaseTrailers against real git trailer parsing rather
+// than a reimplementation of it.
+function trailerRepoFixture(commitMessages) {
+  const dir = mkdtempSync(path.join(tmpdir(), "athena-trailer-"));
+  const git = runGitAt(dir);
+  git(["init", "-q"]);
+  git(["config", "user.email", "test@example.com"]);
+  git(["config", "user.name", "Test"]);
+  const shas = commitMessages.map((m) => {
+    git(["commit", "-q", "--allow-empty", "-m", m]);
+    return git(["rev-parse", "HEAD"]);
+  });
+  return { dir, git, shas, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("findMisplacedReleaseTrailers: a Release: trailer directly above Co-Authored-By is fine", () => {
+  const fx = trailerRepoFixture(["Add thing\n\nRelease: minor\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    assert.deepEqual(findMisplacedReleaseTrailers(fx.git, ["HEAD"]), []);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("findMisplacedReleaseTrailers: a Release: line separated from the trailer block by a blank line is flagged", () => {
+  const fx = trailerRepoFixture(["Add thing\n\nRelease: minor\n\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const problems = findMisplacedReleaseTrailers(fx.git, ["HEAD"]);
+    assert.equal(problems.length, 1);
+    assert.equal(problems[0].sha, fx.shas[0]);
+    assert.equal(problems[0].value, "");
+    const message = formatMisplacedReleaseTrailerError(problems);
+    assert.match(message, /not recognized as a trailer at all/);
+    assert.match(message, /last paragraph, directly above Co-Authored-By/);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("findMisplacedReleaseTrailers: an unknown value is flagged even when correctly placed", () => {
+  const fx = trailerRepoFixture(["Add thing\n\nRelease: feature\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const problems = findMisplacedReleaseTrailers(fx.git, ["HEAD"]);
+    assert.equal(problems.length, 1);
+    assert.equal(problems[0].value, "feature");
+    assert.match(formatMisplacedReleaseTrailerError(problems), /not minor or major/);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("findMisplacedReleaseTrailers: no Release: line at all is fine", () => {
+  const fx = trailerRepoFixture(["Just a fix\n\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    assert.deepEqual(findMisplacedReleaseTrailers(fx.git, ["HEAD"]), []);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("findMisplacedReleaseTrailers: case-insensitive key is still recognized", () => {
+  const fx = trailerRepoFixture(["Add thing\n\nrelease: MAJOR\n\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const problems = findMisplacedReleaseTrailers(fx.git, ["HEAD"]);
+    assert.equal(problems.length, 1);
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("findMisplacedReleaseTrailers: prose that merely starts with the word Release: is left alone", () => {
+  // Same message the "no bump flag and no trailer" test below relies on:
+  // the last paragraph is "Release: minor is not this.\nJust a fix." —
+  // git itself refuses to treat it as a trailer block at all (extra words
+  // after the value), so this must not be treated as a malformed attempt.
+  const fx = trailerRepoFixture(["Refs #13: a fix\n\nRelease: minor is not this.\nJust a fix."]);
+  try {
+    assert.deepEqual(findMisplacedReleaseTrailers(fx.git, ["HEAD"]), []);
+  } finally {
+    fx.cleanup();
+  }
 });
 
 test("promoteRelease: refuses a commit that's already a version, without pushing or tagging", async () => {
@@ -490,6 +576,56 @@ test("real git: with no bump flag and no trailer, it's a patch", async () => {
   try {
     const result = await promoteRelease(fx.commits[0], { runFn: runGitAt(fx.cloneDir), ...quiet });
     assert.equal(result.version, "v0.4.3");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+// Regression test for the 674ba04 incident: a `Release: minor` trailer
+// separated from the final paragraph by a blank line must refuse
+// promotion outright rather than silently shipping as a patch.
+test("real git: refuses to promote when a shipped commit has a Release: trailer separated by a blank line", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, ["Refs #16: new feature\n\nRelease: minor\n\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const calls = [];
+    const runFn = (args) => {
+      calls.push(args);
+      return runGitAt(fx.cloneDir)(args);
+    };
+    const result = await promoteRelease(fx.commits[0], { runFn, ...quiet });
+    assert.equal(result.promoted, false);
+    assert.equal(result.reason, "malformed-release-trailer");
+    assert.equal(result.problems.length, 1);
+    assert.equal(result.problems[0].sha, fx.commits[0]);
+    assert.ok(!calls.some((a) => a[0] === "push" || (a[0] === "tag" && a[1] === "-a")), "must never tag or push");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("real git: refuses to promote when a shipped commit has an unknown Release: value", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, ["Refs #17: oops\n\nRelease: feature\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const result = await promoteRelease(fx.commits[0], { runFn: runGitAt(fx.cloneDir), ...quiet });
+    assert.equal(result.promoted, false);
+    assert.equal(result.reason, "malformed-release-trailer");
+  } finally {
+    fx.cleanup();
+  }
+});
+
+// An explicit --minor/--major flag is the operator overriding the
+// trailer system entirely, so a malformed trailer elsewhere in the range
+// must not block it.
+test("real git: an explicit bump flag bypasses the malformed-trailer check", async () => {
+  const git = (dir, args) => execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+  const fx = laterReleaseFixture(git, ["Refs #18: new feature\n\nRelease: minor\n\nCo-Authored-By: X <x@example.com>"]);
+  try {
+    const result = await promoteRelease(fx.commits[0], { bump: "minor", runFn: runGitAt(fx.cloneDir), ...quiet });
+    assert.equal(result.promoted, true);
+    assert.equal(result.version, "v0.5.0");
   } finally {
     fx.cleanup();
   }
