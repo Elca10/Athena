@@ -124,6 +124,22 @@ that every prompt draws from. v1.0's prompts already carry this tone ad
 hoc in their own wording; the doc makes it consistent as more prompts are
 added.
 
+- **Built (v0.6.0).** `server/src/persona/PERSONA.md` (~350 words, loaded
+  once and cached by `persona/persona.js`'s `getPersonaBlock`), included in
+  `liveSession.js`'s first-question and grading prompts and
+  `questionBankGeneration.js`'s bank prompt; `topicExtraction.js` gets none
+  (pure topic labels, no voice). Old ad-hoc tone wording in those prompts
+  was removed in favor of the shared doc. Confidence fix: `submitLiveAnswer`
+  now passes the user's 1-5 confidence into the grading prompt so the model
+  can name a clear confidence/correctness mismatch in one sentence; Ready
+  mode (no model call) gets the same callout deterministically via
+  `readySession.js`'s `confidenceMismatchNote`. Milestone applause: a topic
+  reaching mastered as a direct result of an answer is detected
+  deterministically (`subjectSummary.js`'s `justReachedMastered`, from the
+  FSRS state change) and surfaced as a plain UI line in both modes — a
+  calibration-improvement milestone was considered and skipped (no clean,
+  non-noisy deterministic hook).
+
 ## 6. Full clean-machine testing on both OSes (v1 build step 8)
 
 v1.0 requires a clean-machine end-to-end test on Windows, the first

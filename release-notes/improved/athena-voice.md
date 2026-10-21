@@ -1,0 +1,1 @@
+Feedback is more direct and consistent across question writing, grading and question banks. Athena now points out when you were sure but wrong (or unsure but right) — in Live mode and in Ready mode's self-graded questions. A topic reaching mastered gets a plain note, not generic praise.
