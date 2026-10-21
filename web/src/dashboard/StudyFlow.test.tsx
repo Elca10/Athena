@@ -445,6 +445,75 @@ test("Skip finalizes the session without requiring any reflection field", async 
   expect(onExit).toHaveBeenCalled();
 });
 
+test("with the big-ideas setting on, the reflection is followed by a one-click-skippable big-ideas prompt", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSettings).mockResolvedValue({ bigIdeasPromptEnabled: true });
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    done: true,
+    awaitingReflection: true,
+    session: baseSession({ status: "waiting" }),
+    bankTopUps: [],
+  });
+  vi.mocked(api.skipSessionReflection).mockResolvedValue(baseSession({ status: "completed" }));
+  const onExit = vi.fn();
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={onExit} />);
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/everything due right now/);
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+
+  // The reflection is done; now the big-ideas prompt for the one subject
+  // this session covered, and onExit hasn't fired yet — ending a session
+  // never silently jumps past it once the setting is on.
+  expect(await screen.findByText("Want to revise your big ideas for Biology?")).toBeInTheDocument();
+  expect(onExit).not.toHaveBeenCalled();
+
+  // One click skips it, same as the reflection step itself.
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  expect(onExit).toHaveBeenCalled();
+});
+
+test("Revise opens the big-ideas editor; saving moves to the next subject and exits after the last one", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSettings).mockResolvedValue({ bigIdeasPromptEnabled: true });
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ subjectIds: ["s1", "s2"] }));
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({
+    ok: true,
+    done: true,
+    awaitingReflection: true,
+    session: baseSession({ subjectIds: ["s1", "s2"], status: "waiting" }),
+    bankTopUps: [],
+  });
+  vi.mocked(api.skipSessionReflection).mockResolvedValue(baseSession({ subjectIds: ["s1", "s2"], status: "completed" }));
+  vi.mocked(api.getBigIdeas).mockResolvedValue({ subjectId: "s1", text: "", updatedAt: null, history: [] });
+  vi.mocked(api.setBigIdeas).mockResolvedValue({
+    subjectId: "s1",
+    text: "Osmosis moves water toward solute.",
+    updatedAt: "2026-02-01T00:00:00.000Z",
+    history: [],
+  });
+  const onExit = vi.fn();
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={onExit} />);
+  await user.click(screen.getByRole("checkbox", { name: "Chemistry" }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await screen.findByText(/everything due right now/);
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+
+  await screen.findByText("Want to revise your big ideas for Biology?");
+  await user.click(screen.getByRole("button", { name: "Revise" }));
+  await user.type(screen.getByPlaceholderText(/handful of ideas/), "Osmosis moves water toward solute.");
+  await user.click(screen.getByRole("button", { name: "Save" }));
+
+  expect(api.setBigIdeas).toHaveBeenCalledWith("s1", "Osmosis moves water toward solute.");
+  // Moved on to the session's second subject; the first click didn't exit.
+  expect(await screen.findByText("Want to revise your big ideas for Chemistry?")).toBeInTheDocument();
+  expect(onExit).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "Skip" }));
+  expect(onExit).toHaveBeenCalled();
+});
+
 test("resuming a session with a question already up skips the mode picker and shows it directly", async () => {
   render(
     <StudyFlow

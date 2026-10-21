@@ -20,8 +20,10 @@ import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
 import { makeDeadlinesRouter } from "./routes/deadlines.js";
 import { makeScheduleRouter } from "./routes/schedule.js";
+import { makeBigIdeasRouter } from "./routes/bigIdeas.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
+import { makeSettingsRouter } from "./routes/settings.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
 import { makeUpdateRouter } from "./routes/update.js";
 import { makeUpdateChecker, updateBranch } from "./updateCheck.js";
@@ -83,6 +85,7 @@ export async function createApp() {
   app.use("/api/subjects/:id/reflections", makeReflectionsRouter(appDataDir));
   app.use("/api/subjects/:id/deadlines", makeDeadlinesRouter(appDataDir));
   app.use("/api/schedule", makeScheduleRouter(appDataDir));
+  app.use("/api/subjects/:id/big-ideas", makeBigIdeasRouter(appDataDir));
   app.use(
     "/api/sessions",
     makeSessionsRouter(appDataDir, {
@@ -100,6 +103,7 @@ export async function createApp() {
   );
   app.use("/api/stats", makeStatsRouter(appDataDir));
   app.use("/api/preferences", makePreferencesRouter(appDataDir));
+  app.use("/api/settings", makeSettingsRouter(appDataDir));
   app.use("/api/bug-report", makeBugReportRouter(appDataDir, { appVersion }));
   app.use("/api/update", makeUpdateRouter(updateChecker, { applier: updateApplier, appDataDir }));
 

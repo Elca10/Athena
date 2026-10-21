@@ -12,6 +12,7 @@ import { classifyTopicMastery, type MasteryLabel } from "./topicMastery";
 import { confirmContentRemoval } from "./contentRemoval";
 import { ContentFileList } from "./ContentFileList";
 import { DeadlinesSection } from "./DeadlinesSection";
+import { BigIdeasEditor } from "./BigIdeasEditor";
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -33,6 +34,16 @@ import { useFocusTrap } from "../useFocusTrap";
 //     already existed; nothing new to build there).
 //   - Deadlines (DeadlinesSection.tsx): add/edit/delete, and whether to
 //     study for each. A half-typed deadline makes Close/Escape ask first.
+//   - Big ideas (SPEC-v2.md section 3's structure-building row,
+//     BigIdeasEditor.tsx): the user's own summary, shown and editable
+//     here.
+//
+// Escape and the Close button both defer to BigIdeasEditor's own dirty
+// state (bigIdeasDirty, set via its onDirtyChange) and DeadlinesSection's
+// own draft state (deadlineDraft) via the shared `closePanel` — the same
+// way AddContentPanel already gates its own Close on unsaved pasted
+// notes. Typed-but-unsaved edits in either section are never silently
+// discarded by Escape or Close.
 export function SubjectDetailPanel({
   subjectId,
   subjectName,
@@ -53,14 +64,16 @@ export function SubjectDetailPanel({
   const [contentBusy, setContentBusy] = useState(false);
   const [reflections, setReflections] = useState<Reflection[] | null>(null);
   const [reflectionsError, setReflectionsError] = useState<string | null>(null);
-
+  const [bigIdeasDirty, setBigIdeasDirty] = useState(false);
   const [deadlineDraft, setDeadlineDraft] = useState(false);
-  function requestClose() {
+
+  function closePanel() {
+    if (bigIdeasDirty && !window.confirm("Discard your unsaved big ideas edit?")) return;
     if (deadlineDraft && !window.confirm("Discard the deadline you were adding? What you typed won't be saved.")) return;
     onClose();
   }
 
-  useEscapeKey(requestClose);
+  useEscapeKey(closePanel);
   const dialogRef = useRef<HTMLElement>(null);
   useFocusTrap(dialogRef);
 
@@ -124,10 +137,15 @@ export function SubjectDetailPanel({
       >
         <div className="content-panel-header">
           <h2 id="subject-detail-title">{subjectName}</h2>
-          <button type="button" onClick={requestClose}>
+          <button type="button" onClick={closePanel}>
             Close
           </button>
         </div>
+
+        <section className="subject-detail-section" aria-labelledby="subject-detail-bigideas">
+          <h3 id="subject-detail-bigideas">Big ideas</h3>
+          <BigIdeasEditor subjectId={subjectId} onDirtyChange={setBigIdeasDirty} />
+        </section>
 
         <section className="subject-detail-section" aria-labelledby="subject-detail-topics">
           <h3 id="subject-detail-topics">Topics</h3>

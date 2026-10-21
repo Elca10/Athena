@@ -119,6 +119,26 @@ async function deleteJson(url: string): Promise<void> {
   if (!res.ok) throw new Error(await errorMessage(res, `DELETE ${url} responded ${res.status}`));
 }
 
+async function putJsonBody<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `PUT ${url} responded ${res.status}`));
+  return res.json();
+}
+
+async function patchJsonBody<T>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `PATCH ${url} responded ${res.status}`));
+  return res.json();
+}
+
 export function listSubjects({ includeArchived = false }: { includeArchived?: boolean } = {}): Promise<Subject[]> {
   return getJson(`/api/subjects${includeArchived ? "?includeArchived=true" : ""}`);
 }
@@ -582,4 +602,37 @@ export async function scheduleBlockAction(blockId: string, action: BlockAction, 
   if (res.ok && body) return { ok: true, schedule: body };
   const error = (body && typeof body.error === "string" && body.error) || `That didn't work (${res.status}). Try again.`;
   return { ok: false, error, schedule: body?.schedule };
+}
+
+// Mirrors server/src/bigIdeas.js's record shape (SPEC-v2.md section 3's
+// structure-building row / SPEC.md section 6: a per-subject "big ideas"
+// summary the user writes and revises themselves — no model call anywhere
+// on this path). `history` is oldest-first, capped server-side.
+export type BigIdeasHistoryEntry = { text: string; updatedAt: string };
+export type BigIdeas = {
+  subjectId: string;
+  text: string;
+  updatedAt: string | null;
+  history: BigIdeasHistoryEntry[];
+};
+
+export function getBigIdeas(subjectId: string): Promise<BigIdeas> {
+  return getJson(`/api/subjects/${subjectId}/big-ideas`);
+}
+
+export function setBigIdeas(subjectId: string, text: string): Promise<BigIdeas> {
+  return putJsonBody(`/api/subjects/${subjectId}/big-ideas`, { text });
+}
+
+// Mirrors server/src/settings.js. Currently just the one toggle: whether
+// the end-of-session reflection is followed by a short "revise your big
+// ideas?" prompt. Off by default.
+export type Settings = { bigIdeasPromptEnabled: boolean };
+
+export function getSettings(): Promise<Settings> {
+  return getJson(`/api/settings`);
+}
+
+export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
+  return patchJsonBody(`/api/settings`, patch);
 }

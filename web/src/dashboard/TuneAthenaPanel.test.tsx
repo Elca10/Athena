@@ -97,3 +97,35 @@ test("calls onClose when Close is clicked", async () => {
   await user.click(screen.getByRole("button", { name: "Close" }));
   expect(onClose).toHaveBeenCalled();
 });
+
+test("the big-ideas prompt setting starts unchecked (off by default) and can be turned on", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listPreferences).mockResolvedValue([]);
+  vi.mocked(api.getSettings).mockResolvedValue({ bigIdeasPromptEnabled: false });
+  vi.mocked(api.updateSettings).mockResolvedValue({ bigIdeasPromptEnabled: true });
+  render(<TuneAthenaPanel onClose={() => {}} />);
+
+  const checkbox = await screen.findByRole("checkbox", { name: /revise my big ideas/ });
+  expect(checkbox).not.toBeChecked();
+
+  await user.click(checkbox);
+
+  expect(api.updateSettings).toHaveBeenCalledWith({ bigIdeasPromptEnabled: true });
+  expect(checkbox).toBeChecked();
+});
+
+test("reflects an already-on setting, and a failed toggle shows an error and reverts the checkbox", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listPreferences).mockResolvedValue([]);
+  vi.mocked(api.getSettings).mockResolvedValue({ bigIdeasPromptEnabled: true });
+  vi.mocked(api.updateSettings).mockRejectedValue(new Error("Couldn't reach the server."));
+  render(<TuneAthenaPanel onClose={() => {}} />);
+
+  const checkbox = await screen.findByRole("checkbox", { name: /revise my big ideas/ });
+  expect(checkbox).toBeChecked();
+
+  await user.click(checkbox);
+
+  expect(await screen.findByText("Couldn't reach the server.")).toBeInTheDocument();
+  expect(checkbox).toBeChecked();
+});

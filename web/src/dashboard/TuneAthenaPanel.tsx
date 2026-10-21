@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { addPreference, deletePreference, listPreferences, type Preference } from "./api";
+import { addPreference, deletePreference, getSettings, listPreferences, updateSettings, type Preference, type Settings } from "./api";
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -10,10 +10,19 @@ import { useFocusTrap } from "../useFocusTrap";
 // synchronous REST calls that complete before responding, with no
 // background model turn in flight; none of that panel's draft-recovery or
 // pending-turn reconciliation applies.
+//
+// Also holds the one app setting that exists so far (server/src/settings.js):
+// whether a study session's reflection is followed by a short "revise your
+// big ideas?" prompt (SPEC-v2.md section 3's structure-building row). Off
+// by default; this checkbox is the only place to turn it on — turning it
+// off never deletes anything already written, and a subject's big ideas
+// stay editable from its own detail view either way.
 export function TuneAthenaPanel({ onClose }: { onClose: () => void }) {
   const [preferences, setPreferences] = useState<Preference[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettingsState] = useState<Settings | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
   useEscapeKey(onClose);
   const dialogRef = useRef<HTMLElement>(null);
   useFocusTrap(dialogRef);
@@ -24,7 +33,26 @@ export function TuneAthenaPanel({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     refresh();
+    (async () => {
+      try {
+        setSettingsState((await getSettings()) ?? null);
+      } catch {
+        setSettingsError("Couldn't load this setting. Try closing and reopening Tune Athena.");
+      }
+    })();
   }, []);
+
+  async function toggleBigIdeasPrompt(checked: boolean) {
+    setSettingsError(null);
+    const previous = settings;
+    setSettingsState((s) => (s ? { ...s, bigIdeasPromptEnabled: checked } : s));
+    try {
+      setSettingsState(await updateSettings({ bigIdeasPromptEnabled: checked }));
+    } catch (err) {
+      setSettingsState(previous ?? null);
+      setSettingsError(err instanceof Error ? err.message : "Couldn't save that setting.");
+    }
+  }
 
   async function submit() {
     const trimmed = text.trim();
@@ -62,6 +90,22 @@ export function TuneAthenaPanel({ onClose }: { onClose: () => void }) {
           Plain-language preferences ("harder questions on proofs", "always give me a worked example after a miss"),
           included in Athena's prompts. They never edit the shared persona, code, or repo.
         </p>
+        <section className="tune-panel-setting">
+          <label>
+            <input
+              type="checkbox"
+              checked={settings?.bigIdeasPromptEnabled ?? false}
+              disabled={settings === null}
+              onChange={(e) => toggleBigIdeasPrompt(e.target.checked)}
+            />
+            Prompt me to revise my big ideas after a study session
+          </label>
+          <p className="tune-panel-hint">
+            A subject's big ideas are a short summary you write yourself, in your own words — Athena never writes or
+            rewrites it. Off by default; you can always add or edit one from a subject's own page either way.
+          </p>
+          {settingsError && <div className="tune-panel-error">{settingsError}</div>}
+        </section>
         {preferences === null && <div className="dashboard-empty">Loading…</div>}
         {preferences?.length === 0 && <div className="dashboard-empty">No preferences yet.</div>}
         {preferences !== null && preferences.length > 0 && (

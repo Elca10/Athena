@@ -6,6 +6,7 @@ import {
   finishSession,
   generateNextLiveQuestion,
   generateNextReadyQuestion,
+  getSettings,
   listContent,
   scanBank,
   skipSessionReflection,
@@ -22,6 +23,7 @@ import {
   type SessionQuestion,
   type Subject,
 } from "./api";
+import { BigIdeasEditor } from "./BigIdeasEditor";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
 // The Study flow (SPEC.md section 4's Study button; section 5's session
@@ -35,9 +37,16 @@ import { ThemeToggle } from "../theme/ThemeToggle";
 // A session that runs out of due topics moves to "waiting" with
 // `reflectionPending: true` (sessions.js's `promptReflection`) rather than
 // completing outright, in both modes; each mode's own "ended" state shows
-// `ReflectionPrompt` at that point (SPEC.md section 6's four prompts —
-// submit or skip, both finalize the session via reflection.js).
+// `PostSessionFlow` at that point: `ReflectionPrompt` first (SPEC.md
+// section 6's four prompts — submit or skip, both finalize the session via
+// reflection.js), then — only when the user has turned the setting on
+// (api.ts's getSettings, fetched once here and passed down) — a short
+// "revise your big ideas?" prompt per subject the session covered
+// (SPEC-v2.md section 3's structure-building row, optional and off by
+// default). Skippable in one click, and never blocks ending the session:
+// a settings-fetch failure fails closed (no prompt) rather than stalling.
 //
+
 // `resumeSession`, passed by Dashboard.tsx when the user clicks a Waiting
 // session row instead of a subject's Study button, skips the mode picker
 // and mounts the matching session screen directly with that session — it
@@ -67,6 +76,24 @@ export function StudyFlow({
   const [error, setError] = useState<string | null>(null);
   const [reflectingId, setReflectingId] = useState<string | null>(null);
   const [reflectingHistory, setReflectingHistory] = useState<unknown[]>([]);
+  const [reflectingSubjectIds, setReflectingSubjectIds] = useState<string[]>([]);
+  // Off until the fetch resolves: a slow or failed settings load should
+  // never show a prompt that isn't actually turned on.
+  const [bigIdeasPromptEnabled, setBigIdeasPromptEnabled] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const settings = await getSettings();
+        if (!cancelled) setBigIdeasPromptEnabled(settings?.bigIdeasPromptEnabled === true);
+      } catch {
+        // Fail closed: never let a broken settings fetch affect studying.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Set when nothing is due but there are topics: offers "Review ahead".
   const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; contentIds?: string[] } | null>(null);
 
@@ -80,6 +107,7 @@ export function StudyFlow({
       const result = await finishSession(session.id);
       if (result.reflection) {
         setReflectingHistory(result.session?.history ?? []);
+        setReflectingSubjectIds(session.subjectIds);
         setReflectingId(session.id);
       } else onExit();
     } catch (err) {
@@ -160,11 +188,28 @@ export function StudyFlow({
           onStart={start}
         />
       )}
-      {reflectingId && <ReflectionPrompt sessionId={reflectingId} history={reflectingHistory} onDone={onExit} />}
-      {session && !reflectingId && session.mode === "ready" && (
-        <ReadySessionScreen session={session} onExit={onExit} onSwitchToLive={() => switchToLive(session)} />
+      {reflectingId && (
+        <PostSessionFlow
+          sessionId={reflectingId}
+          history={reflectingHistory}
+          subjectIds={reflectingSubjectIds}
+          subjects={subjects}
+          bigIdeasPromptEnabled={bigIdeasPromptEnabled}
+          onExit={onExit}
+        />
       )}
-      {session && !reflectingId && session.mode === "live" && <LiveSessionScreen session={session} onExit={onExit} />}
+      {session && !reflectingId && session.mode === "ready" && (
+        <ReadySessionScreen
+          session={session}
+          onExit={onExit}
+          onSwitchToLive={() => switchToLive(session)}
+          subjects={subjects}
+          bigIdeasPromptEnabled={bigIdeasPromptEnabled}
+        />
+      )}
+      {session && !reflectingId && session.mode === "live" && (
+        <LiveSessionScreen session={session} onExit={onExit} subjects={subjects} bigIdeasPromptEnabled={bigIdeasPromptEnabled} />
+      )}
     </div>
   );
 }
@@ -470,10 +515,14 @@ function ReadySessionScreen({
   session: initialSession,
   onExit,
   onSwitchToLive,
+  subjects,
+  bigIdeasPromptEnabled,
 }: {
   session: Session;
   onExit: () => void;
   onSwitchToLive: () => void;
+  subjects: Subject[];
+  bigIdeasPromptEnabled: boolean;
 }) {
   const [session, setSession] = useState(initialSession);
   // Deliberately NOT read from `session.currentQuestion` while rendering
@@ -630,7 +679,16 @@ function ReadySessionScreen({
   useConfidenceKeys(!!activeQuestion && !revealed && !lastResult && !busy, pickConfidence);
 
   if (ended) {
-    return <ReflectionPrompt sessionId={session.id} history={session.history} onDone={onExit} />;
+    return (
+      <PostSessionFlow
+        sessionId={session.id}
+        history={session.history}
+        subjectIds={session.subjectIds}
+        subjects={subjects}
+        bigIdeasPromptEnabled={bigIdeasPromptEnabled}
+        onExit={onExit}
+      />
+    );
   }
 
   if (stuck) {
@@ -802,7 +860,17 @@ type LiveFeedback = { feedback: string; rating: string };
 // leaves the session/topic untouched — shown with a "Try again" button
 // rather than being treated like a thrown error, same posture the server
 // module itself documents.
-function LiveSessionScreen({ session: initialSession, onExit }: { session: Session; onExit: () => void }) {
+function LiveSessionScreen({
+  session: initialSession,
+  onExit,
+  subjects,
+  bigIdeasPromptEnabled,
+}: {
+  session: Session;
+  onExit: () => void;
+  subjects: Subject[];
+  bigIdeasPromptEnabled: boolean;
+}) {
   const [session, setSession] = useState(initialSession);
   const [activeQuestion, setActiveQuestion] = useState(initialSession.currentQuestion);
   const [busy, setBusy] = useState(false);
@@ -888,7 +956,16 @@ function LiveSessionScreen({ session: initialSession, onExit }: { session: Sessi
   const elapsedLabel = elapsed !== null && elapsed >= 3 ? ` (${elapsed}s)` : "";
 
   if (ended) {
-    return <ReflectionPrompt sessionId={session.id} history={session.history} onDone={onExit} />;
+    return (
+      <PostSessionFlow
+        sessionId={session.id}
+        history={session.history}
+        subjectIds={session.subjectIds}
+        subjects={subjects}
+        bigIdeasPromptEnabled={bigIdeasPromptEnabled}
+        onExit={onExit}
+      />
+    );
   }
 
   if (genFailure) {
@@ -1007,6 +1084,111 @@ function SessionSummary({ history }: { history: unknown[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+// Runs the end-of-session reflection, then — only when the setting is on
+// and the session actually covered at least one subject — the big-ideas
+// prompt for each of those subjects in turn, one at a time. Settings-off
+// (the default) or no subjects at all skips straight to `onExit` the
+// moment the reflection is done or skipped, same as before this feature
+// existed.
+function PostSessionFlow({
+  sessionId,
+  history,
+  subjectIds,
+  subjects,
+  bigIdeasPromptEnabled,
+  onExit,
+}: {
+  sessionId: string;
+  history: unknown[];
+  subjectIds: string[];
+  subjects: Subject[];
+  bigIdeasPromptEnabled: boolean;
+  onExit: () => void;
+}) {
+  const [stage, setStage] = useState<"reflection" | "bigIdeas">("reflection");
+
+  function afterReflection() {
+    if (bigIdeasPromptEnabled && subjectIds.length > 0) setStage("bigIdeas");
+    else onExit();
+  }
+
+  if (stage === "reflection") {
+    return <ReflectionPrompt sessionId={sessionId} history={history} onDone={afterReflection} />;
+  }
+  return <BigIdeasPostSessionPrompt subjectIds={subjectIds} subjects={subjects} onDone={onExit} />;
+}
+
+// SPEC-v2.md section 3's structure-building row: "Want to revise your big
+// ideas for <subject>?", one subject at a time for a multi-subject
+// session. Skip (or a cancelled edit, which lands back on this same
+// yes/no step rather than silently moving on) never loses the user's
+// place — Skip/Done always gets them to the next subject or, after the
+// last one, `onDone` (back to the dashboard). `key={subjectId}` on the
+// editor below remounts it fresh per subject, so "Revise" always starts
+// from that subject's own current text.
+function BigIdeasPostSessionPrompt({
+  subjectIds,
+  subjects,
+  onDone,
+}: {
+  subjectIds: string[];
+  subjects: Subject[];
+  onDone: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [revising, setRevising] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  function next() {
+    setRevising(false);
+    setDirty(false);
+    if (index + 1 < subjectIds.length) setIndex((i) => i + 1);
+    else onDone();
+  }
+
+  function skip() {
+    if (dirty && !window.confirm("Discard your unsaved big ideas edit?")) return;
+    next();
+  }
+
+  const subjectId = subjectIds[index];
+  const subject = subjects.find((s) => s.id === subjectId);
+  // Shouldn't happen (every id here came from the session's own
+  // subjectIds), but a subject that's vanished since is a reason to move
+  // on, not a dead end sitting on an unnamed prompt.
+  if (!subject) {
+    next();
+    return null;
+  }
+
+  return (
+    <div className="study-session study-bigideas-prompt">
+      <p>Want to revise your big ideas for {subject.name}?</p>
+      {!revising && (
+        <div className="study-reflection-actions">
+          <button type="button" className="btn-primary" onClick={() => setRevising(true)}>
+            Revise
+          </button>
+          <button type="button" className="btn-secondary" onClick={skip}>
+            Skip
+          </button>
+        </div>
+      )}
+      {revising && (
+        <BigIdeasEditor
+          key={subjectId}
+          subjectId={subjectId}
+          compact
+          autoEdit
+          onDirtyChange={setDirty}
+          onSaved={next}
+          onCancelAutoEdit={() => setRevising(false)}
+        />
+      )}
     </div>
   );
 }

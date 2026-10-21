@@ -135,6 +135,23 @@ button:disabled {
   background: transparent;
 }
 
+/* A plain, unobtrusive text affordance — "+ Add big ideas", "History (n)" —
+   for actions that shouldn't look like a prominent button (SPEC-v2.md
+   section 3: "a small unobtrusive affordance rather than a big empty
+   section"). */
+.btn-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 0.875rem;
+}
+
+.btn-link:hover {
+  filter: brightness(1.1);
+}
+
 .btn-danger {
   background: var(--danger);
   border-color: var(--danger);
@@ -1811,4 +1828,89 @@ select {
 
 .subject-card-deadline {
   color: var(--text-h);
+}
+
+/* Big ideas (SPEC-v2.md section 3's structure-building row) — shared by
+   SubjectDetailPanel's own section and StudyFlow's compact post-session
+   prompt (BigIdeasEditor.tsx). */
+.big-ideas-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.big-ideas-text {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.big-ideas-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.big-ideas-history {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+
+.big-ideas-history li {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.big-ideas-history-date {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+}
+
+.big-ideas-history-text {
+  margin: 0 0 0.4rem;
+  white-space: pre-wrap;
+}
+
+.big-ideas-editor textarea {
+  display: block;
+  width: 100%;
+  color: var(--text);
+  font-size: 0.9375rem;
+}
+
+.big-ideas-counter {
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  margin: 0.2rem 0 0.5rem;
+}
+
+.study-bigideas-prompt {
+  padding: 1.25rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.study-bigideas-prompt > p {
+  margin: 0 0 1rem;
+}
+
+.tune-panel-setting {
+  margin: 1rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+}
+
+.tune-panel-setting label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.tune-panel-setting .tune-panel-hint {
+  margin: 0.4rem 0 0;
 }
