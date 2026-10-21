@@ -1,13 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import express from "express";
 import { makeSettingsRouter } from "../settings.js";
+import { makeTempDir } from "../../testHelpers/tempDir.js";
 
 async function startApp() {
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "athena-settings-route-"));
+  const dir = await makeTempDir("athena-settings-route-");
   const app = express();
   app.use(express.json());
   app.use("/api/settings", makeSettingsRouter(dir));

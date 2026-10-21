@@ -1,12 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { promises as fs } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { getSettings, updateSettings } from "../settings.js";
+import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
-  return fs.mkdtemp(path.join(os.tmpdir(), "athena-settings-"));
+  return makeTempDir("athena-settings-");
 }
 
 test("getSettings defaults bigIdeasPromptEnabled to false for a fresh install", async () => {
