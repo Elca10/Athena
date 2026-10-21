@@ -58,6 +58,10 @@ export function BigIdeasEditor({
     setLoadError(null);
     try {
       const next = await getBigIdeas(subjectId);
+      // A malformed/missing response (e.g. a test harness that blanket-
+      // mocks `./api` without stubbing this one call) is a load failure,
+      // not a crash — same posture as every other section's own fetch.
+      if (!next || typeof next.text !== "string") throw new Error("malformed big ideas response");
       setData(next);
       if (autoEdit) setDraft(next.text);
     } catch {
