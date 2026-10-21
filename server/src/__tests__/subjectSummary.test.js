@@ -33,6 +33,7 @@ test("getSubjectSummary on a subject with no topics returns all-zero counts", as
     topicCount: 0,
     contentCount: 0,
     unreadContentCount: 0,
+    nextDeadline: null,
   });
 });
 

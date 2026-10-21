@@ -2,12 +2,14 @@
 // section 4: "mastery summary (new/learning/mastered counts), due-today
 // count, next deadline, Ready question bank size"). Pure aggregation over
 // topics.js/questionBank.js's existing data — no storage of its own.
-// "Next deadline" is deliberately not included yet: subject deadlines
-// (section 9) aren't a build step yet, so there's no data to aggregate.
+// "Next deadline" is the soonest deadline (deadlines.js) on or after the
+// user's local today, whether or not they're studying for it.
 
 import { listTopics, listDueTopics } from "./topics.js";
 import { listContent } from "./content.js";
 import { listBankQuestions } from "./questionBank.js";
+import { listDeadlines, nextDeadline } from "./deadlines.js";
+import { localDateOf } from "./localDate.js";
 
 // ts-fsrs's State enum: New=0, Learning=1, Review=2, Relearning=3. "Review"
 // is the only state meaning a topic has graduated past its initial learning
@@ -45,5 +47,11 @@ export async function getSubjectSummary(appDataDir, subjectId, now = new Date())
     topicCount: topics.length,
     contentCount: content.length,
     unreadContentCount,
+    nextDeadline: pickNextDeadline(await listDeadlines(appDataDir, subjectId), now),
   };
+}
+
+function pickNextDeadline(deadlines, now) {
+  const next = nextDeadline(deadlines, localDateOf(now));
+  return next ? { id: next.id, title: next.title, date: next.date, studying: next.studying } : null;
 }

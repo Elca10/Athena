@@ -26,6 +26,8 @@ import { SessionStatsTiles, UsageTile } from "./StatsTiles";
 import { readNewContent, type ReadStage } from "./readNewContent";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
+import { CalendarView } from "./CalendarView";
+import { formatDay, localToday, relativeDay } from "./calendarDates";
 import { UpdateControl } from "../update/UpdateControl";
 import { ThemeToggle } from "../theme/ThemeToggle";
 
@@ -48,9 +50,9 @@ import { ThemeToggle } from "../theme/ThemeToggle";
 // just leaves this dashboard (and the schedule, once that exists) until
 // restored from the Archive view, which already has both Restores wired.
 // "Report a bug" (SPEC.md section 10/3.6) opens ReportBugPanel — describe,
-// preview the redacted issue text, explicit Send. "Calendar" (SPEC.md
-// section 14: still v2) stays hidden entirely rather than shown disabled
-// — v1.0 ship scope has no "Coming soon" stub visible anywhere in the UI.
+// preview the redacted issue text, explicit Send. "Calendar" (SPEC-v2.md
+// section 2) swaps to CalendarView, the suggested study schedule, the same
+// way Archive does; each subject card shows its next deadline.
 const COMPLETED_SHOWN = 5;
 
 const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
@@ -60,7 +62,7 @@ const SESSION_COLUMNS: { label: string; status: SessionStatus }[] = [
 ];
 
 export function Dashboard() {
-  const [view, setView] = useState<"dashboard" | "archive" | "study">("dashboard");
+  const [view, setView] = useState<"dashboard" | "archive" | "study" | "calendar">("dashboard");
   const [showTune, setShowTune] = useState(false);
   const [showBugReport, setShowBugReport] = useState(false);
   const [showNewSubject, setShowNewSubject] = useState(false);
@@ -219,6 +221,17 @@ export function Dashboard() {
     );
   }
 
+  if (view === "calendar") {
+    return (
+      <CalendarView
+        onBack={() => {
+          setView("dashboard");
+          refresh();
+        }}
+      />
+    );
+  }
+
   if (view === "study" && (studySubjectId || resumeSession)) {
     return (
       <StudyFlow
@@ -264,6 +277,9 @@ export function Dashboard() {
             </button>
             <button type="button" onClick={() => openPanel("tune")}>
               Tune Athena
+            </button>
+            <button type="button" onClick={() => setView("calendar")}>
+              Calendar
             </button>
             <button type="button" onClick={() => setView("archive")}>
               Archive
@@ -624,6 +640,12 @@ function SubjectCard({
           </span>
           <span>{summary.dueCount} due today</span>
           <span>{summary.bankSize} ready questions</span>
+          {summary.nextDeadline && (
+            <span className="subject-card-deadline">
+              Next deadline: {summary.nextDeadline.title}, {formatDay(summary.nextDeadline.date)} (
+              {relativeDay(summary.nextDeadline.date, localToday())})
+            </span>
+          )}
           {readingStage ? (
             <span className="subject-card-hint" role="status">
               {readingStage === "topics"

@@ -34,8 +34,7 @@ test("renders the top bar actions and the session columns' empty state", async (
   render(<Dashboard />);
 
   expect(screen.getByRole("heading", { name: "Athena" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Calendar" })).not.toBeInTheDocument();
-  for (const label of ["Report a bug", "Tune Athena", "Archive"]) {
+  for (const label of ["Report a bug", "Tune Athena", "Calendar", "Archive"]) {
     expect(screen.getByRole("button", { name: label })).toBeEnabled();
   }
 
@@ -832,6 +831,54 @@ test("Tune Athena button toggles the preferences panel open and closed", async (
 
   await user.click(screen.getByRole("button", { name: "Close" }));
   expect(screen.queryByRole("heading", { name: "Tune Athena" })).not.toBeInTheDocument();
+});
+
+test("a subject card shows its next deadline", async () => {
+  const inTen = new Date();
+  inTen.setDate(inTen.getDate() + 10);
+  const date = `${inTen.getFullYear()}-${String(inTen.getMonth() + 1).padStart(2, "0")}-${String(inTen.getDate()).padStart(2, "0")}`;
+  vi.mocked(api.listSubjects).mockResolvedValue([{ id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01" }]);
+  vi.mocked(api.getSubjectSummary).mockResolvedValue({
+    masteryCounts: { new: 1, learning: 0, mastered: 0 },
+    dueCount: 1,
+    bankSize: 0,
+    topicCount: 1,
+    contentCount: 1,
+    unreadContentCount: 0,
+    nextDeadline: { id: "d1", title: "Midterm", date, studying: true },
+  });
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+  const card = (await screen.findByRole("heading", { name: "Biology" })).closest("article") as HTMLElement;
+  expect(within(card).getByText(/Next deadline: Midterm, .* \(in 10 days\)/)).toBeInTheDocument();
+});
+
+test("Calendar opens the schedule view, and Back to dashboard returns and refreshes", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  vi.mocked(api.getSchedule).mockResolvedValue({
+    today: "2026-10-20",
+    horizonDays: 1,
+    availability: { weekdays: [0, 1, 2, 3, 4, 5, 6], minutesPerDay: 30 },
+    minutesPerBlock: 5,
+    blocksPerDay: 6,
+    days: [{ date: "2026-10-20", weekday: 2, available: true, blocks: [], deadlines: [] }],
+    unscheduled: [],
+  });
+  render(<Dashboard />);
+  await screen.findAllByText("Nothing here yet.");
+  await user.click(within(screen.getByRole("banner")).getByRole("button", { name: "Calendar" }));
+  expect(await screen.findByRole("heading", { name: "Calendar" })).toBeInTheDocument();
+  expect(await screen.findByText(/Nothing to plan for the next two weeks/)).toBeInTheDocument();
+  const loadsBefore = vi.mocked(api.listSubjects).mock.calls.length;
+  await user.click(screen.getByRole("button", { name: "Back to dashboard" }));
+  expect(await screen.findByRole("heading", { name: "Athena" })).toBeInTheDocument();
+  await waitFor(() => expect(vi.mocked(api.listSubjects).mock.calls.length).toBeGreaterThan(loadsBefore));
 });
 
 test("Archive button switches to the Archive view, listing archived subjects and sessions with Restore actions", async () => {

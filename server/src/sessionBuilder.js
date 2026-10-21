@@ -11,6 +11,7 @@
 
 import { listDueTopics, listTopics } from "./topics.js";
 import { listContent } from "./content.js";
+import { extraTopicIdsForToday } from "./schedule.js";
 
 /** Most topics one session is built with. A session longer than this
  * risks exactly the fatigue/low-quality-answers problem "desirable
@@ -42,13 +43,24 @@ export async function buildSessionTopicIds(
 ) {
   const uniqueSubjectIds = [...new Set(subjectIds)];
   const fromWanted = fromContent(contentIds);
+  // The Calendar's plan for today can include topics that aren't due yet
+  // (pulled forward for a deadline, or put on today by the user); they
+  // follow each subject's due topics, so Study covers today's plan.
+  const plannedToday = reviewAhead ? [] : await extraTopicIdsForToday(appDataDir, now);
   const queues = [];
   for (const subjectId of uniqueSubjectIds) {
-    const picked = (
-      reviewAhead
-        ? (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0))
-        : await listDueTopics(appDataDir, subjectId, now)
-    ).filter(fromWanted);
+    let picked;
+    if (reviewAhead) {
+      picked = (await listTopics(appDataDir, subjectId)).sort((a, b) => (a.fsrs?.due ?? 0) - (b.fsrs?.due ?? 0));
+    } else {
+      picked = await listDueTopics(appDataDir, subjectId, now);
+      if (plannedToday.length) {
+        const pickedIds = new Set(picked.map((t) => t.id));
+        const planned = new Set(plannedToday);
+        picked.push(...(await listTopics(appDataDir, subjectId)).filter((t) => planned.has(t.id) && !pickedIds.has(t.id)));
+      }
+    }
+    picked = picked.filter(fromWanted);
     // Ready mode: topics that already have practice questions first
     // (they're written a chunk at a time, issue #10), keeping due order
     // within each group.

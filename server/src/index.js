@@ -18,6 +18,8 @@ import { MAX_BINARY_CONTENT_BYTES, backfillTopicSources } from "./content.js";
 import { makeTopicsRouter } from "./routes/topics.js";
 import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
+import { makeDeadlinesRouter } from "./routes/deadlines.js";
+import { makeScheduleRouter } from "./routes/schedule.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
 import { makeBugReportRouter } from "./routes/bugReport.js";
@@ -79,6 +81,8 @@ export async function createApp() {
   app.use("/api/subjects/:id/content", makeContentRouter(appDataDir));
   app.use("/api/subjects/:id/topics", makeTopicsRouter(appDataDir));
   app.use("/api/subjects/:id/reflections", makeReflectionsRouter(appDataDir));
+  app.use("/api/subjects/:id/deadlines", makeDeadlinesRouter(appDataDir));
+  app.use("/api/schedule", makeScheduleRouter(appDataDir));
   app.use(
     "/api/sessions",
     makeSessionsRouter(appDataDir, {

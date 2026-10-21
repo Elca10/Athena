@@ -72,8 +72,18 @@ an open owner decision (v1 section 12).
     calendar apps (localhost-only, so Apple Calendar on the same Mac can
     subscribe but Google Calendar can't). No Google Calendar API (OAuth
     credentials can't live in a public repo).
-- Nothing built yet. `subjectSummary.js` deliberately leaves out the
-  "next deadline" field until this exists.
+- **Built (v0.8.0), hand-entered deadlines + the Calendar.** Deadlines
+  (`deadlines.js`, `deadlines.json`): subject, title, local `YYYY-MM-DD`
+  date, optional topics (none = the whole subject), and a "study for
+  this" flag; edited in the subject detail view, next one on each card.
+  The Calendar (`schedule.js`, `CalendarView.tsx`) recomputes a 14-day
+  plan on every request, no model calls. The user's decisions (move,
+  delete, done, availability) live in `schedule.json` as overrides keyed
+  by block id (`<originDate>:<topicId>`); any override still on today or
+  later claims its topic so nothing computed replaces it, and overrides
+  are applied last. Real sessions mark today's blocks done. Study adds
+  today's pulled-forward and user-placed topics. Still to do: Canvas
+  calendar-feed import; the ICS feed of study blocks (deferred).
 
 ## 3. Make It Stick — remaining rows (v1 section 6)
 
@@ -88,7 +98,7 @@ per the 2026-10-11 audit (full table in the build progress log):
 | Elaboration | Live mode never asks a follow-up "why" after a correct-but-shallow answer — it moves straight to the next topic. |
 | Desirable difficulty | **Built (v0.4.0).** `scheduler.js`'s `targetDifficultyForCard` derives a target (intro/medium/hard) deterministically from a topic's FSRS state (Review + stability vs. New/Learning/Relearning); Ready mode's `pickBankQuestion` narrows to it when possible, Live mode's prompt names it as a short steer. |
 | Structure building | No per-subject "big ideas" summary: no data model, no post-session prompt to build/revise it, nowhere to show it. |
-| Exam-aware pacing | Depends on section 2 (deadlines) above. |
+| Exam-aware pacing | **Built (v0.8.0).** `schedule.js`: a topic covered by an upcoming deadline the user is studying for goes on min(its FSRS due day, the day before the deadline), else the nearest earlier free study day, else a later one still before the date; never on a day off or past the minutes per day (what can't fit is shown as a warning). |
 
 ## 4. Subject detail view (v1 section 4)
 

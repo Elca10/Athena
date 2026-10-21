@@ -54,6 +54,7 @@ function mockEmpty() {
   vi.mocked(api.listTopics).mockResolvedValue([]);
   vi.mocked(api.listContent).mockResolvedValue([]);
   vi.mocked(api.listReflections).mockResolvedValue([]);
+  vi.mocked(api.listDeadlines).mockResolvedValue([]);
 }
 
 test("shows the empty state for every section when a subject has nothing yet", async () => {

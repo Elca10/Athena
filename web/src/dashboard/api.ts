@@ -11,6 +11,8 @@ export type SubjectSummary = {
   topicCount: number;
   contentCount: number;
   unreadContentCount: number;
+  /** The soonest deadline on or after today (server/src/deadlines.js). */
+  nextDeadline?: { id: string; title: string; date: string; studying: boolean } | null;
 };
 
 export type SessionStatus = "active" | "waiting" | "completed";
@@ -468,4 +470,116 @@ export function previewBugReport(description: string): Promise<BugReportPreview>
 
 export function sendBugReport(preview: BugReportPreview): Promise<BugReportSendResult> {
   return postJsonBody(`/api/bug-report/send`, preview);
+}
+
+// Deadlines (server/src/deadlines.js, routes/deadlines.js). `date` is a
+// local calendar date, YYYY-MM-DD. An empty `topicIds` means the deadline
+// covers the whole subject. `studying` is whether the schedule paces for it.
+export type Deadline = {
+  id: string;
+  subjectId: string;
+  title: string;
+  date: string;
+  topicIds: string[];
+  studying: boolean;
+  source: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type DeadlineInput = { title: string; date: string; topicIds: string[]; studying?: boolean };
+
+export function listDeadlines(subjectId: string): Promise<Deadline[]> {
+  return getJson(`/api/subjects/${subjectId}/deadlines`);
+}
+
+export function createDeadline(subjectId: string, input: DeadlineInput): Promise<Deadline> {
+  return postJsonBody(`/api/subjects/${subjectId}/deadlines`, input);
+}
+
+export async function updateDeadline(subjectId: string, id: string, changes: Partial<DeadlineInput>): Promise<Deadline> {
+  const res = await fetch(`/api/subjects/${subjectId}/deadlines/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Couldn't save that deadline (${res.status}).`));
+  return res.json();
+}
+
+export function deleteDeadline(subjectId: string, id: string): Promise<void> {
+  return deleteJson(`/api/subjects/${subjectId}/deadlines/${id}`);
+}
+
+// The suggested schedule (server/src/schedule.js, routes/schedule.js).
+// Weekdays are 0 = Sunday ... 6 = Saturday.
+export type Availability = { weekdays: number[]; minutesPerDay: number };
+
+export type ScheduleBlock = {
+  id: string;
+  topicId: string;
+  topicName: string;
+  subjectId: string;
+  subjectName: string;
+  date: string;
+  status: "planned" | "done";
+  /** Who marked it done: a real study session, or the user. */
+  doneBy: "session" | "you" | null;
+  moved: boolean;
+  /** The user moved or marked it; the schedule leaves it alone. */
+  byYou: boolean;
+  reason: "due" | "deadline" | "you" | "studied";
+  deadline: { id: string; title: string; date: string } | null;
+};
+
+export type ScheduleDay = {
+  date: string;
+  weekday: number;
+  available: boolean;
+  blocks: ScheduleBlock[];
+  deadlines: { id: string; title: string; subjectId: string; subjectName: string; studying: boolean }[];
+};
+
+export type Schedule = {
+  today: string;
+  horizonDays: number;
+  availability: Availability;
+  minutesPerBlock: number;
+  blocksPerDay: number;
+  days: ScheduleDay[];
+  unscheduled: { deadlineId: string; title: string; date: string; subjectId: string; subjectName: string; topicCount: number }[];
+};
+
+export function getSchedule(): Promise<Schedule> {
+  return getJson("/api/schedule");
+}
+
+export async function saveAvailability(availability: Availability): Promise<Schedule> {
+  const res = await fetch("/api/schedule/availability", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(availability),
+  });
+  if (!res.ok) throw new Error(await errorMessage(res, `Couldn't save your study days (${res.status}).`));
+  return res.json();
+}
+
+export type BlockAction = "done" | "undone" | "move" | "delete" | "restore";
+
+/** `changed`: the block wasn't on the schedule any more (another tab, a
+ * session, midnight); `schedule` is then the current one to show. */
+export type BlockActionResult =
+  | { ok: true; schedule: Schedule }
+  | { ok: false; error: string; schedule?: Schedule };
+
+export async function scheduleBlockAction(blockId: string, action: BlockAction, toDate?: string): Promise<BlockActionResult> {
+  const res = await fetch(`/api/schedule/blocks/${encodeURIComponent(blockId)}/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(toDate ? { toDate } : {}),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.ok && body) return { ok: true, schedule: body };
+  const error = (body && typeof body.error === "string" && body.error) || `That didn't work (${res.status}). Try again.`;
+  return { ok: false, error, schedule: body?.schedule };
 }

@@ -11,6 +11,7 @@ import {
 import { classifyTopicMastery, type MasteryLabel } from "./topicMastery";
 import { confirmContentRemoval } from "./contentRemoval";
 import { ContentFileList } from "./ContentFileList";
+import { DeadlinesSection } from "./DeadlinesSection";
 import { useEscapeKey } from "../useEscapeKey";
 import { useFocusTrap } from "../useFocusTrap";
 
@@ -30,11 +31,8 @@ import { useFocusTrap } from "../useFocusTrap";
 //     to reuse for that.
 //   - Past reflections, read-only (GET /api/subjects/:id/reflections
 //     already existed; nothing new to build there).
-// Deliberately left out for now (SPEC-v2 section 4's later build steps):
-// deadlines and a big-ideas summary. No empty slot for either here — they
-// get their own section once that data model exists, rather than a
-// "Coming soon" stub sitting in the UI in the meantime (same rule the
-// dashboard's header already follows for the Calendar button).
+//   - Deadlines (DeadlinesSection.tsx): add/edit/delete, and whether to
+//     study for each. A half-typed deadline makes Close/Escape ask first.
 export function SubjectDetailPanel({
   subjectId,
   subjectName,
@@ -44,8 +42,8 @@ export function SubjectDetailPanel({
   subjectId: string;
   subjectName: string;
   onClose: () => void;
-  /** Called after a content file is removed here, so the dashboard's
-   * subject card (topic/content counts, bank size) stays in sync. */
+  /** Called after a content file is removed (or a deadline changed) here,
+   * so the dashboard's subject card stays in sync. */
   onContentChanged?: () => void;
 }) {
   const [topics, setTopics] = useState<Topic[] | null>(null);
@@ -56,7 +54,13 @@ export function SubjectDetailPanel({
   const [reflections, setReflections] = useState<Reflection[] | null>(null);
   const [reflectionsError, setReflectionsError] = useState<string | null>(null);
 
-  useEscapeKey(onClose);
+  const [deadlineDraft, setDeadlineDraft] = useState(false);
+  function requestClose() {
+    if (deadlineDraft && !window.confirm("Discard the deadline you were adding? What you typed won't be saved.")) return;
+    onClose();
+  }
+
+  useEscapeKey(requestClose);
   const dialogRef = useRef<HTMLElement>(null);
   useFocusTrap(dialogRef);
 
@@ -120,7 +124,7 @@ export function SubjectDetailPanel({
       >
         <div className="content-panel-header">
           <h2 id="subject-detail-title">{subjectName}</h2>
-          <button type="button" onClick={onClose}>
+          <button type="button" onClick={requestClose}>
             Close
           </button>
         </div>
@@ -147,6 +151,8 @@ export function SubjectDetailPanel({
             </ul>
           )}
         </section>
+
+        <DeadlinesSection subjectId={subjectId} topics={topics} onChanged={onContentChanged} onDirtyChange={setDeadlineDraft} />
 
         <section className="subject-detail-section" aria-labelledby="subject-detail-content">
           <h3 id="subject-detail-content">Content</h3>
