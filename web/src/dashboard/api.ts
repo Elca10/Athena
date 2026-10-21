@@ -224,7 +224,9 @@ export function generateNextLiveQuestion(sessionId: string): Promise<LiveQuestio
 // Mirrors routes/sessions.js's /live/answer shapes — grading is one more
 // real-time model turn, so the same retryable `{ok: false, reason}` shape
 // applies here too (liveSession.js's `submitLiveAnswer`).
-export type LiveAnswerResult = { ok: true; session: Session } | { ok: false; reason: string };
+export type LiveAnswerResult =
+  | { ok: true; session: Session; milestone?: string | null }
+  | { ok: false; reason: string };
 
 export function submitLiveAnswer(
   sessionId: string,
@@ -258,6 +260,14 @@ export type ReadyAnswerResult =
       isCorrect: boolean;
       correctAnswer: string | null;
       modelAnswer: string | null;
+      /** Deterministic, persona-consistent one-liner (readySession.js's
+       * `confidenceMismatchNote`) when stated confidence and correctness
+       * clearly mismatch; null otherwise. No model call involved. */
+      mismatchNote?: string | null;
+      /** Deterministic milestone applause (readySession.js, `subjectSummary.js`'s
+       * `justReachedMastered`) when this answer just moved the topic to
+       * mastered; null otherwise. */
+      milestone?: string | null;
       session: Session;
     }
   | { ok: true; finalized: false; modelAnswer: string; rubric: string[]; misconceptions: string[]; session: Session };
@@ -274,7 +284,7 @@ export type SelfGradeStatus = "got_it" | "partly" | "missed";
 export function submitReadySelfGrade(
   sessionId: string,
   selfGrades: { status: SelfGradeStatus }[],
-): Promise<{ ok: true; finalized: true; session: Session }> {
+): Promise<{ ok: true; finalized: true; mismatchNote?: string | null; milestone?: string | null; session: Session }> {
   return postJsonBody(`/api/sessions/${sessionId}/ready/self-grade`, { selfGrades });
 }
 

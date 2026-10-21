@@ -101,6 +101,12 @@ test("buildBankPrompt appends stored preferences when given any", () => {
   assert.match(prompt, /harder questions on proofs/);
 });
 
+test("buildBankPrompt includes Athena's persona voice guidance for modelAnswer/misconceptions text", () => {
+  const prompt = buildBankPrompt({ subjectName: "Biology", topics: [{ name: "Osmosis" }], files: [] });
+  assert.match(prompt, /Impersonal and direct/);
+  assert.match(prompt, /written in the voice above/);
+});
+
 // --- parseBankReply ----------------------------------------------------------
 
 test("parseBankReply reads the tagged fence and normalizes a valid question", () => {

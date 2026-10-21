@@ -41,6 +41,8 @@ import { getTopicById, recordTopicReview } from "./topics.js";
 import { RATINGS, targetDifficultyForCard } from "./scheduler.js";
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
+import { getPersonaBlock } from "./persona/persona.js";
+import { justReachedMastered } from "./subjectSummary.js";
 
 /** This turn needs no tools at all — it answers from the topic name/notes
  * given in the prompt, so every tool is denied rather than just the
@@ -144,6 +146,8 @@ export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, pref
     : "";
 
   return `This is a one-shot background task, not a conversation. Don't ask questions back; just produce the one study question below and reply once.
+
+${getPersonaBlock()}
 
 Subject: ${subjectLine}
 Topic to ask about: "${topic.name}"${notesLine}
@@ -308,21 +312,32 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
  * The prompt for grading one Live answer. Pure, exported for its own
  * test. Asks the model to pick an FSRS rating directly (see the module
  * comment above for why) rather than a finer key-points breakdown.
+ *
+ * `confidence` (1-5, captured by `submitLiveAnswer` before grading — see
+ * that function's own comment) is passed through so the model can make
+ * the persona's confidence-vs-correctness callout when the two clearly
+ * mismatch; the grading/feedback tone itself comes entirely from the
+ * persona block below, not from wording duplicated here.
  */
-export function buildGradingPrompt({ subjectNames, topic, question, answerText, preferences }) {
+export function buildGradingPrompt({ subjectNames, topic, question, answerText, confidence, preferences }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
+  const confidenceLine = Number.isInteger(confidence)
+    ? `\n\nThe user's own stated confidence in this answer (1 = guessing, 5 = certain), given right after answering and before seeing any feedback: ${confidence}. Apply the voice above's confidence-vs-correctness guidance using this number and how correct the answer actually is.`
+    : "";
 
   return `This is a one-shot background task, not a conversation. Don't ask questions back; just grade the answer below and reply once.
+
+${getPersonaBlock()}
 
 Subject: ${subjectLine}
 Topic: "${topic.name}"${notesLine}
 
 Question asked (${question.type}, ${question.difficulty}): "${question.prompt}"
 
-The user's answer: "${answerText}"
+The user's answer: "${answerText}"${confidenceLine}
 
-Grade this answer honestly and specifically: say exactly what's right, wrong, or missing. Don't soften a wrong or incomplete answer with unearned praise. Then pick exactly one rating for how this should affect spaced-repetition scheduling:
+Grade this answer: say exactly what's right, wrong, or missing, per the voice above. Then pick exactly one rating for how this should affect spaced-repetition scheduling:
 - "again": the answer was wrong, or shows the user doesn't actually know this yet.
 - "hard": basically correct, but incomplete, hesitant, or clearly took real effort.
 - "good": a solid, correct answer.
@@ -431,6 +446,7 @@ export async function submitLiveAnswer(appDataDir, sessionId, { answerText, conf
     topic,
     question,
     answerText: trimmedAnswer.slice(0, MAX_ANSWER_CHARS),
+    confidence,
     preferences,
   });
 
@@ -444,7 +460,12 @@ export async function submitLiveAnswer(appDataDir, sessionId, { answerText, conf
   const parsed = parseGradingReply(replyText);
   if (!parsed.ok) return parsed;
 
-  await recordTopicReview(appDataDir, topic.id, parsed.rating);
+  const reviewedTopic = await recordTopicReview(appDataDir, topic.id, parsed.rating);
+  // Milestone applause (SPEC-v2.md section 5): detected deterministically
+  // from the FSRS state change, never asked of the model — "topic.name"
+  // reaching mastered as a direct result of this answer is the one clean,
+  // non-noisy hook this app has for a real earned milestone.
+  const milestone = justReachedMastered(topic, reviewedTopic) ? `"${topic.name}" just reached mastered.` : null;
 
   const entry = {
     ...question,
@@ -455,5 +476,5 @@ export async function submitLiveAnswer(appDataDir, sessionId, { answerText, conf
     answeredAt: new Date().toISOString(),
   };
   const updated = await recordAnswer(appDataDir, sessionId, entry);
-  return { ok: true, session: updated };
+  return { ok: true, session: updated, milestone };
 }

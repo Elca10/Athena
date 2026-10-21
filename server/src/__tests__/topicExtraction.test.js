@@ -108,6 +108,18 @@ test("buildExtractionPrompt carries each file's text inline, numbered, and names
   assert.doesNotMatch(prompt, /batch 1 of/i);
 });
 
+test("buildExtractionPrompt carries no persona/voice guidance — this turn only ever produces plain topic labels", () => {
+  const prompt = buildExtractionPrompt({
+    subjectName: "Discrete Math",
+    files: [{ name: "a.pdf", text: "Graphs" }],
+    existingTopics: [],
+    batchIndex: 0,
+    batchCount: 1,
+  });
+  assert.doesNotMatch(prompt, /Impersonal and direct/);
+  assert.doesNotMatch(prompt, /Never refer to yourself by name/);
+});
+
 test("buildExtractionPrompt lists existing topics to avoid repeating and notes batch position", () => {
   const prompt = buildExtractionPrompt({
     subjectName: "Biology",

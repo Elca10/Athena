@@ -52,6 +52,7 @@ import { getSubject } from "./subjects.js";
 import { topUpTopicBanks } from "./questionBankGeneration.js";
 import { pickNextTopicId, recentlyAskedTypes } from "./liveSession.js";
 import { targetDifficultyForCard } from "./scheduler.js";
+import { justReachedMastered } from "./subjectSummary.js";
 
 /** The two bank question types with a real local answer key — SPEC.md
  * section 5: "Multiple choice, cloze and numeric: auto-graded locally."
@@ -174,6 +175,29 @@ export function mapSelfGradeToRating(selfGrades) {
   if (selfGrades.some((g) => g.status === "missed")) return "again";
   if (selfGrades.some((g) => g.status === "partly")) return "hard";
   return "good";
+}
+
+/**
+ * Ready mode's deterministic counterpart to Live mode's model-written
+ * confidence-vs-correctness callout (liveSession.js's `buildGradingPrompt`):
+ * no model call ever grades a Ready answer, so the persona's calibration
+ * rule has to be applied in plain code here instead, using the exact
+ * wording its "Confidence vs. correctness" section gives as the model
+ * (concise, one sentence, conversational). Only fires on a clear mismatch
+ * (confidence >= 4 and wrong, or confidence <= 2 and right) — `isCorrect`
+ * of `null` (an ambiguous self-grade: some rubric points right, some not)
+ * deliberately gets no callout rather than guessing which way it leans.
+ * Pure, exported for its own test.
+ */
+export function confidenceMismatchNote(confidence, isCorrect) {
+  if (!Number.isInteger(confidence) || typeof isCorrect !== "boolean") return null;
+  if (confidence >= 4 && isCorrect === false) {
+    return "You were sure about this one, and it's wrong — the most useful kind of mistake to look at.";
+  }
+  if (confidence <= 2 && isCorrect === true) {
+    return "You weren't sure here, and it's right.";
+  }
+  return null;
 }
 
 /**
@@ -317,7 +341,8 @@ export async function submitReadyAnswer(appDataDir, sessionId, { answerText, sel
     }
     const isCorrect = gradeAutoGradedAnswer(question, { selectedIndex, answerText: trimmedAnswer });
     const rating = mapAutoGradeToRating(isCorrect);
-    await recordTopicReview(appDataDir, question.topicId, rating);
+    const topicBefore = await getTopicById(appDataDir, question.topicId);
+    const topicAfter = await recordTopicReview(appDataDir, question.topicId, rating);
     const entry = {
       ...question,
       answerText: question.type === "cloze" ? trimmedAnswer : null,
@@ -331,7 +356,13 @@ export async function submitReadyAnswer(appDataDir, sessionId, { answerText, sel
     // Graded now, so the answer key is no longer a secret: send the right
     // answer (and the explanation) so a miss can actually teach something.
     const correctAnswer = question.type === "multiple_choice" ? question.choices?.[question.correctIndex] ?? null : question.clozeAnswer ?? null;
-    return { ok: true, finalized: true, isCorrect, correctAnswer, modelAnswer: question.modelAnswer ?? null, session: updated };
+    // Deterministic, persona-consistent callouts (SPEC-v2.md section 5) —
+    // no model call either way here, so both are plain code: the
+    // confidence/correctness mismatch one-liner (`confidenceMismatchNote`)
+    // and the milestone-applause one (`justReachedMastered`, subjectSummary.js).
+    const mismatchNote = confidenceMismatchNote(confidence, isCorrect);
+    const milestone = topicBefore ? (justReachedMastered(topicBefore, topicAfter) ? `"${topicBefore.name}" just reached mastered.` : null) : null;
+    return { ok: true, finalized: true, isCorrect, correctAnswer, modelAnswer: question.modelAnswer ?? null, mismatchNote, milestone, session: updated };
   }
 
   const trimmedAnswer = typeof answerText === "string" ? answerText.trim() : "";
@@ -380,7 +411,8 @@ export async function submitReadySelfGrade(appDataDir, sessionId, { selfGrades }
   }
 
   const rating = mapSelfGradeToRating(selfGrades);
-  await recordTopicReview(appDataDir, question.topicId, rating);
+  const topicBefore = await getTopicById(appDataDir, question.topicId);
+  const topicAfter = await recordTopicReview(appDataDir, question.topicId, rating);
 
   const { pendingAnswer, ...questionWithoutPending } = question;
   const entry = {
@@ -391,5 +423,15 @@ export async function submitReadySelfGrade(appDataDir, sessionId, { selfGrades }
     answeredAt: new Date().toISOString(),
   };
   const updated = await recordAnswer(appDataDir, sessionId, entry);
-  return { ok: true, finalized: true, session: updated };
+  // Same deterministic callouts as the auto-graded branch above. A
+  // self-grade's "correctness" for the mismatch note is only meaningful at
+  // the two clean ends of `mapSelfGradeToRating`: "good" (every rubric
+  // point got_it — unambiguously right) and "again" (something missed —
+  // unambiguously wrong). "hard" (a mix of got_it/partly, no misses) is
+  // genuinely in between, so it gets no callout rather than a guess either
+  // way.
+  const isCorrect = rating === "good" ? true : rating === "again" ? false : null;
+  const mismatchNote = confidenceMismatchNote(pendingAnswer?.confidence, isCorrect);
+  const milestone = topicBefore ? (justReachedMastered(topicBefore, topicAfter) ? `"${topicBefore.name}" just reached mastered.` : null) : null;
+  return { ok: true, finalized: true, mismatchNote, milestone, session: updated };
 }

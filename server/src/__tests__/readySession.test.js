@@ -10,6 +10,7 @@ import {
   gradeAutoGradedAnswer,
   mapAutoGradeToRating,
   mapSelfGradeToRating,
+  confidenceMismatchNote,
   generateNextReadyQuestion,
   submitReadyAnswer,
   submitReadySelfGrade,
@@ -214,6 +215,34 @@ test("mapSelfGradeToRating: any partly (no missed) maps to hard", () => {
 
 test("mapSelfGradeToRating: any missed maps to again, even alongside got_it/partly", () => {
   assert.equal(mapSelfGradeToRating([{ status: "got_it" }, { status: "partly" }, { status: "missed" }]), "again");
+});
+
+// --- confidenceMismatchNote ------------------------------------------------
+
+test("confidenceMismatchNote flags confident-and-wrong", () => {
+  assert.equal(
+    confidenceMismatchNote(5, false),
+    "You were sure about this one, and it's wrong — the most useful kind of mistake to look at.",
+  );
+  assert.equal(confidenceMismatchNote(4, false) !== null, true);
+});
+
+test("confidenceMismatchNote flags unsure-and-right", () => {
+  assert.equal(confidenceMismatchNote(1, true), "You weren't sure here, and it's right.");
+  assert.equal(confidenceMismatchNote(2, true) !== null, true);
+});
+
+test("confidenceMismatchNote is null when confidence and correctness agree, or confidence is middling", () => {
+  assert.equal(confidenceMismatchNote(5, true), null);
+  assert.equal(confidenceMismatchNote(1, false), null);
+  assert.equal(confidenceMismatchNote(3, true), null);
+  assert.equal(confidenceMismatchNote(3, false), null);
+});
+
+test("confidenceMismatchNote is null for an ambiguous (ongoing self-grade) correctness or bad confidence", () => {
+  assert.equal(confidenceMismatchNote(5, null), null);
+  assert.equal(confidenceMismatchNote(null, false), null);
+  assert.equal(confidenceMismatchNote(undefined, true), null);
 });
 
 // --- generateNextReadyQuestion --------------------------------------------
@@ -472,6 +501,61 @@ test("submitReadyAnswer finalizes an incorrect cloze answer as again", async () 
   assert.equal(result.modelAnswer, "function");
 });
 
+test("submitReadyAnswer reports a confidence mismatch note on a confident-but-wrong auto-graded answer", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [
+    { type: "multiple_choice", prompt: "p", difficulty: "medium", modelAnswer: "b", rubric: [], misconceptions: [], choices: ["a", "b"], correctIndex: 1 },
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const result = await submitReadyAnswer(dir, session.id, { selectedIndex: 0, confidence: 5 });
+  assert.equal(result.isCorrect, false);
+  assert.equal(result.mismatchNote, "You were sure about this one, and it's wrong — the most useful kind of mistake to look at.");
+});
+
+test("submitReadyAnswer reports no mismatch note when confidence and correctness agree", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [
+    { type: "multiple_choice", prompt: "p", difficulty: "medium", modelAnswer: "b", rubric: [], misconceptions: [], choices: ["a", "b"], correctIndex: 1 },
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const result = await submitReadyAnswer(dir, session.id, { selectedIndex: 1, confidence: 5 });
+  assert.equal(result.isCorrect, true);
+  assert.equal(result.mismatchNote, null);
+});
+
+test("submitReadyAnswer reports a milestone when an auto-graded answer moves the topic to mastered", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await recordTopicReview(dir, topic.id, "good"); // Learning — one more "good" reaches Review/mastered
+  await addBankQuestions(dir, topic.id, subject.id, [
+    { type: "multiple_choice", prompt: "p", difficulty: "medium", modelAnswer: "b", rubric: [], misconceptions: [], choices: ["a", "b"], correctIndex: 1 },
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const result = await submitReadyAnswer(dir, session.id, { selectedIndex: 1, confidence: 3 });
+  assert.equal(result.milestone, `"${topic.name}" just reached mastered.`);
+});
+
+test("submitReadyAnswer reports no milestone when the topic doesn't freshly reach mastered", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [
+    { type: "multiple_choice", prompt: "p", difficulty: "medium", modelAnswer: "b", rubric: [], misconceptions: [], choices: ["a", "b"], correctIndex: 1 },
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const result = await submitReadyAnswer(dir, session.id, { selectedIndex: 1, confidence: 3 });
+  assert.equal(result.milestone, null);
+});
+
 test("submitReadyAnswer rejects a multiple_choice submission with no selectedIndex", async () => {
   const dir = await scratchDir();
   const { subject, topic } = await seedSubjectWithTopic(dir);
@@ -590,6 +674,50 @@ test("submitReadySelfGrade finalizes with an again rating when a point is missed
     selfGrades: [{ status: "missed" }, { status: "partly" }],
   });
   assert.equal(result.session.history[0].rating, "again");
+});
+
+test("submitReadySelfGrade reports a confidence mismatch note on an unsure-but-right self-grade", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+  await submitReadyAnswer(dir, session.id, { answerText: "not sure, guessing", confidence: 1 });
+
+  const result = await submitReadySelfGrade(dir, session.id, {
+    selfGrades: [{ status: "got_it" }, { status: "got_it" }],
+  });
+  assert.equal(result.mismatchNote, "You weren't sure here, and it's right.");
+});
+
+test("submitReadySelfGrade reports no mismatch note for a 'hard' (mixed) self-grade", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+  await submitReadyAnswer(dir, session.id, { answerText: "not sure, guessing", confidence: 1 });
+
+  const result = await submitReadySelfGrade(dir, session.id, {
+    selfGrades: [{ status: "got_it" }, { status: "partly" }],
+  });
+  assert.equal(result.session.history[0].rating, "hard");
+  assert.equal(result.mismatchNote, null);
+});
+
+test("submitReadySelfGrade reports a milestone when a self-graded answer moves the topic to mastered", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await recordTopicReview(dir, topic.id, "good"); // Learning — one more "good" reaches Review/mastered
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+  await submitReadyAnswer(dir, session.id, { answerText: "it calls itself with a base case", confidence: 4 });
+
+  const result = await submitReadySelfGrade(dir, session.id, {
+    selfGrades: [{ status: "got_it" }, { status: "got_it" }],
+  });
+  assert.equal(result.milestone, `"${topic.name}" just reached mastered.`);
 });
 
 test("submitReadySelfGrade rejects a wrong number of selfGrades entries", async () => {

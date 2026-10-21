@@ -1311,11 +1311,15 @@ select {
 }
 
 .study-result p.study-result-answer,
-.study-result p.study-result-explanation {
+.study-result p.study-result-explanation,
+.study-result p.study-result-mismatch,
+.study-result p.study-result-milestone {
   font-weight: 400;
 }
 
-.study-result p.study-result-explanation {
+.study-result p.study-result-explanation,
+.study-result p.study-result-mismatch,
+.study-result p.study-result-milestone {
   color: var(--text);
 }
 

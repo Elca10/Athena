@@ -5,6 +5,13 @@
 // material and proposes topic names, run as a one-shot, non-interactive
 // `claude -p` call.
 //
+// No persona/voice guidance in this turn's prompt, deliberately (SPEC-v2.md
+// section 5's prompt audit): this turn only ever produces short topic
+// labels and one-line notes, not conversational/user-facing feedback text,
+// so there's no voice to bring in line — unlike liveSession.js's and
+// questionBankGeneration.js's prompts, which do load persona/persona.js's
+// `getPersonaBlock()`.
+//
 // Security/privacy shape, deliberately narrow — a comparable background
 // turn elsewhere settled on exactly this shape after learning that a
 // prompt-level instruction alone isn't a real boundary: the turn is

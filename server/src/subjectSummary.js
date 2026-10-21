@@ -16,7 +16,7 @@ import { localDateOf } from "./localDate.js";
 // steps, so it's the natural "mastered" bucket for a v1 summary (Ada's call,
 // section 11-style — a deeper mastery model, if ever wanted, is a bigger
 // feature than a dashboard card stat).
-function classifyMastery(topic) {
+export function classifyMastery(topic) {
   const state = topic.fsrs?.state;
   if (state === 2) return "mastered";
   if (state === 1 || state === 3) return "learning";
@@ -27,6 +27,20 @@ export function computeMasteryCounts(topics) {
   const counts = { new: 0, learning: 0, mastered: 0 };
   for (const topic of topics) counts[classifyMastery(topic)] += 1;
   return counts;
+}
+
+/**
+ * Whether reviewing a topic just moved it into "mastered" (above) that it
+ * wasn't in before — SPEC-v2.md section 5's milestone-applause rule
+ * ("applaud progress when real milestones are reached ... stated as the
+ * earned fact"): the one milestone this app can detect deterministically,
+ * from the FSRS state change alone, with no model call and no guessing.
+ * Pure, exported for its own test; liveSession.js's `submitLiveAnswer` and
+ * readySession.js's answer/self-grade paths all call this with the
+ * topic's state right before and right after `recordTopicReview`.
+ */
+export function justReachedMastered(beforeTopic, afterTopic) {
+  return classifyMastery(beforeTopic) !== "mastered" && classifyMastery(afterTopic) === "mastered";
 }
 
 export async function getSubjectSummary(appDataDir, subjectId, now = new Date()) {

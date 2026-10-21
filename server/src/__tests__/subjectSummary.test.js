@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createSubject } from "../subjects.js";
 import { addPlannedTopics, recordTopicReview } from "../topics.js";
 import { addBankQuestions } from "../questionBank.js";
-import { computeMasteryCounts, getSubjectSummary } from "../subjectSummary.js";
+import { computeMasteryCounts, getSubjectSummary, justReachedMastered } from "../subjectSummary.js";
 import { makeTempDir } from "../testHelpers/tempDir.js";
 
 async function scratchDir() {
@@ -21,6 +21,24 @@ test("computeMasteryCounts buckets New/Learning/Review/Relearning into new/learn
 
 test("computeMasteryCounts treats a missing fsrs state as new", () => {
   assert.deepEqual(computeMasteryCounts([{}]), { new: 1, learning: 0, mastered: 0 });
+});
+
+// --- justReachedMastered -------------------------------------------------
+
+test("justReachedMastered is true only when state moves from non-mastered to mastered", () => {
+  assert.equal(justReachedMastered(fakeTopic(1), fakeTopic(2)), true);
+  assert.equal(justReachedMastered(fakeTopic(0), fakeTopic(2)), true);
+});
+
+test("justReachedMastered is false when already mastered, or still not mastered", () => {
+  assert.equal(justReachedMastered(fakeTopic(2), fakeTopic(2)), false);
+  assert.equal(justReachedMastered(fakeTopic(0), fakeTopic(1)), false);
+  assert.equal(justReachedMastered(fakeTopic(2), fakeTopic(3)), false);
+});
+
+test("justReachedMastered treats a missing fsrs state as new on both sides", () => {
+  assert.equal(justReachedMastered({}, {}), false);
+  assert.equal(justReachedMastered({}, fakeTopic(2)), true);
 });
 
 test("getSubjectSummary on a subject with no topics returns all-zero counts", async () => {

@@ -57,6 +57,9 @@ const ALLOWED_PATH_PATTERNS = [
   /^installers\/.+\.(sh|ps1|js|mjs)$/,
   /^server\/package(-lock)?\.json$/,
   /^server\/src\/.+\.js$/,
+  // Athena's voice doc (SPEC-v2.md section 5): a nested .md source file,
+  // the one exception to server/src being JS-only above.
+  /^server\/src\/persona\/PERSONA\.md$/,
   /^server\/scripts\/[^/]+\.js$/,
   /^web\/package(-lock)?\.json$/,
   /^web\/index\.html$/,

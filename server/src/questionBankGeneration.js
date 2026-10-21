@@ -23,6 +23,7 @@ import { MAX_SESSION_TOPICS } from "./sessionBuilder.js";
 import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.js";
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
+import { getPersonaBlock } from "./persona/persona.js";
 
 const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "WebFetch", "WebSearch", "mcp__*"];
 
@@ -102,6 +103,8 @@ export function buildBankPrompt({ subjectName, topics, files, questionsPerTopic 
 
   return `This is a one-shot background task, not a conversation. Don't ask questions back; just produce the question bank below and reply once.
 
+${getPersonaBlock()}
+
 Subject: ${subjectName}
 
 ${filesBlock}
@@ -112,9 +115,9 @@ ${topicsBlock}
 For EACH topic above, write exactly ${questionsPerTopic} questions, varied in type and angle (not ${questionsPerTopic} versions of the same question) — pick from: ${QUESTION_TYPES.join(", ")}. For every question, give:
 - "prompt": the question text shown to the user (for "cloze", include a blank in the text, e.g. "_____").
 - "difficulty": one of intro, medium, hard.
-- "modelAnswer": a correct, complete answer.
+- "modelAnswer": a correct, complete answer, written in the voice above (specific, no padding, no inflation) — this is shown to the user verbatim later, as Ready mode's self-grading comparison.
 - "rubric": the key points a correct answer should hit, as a short list — required for every type except multiple_choice/cloze (those are graded automatically from their own answer key below, not a rubric).
-- "misconceptions": common wrong answers or mix-ups for this question, as a short list (can be empty if none are notable).
+- "misconceptions": common wrong answers or mix-ups for this question, as a short list (can be empty if none are notable), also in the voice above.
 - "isGenerationQuestion": true or false (see below; false unless told otherwise for a specific topic).
 ${generationBlock}
 Additionally, for a "multiple_choice" question also give "choices" (2-6 short options) and "correctIndex" (the 0-based index of the right one in "choices"). For a "cloze" question also give "clozeAnswer" (the exact text that fills the blank).

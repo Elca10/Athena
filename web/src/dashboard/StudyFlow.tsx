@@ -375,8 +375,15 @@ function ModePicker({
 
 type RevealedAnswer = { modelAnswer: string; rubric: string[]; misconceptions: string[] };
 type LastResult =
-  | { kind: "auto"; isCorrect: boolean; correctAnswer: string | null; explanation: string | null }
-  | { kind: "self" };
+  | {
+      kind: "auto";
+      isCorrect: boolean;
+      correctAnswer: string | null;
+      explanation: string | null;
+      mismatchNote: string | null;
+      milestone: string | null;
+    }
+  | { kind: "self"; mismatchNote: string | null; milestone: string | null };
 
 // The explanation only adds something when it isn't just the answer again
 // (a bank's modelAnswer for a fill-in is often the bare word).
@@ -615,6 +622,8 @@ function ReadySessionScreen({
           isCorrect: result.isCorrect,
           correctAnswer: result.correctAnswer ?? null,
           explanation: explanationFor(result.correctAnswer ?? null, result.modelAnswer ?? null),
+          mismatchNote: result.mismatchNote ?? null,
+          milestone: result.milestone ?? null,
         });
       } else {
         setRevealed({ modelAnswer: result.modelAnswer, rubric: result.rubric, misconceptions: result.misconceptions });
@@ -637,7 +646,7 @@ function ReadySessionScreen({
         selfGrades.map((status) => ({ status: status as SelfGradeStatus })),
       );
       setSession(result.session);
-      setLastResult({ kind: "self" });
+      setLastResult({ kind: "self", mismatchNote: result.mismatchNote ?? null, milestone: result.milestone ?? null });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't submit that self-grade.");
     } finally {
@@ -834,6 +843,8 @@ function ReadySessionScreen({
               {lastResult.kind === "auto" && lastResult.explanation && (
                 <p className="study-result-explanation">{lastResult.explanation}</p>
               )}
+              {lastResult.mismatchNote && <p className="study-result-mismatch">{lastResult.mismatchNote}</p>}
+              {lastResult.milestone && <p className="study-result-milestone">{lastResult.milestone}</p>}
               <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy} autoFocus>
                 Next question
               </button>
@@ -845,7 +856,7 @@ function ReadySessionScreen({
   );
 }
 
-type LiveFeedback = { feedback: string; rating: string };
+type LiveFeedback = { feedback: string; rating: string; milestone: string | null };
 
 // Live mode (SPEC.md section 5): every question is one of the free-form
 // types (liveSession.js never generates multiple_choice/cloze — those need
@@ -933,7 +944,7 @@ function LiveSessionScreen({
       }
       setSession(result.session);
       const last = result.session.history[result.session.history.length - 1] as LiveHistoryEntry;
-      setFeedback({ feedback: last.feedback, rating: last.rating });
+      setFeedback({ feedback: last.feedback, rating: last.rating, milestone: result.milestone ?? null });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't submit that answer.");
     } finally {
@@ -1030,6 +1041,7 @@ function LiveSessionScreen({
           {feedback && (
             <div className="study-result">
               <p>{feedback.feedback}</p>
+              {feedback.milestone && <p className="study-result-milestone">{feedback.milestone}</p>}
               <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy} autoFocus>
                 Next question
               </button>

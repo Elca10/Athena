@@ -156,6 +156,16 @@ test("buildFirstQuestionPrompt frames a brand-new topic as attempt-first", () =>
   assert.match(prompt, /athena-live-question/);
 });
 
+test("buildFirstQuestionPrompt includes Athena's persona voice guidance", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: true,
+  });
+  assert.match(prompt, /Impersonal and direct/);
+  assert.match(prompt, /Never refer to yourself by name/);
+});
+
 test("buildFirstQuestionPrompt frames a reviewed topic as a real recall/application test", () => {
   const prompt = buildFirstQuestionPrompt({
     subjectNames: ["Organic Chemistry"],
@@ -538,6 +548,43 @@ test("buildGradingPrompt appends stored preferences when given any", () => {
   assert.match(prompt, /worked example after a miss/);
 });
 
+test("buildGradingPrompt includes Athena's persona voice guidance, not ad-hoc duplicate tone wording", () => {
+  const prompt = buildGradingPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    question: { prompt: "Q?", type: "free_recall", difficulty: "intro" },
+    answerText: "an answer",
+  });
+  assert.match(prompt, /Impersonal and direct/);
+  assert.match(prompt, /confident\s+and wrong, or unsure and right/);
+  // The persona doc is the one source of voice instructions — no leftover
+  // ad-hoc tone wording duplicated in the task-specific text around it
+  // (the old "don't soften a wrong answer with unearned praise" line).
+  assert.doesNotMatch(prompt, /unearned praise/);
+});
+
+test("buildGradingPrompt passes the user's stated confidence through to the model, when given", () => {
+  const prompt = buildGradingPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    question: { prompt: "Q?", type: "free_recall", difficulty: "intro" },
+    answerText: "an answer",
+    confidence: 5,
+  });
+  assert.match(prompt, /stated confidence in this answer.*: 5/s);
+  assert.match(prompt, /confidence-vs-correctness guidance/);
+});
+
+test("buildGradingPrompt omits the confidence line when no confidence is given", () => {
+  const prompt = buildGradingPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    question: { prompt: "Q?", type: "free_recall", difficulty: "intro" },
+    answerText: "an answer",
+  });
+  assert.doesNotMatch(prompt, /stated confidence/);
+});
+
 // --- parseGradingReply ---------------------------------------------------
 
 function feedbackFence(obj) {
@@ -662,6 +709,41 @@ test("submitLiveAnswer grades the answer, updates FSRS, and records history", as
   const { listTopics } = await import("../topics.js");
   const [updatedTopic] = await listTopics(dir, topic.subjectId);
   assert.notEqual(updatedTopic.fsrs.reps, topic.fsrs.reps);
+});
+
+test("submitLiveAnswer passes the user's stated confidence through to the grading prompt", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedWaitingSession(dir);
+  let seenPrompt = "";
+  const runTurn = async (prompt) => {
+    seenPrompt = prompt;
+    return feedbackFence({ feedback: "ok", rating: "good" });
+  };
+  await submitLiveAnswer(dir, session.id, { answerText: "an answer", confidence: 5 }, { runTurn });
+  assert.match(seenPrompt, /stated confidence in this answer.*: 5/s);
+});
+
+test("submitLiveAnswer reports a milestone when this review moves the topic to mastered", async () => {
+  const dir = await scratchDir();
+  // Seeded already-reviewed-once (state: Learning) — one more "good" review
+  // pushes ts-fsrs's card to Review, this app's "mastered" bucket
+  // (subjectSummary.js's classifyMastery).
+  const { session, topic } = await seedWaitingSession(dir, { reviewed: true });
+  const runTurn = async () => feedbackFence({ feedback: "Correct.", rating: "good" });
+
+  const result = await submitLiveAnswer(dir, session.id, { answerText: "an answer", confidence: 4 }, { runTurn });
+  assert.equal(result.ok, true);
+  assert.equal(result.milestone, `"${topic.name}" just reached mastered.`);
+});
+
+test("submitLiveAnswer reports no milestone when the topic doesn't freshly reach mastered", async () => {
+  const dir = await scratchDir();
+  const { session } = await seedWaitingSession(dir);
+  const runTurn = async () => feedbackFence({ feedback: "Correct.", rating: "good" });
+
+  const result = await submitLiveAnswer(dir, session.id, { answerText: "an answer", confidence: 4 }, { runTurn });
+  assert.equal(result.ok, true);
+  assert.equal(result.milestone, null);
 });
 
 test("submitLiveAnswer includes stored preferences in the prompt sent to the model", async () => {
