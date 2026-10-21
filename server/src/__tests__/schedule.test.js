@@ -317,22 +317,25 @@ test("blockId and parseBlockId round-trip; junk ids are rejected", () => {
   for (const bad of ["", "nocolon", "2026-13-01:x", "2026-10-20:", null]) assert.equal(parseBlockId(bad), null);
 });
 
-test("over a DST change the schedule has 14 consecutive days and topics land on their local day", () => {
-  const before = process.env.TZ;
-  process.env.TZ = "America/New_York";
-  try {
-    const due = new Date(2026, 10, 1, 0, 30).getTime(); // 00:30 local on the day clocks fall back
-    const s = computeSchedule({ today: "2026-10-28", subjects, topics: [{ id: "a", subjectId: "s1", name: "A", fsrs: { due } }] });
-    const dates = s.days.map((d) => d.date);
-    assert.equal(new Set(dates).size, 14);
-    assert.equal(dates.at(-1), "2026-11-10");
-    assert.deepEqual(daysOf(s, "a"), ["2026-11-01"]);
-    assert.equal(s.days.find((d) => d.date === "2026-11-01").weekday, 0);
-  } finally {
-    if (before === undefined) delete process.env.TZ;
-    else process.env.TZ = before;
-  }
-});
+// The DST-change case (clocks falling back over 2026-11-01) lives in its
+// own file, schedule.dst.test.js — not here. It's the one test in this
+// suite that mutates process.env.TZ mid-process, and node's test runner
+// isolates test *files* into separate processes but not individual tests
+// within one file. Restoring TZ afterwards is reliable on Linux/macOS but
+// not on Windows (a real Windows-only Node quirk: a mid-process TZ change
+// doesn't always get picked back up when reset), so a leaked
+// "America/New_York" silently outlived this test and shifted every local
+// `Date`/`new Date(...).getTime()` computed afterwards in this same file —
+// including seed()'s due dates versus the module-level NOW constant below,
+// which is fixed at import time under the real ambient zone. That's what
+// produced a Windows-only failure in the unrelated "Study picks up..."
+// test further down this file (actual [] vs expected ['due']): nothing
+// wrong with sessionBuilder.js/schedule.js's own due-date logic, which is
+// correctly TZ-ambient by design (SPEC: Athena runs in the user's own
+// local zone) — the bug was this test leaking a different zone forward.
+// Giving the DST test its own file makes a repeat of this impossible:
+// whatever Windows does or doesn't honor when the TZ override there is
+// restored, there's no later test in that process left to see it.
 
 // ---- stored decisions, through the data dir --------------------------------
 
