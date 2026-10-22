@@ -1,0 +1,1 @@
+Bring your assignments and exams in from Canvas. On the **Calendar**, open **Import deadlines from Canvas**, paste your Canvas Calendar Feed link once, then tick what you want to study for and pick the subject. If Canvas moves a date later, Athena shows the change and lets you update it with one click.

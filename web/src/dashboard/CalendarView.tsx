@@ -10,6 +10,7 @@ import {
 } from "./api";
 import { dayHeading, formatDay, WEEKDAY_NAMES, WEEKDAY_ORDER, WEEKDAY_SHORT } from "./calendarDates";
 import { AppearanceMenu } from "../theme/AppearanceMenu";
+import { CanvasImport } from "./CanvasImport";
 
 // The Calendar (SPEC.md section 9, SPEC-v2.md section 2): the suggested
 // schedule for the next two weeks, worked out on the server from what's
@@ -125,6 +126,8 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
               setMessage({ text: "Saved. The plan now uses your new study days.", ok: true });
             }}
           />
+
+          <CanvasImport onImported={load} />
 
           {message && (
             <div className={message.ok ? "dashboard-notice" : "dashboard-notice dashboard-notice-error"} role={message.ok ? "status" : "alert"}>

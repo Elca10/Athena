@@ -11,9 +11,10 @@
 // a deadline whose topics are all gone covers nothing rather than
 // silently widening to the whole subject.
 //
-// `source` is "manual" for everything today; an imported calendar feed
-// (SPEC-v2.md section 2's Canvas import, a later step) adds its own
-// source and external id alongside, without changing these fields.
+// `source` is "manual" for hand-entered deadlines and "canvas" for ones
+// imported from the user's Canvas calendar feed (canvasFeed.js), which
+// also carry the feed event's UID as `externalId`. Neither can be set
+// over HTTP: only canvasFeed.js passes them.
 //
 // Dates are local calendar dates (localDate.js). Missing file = no
 // deadlines, so existing installs need no migration.
@@ -75,7 +76,12 @@ async function cleanTopicIds(appDataDir, subjectId, topicIds) {
 
 /** Throws (a user-facing message) on invalid input; the route turns it
  * into a 400. */
-export async function createDeadline(appDataDir, subjectId, { title, date, topicIds, studying = true }) {
+export async function createDeadline(
+  appDataDir,
+  subjectId,
+  { title, date, topicIds, studying = true },
+  { source = "manual", externalId } = {},
+) {
   const now = new Date().toISOString();
   const deadline = {
     id: randomUUID(),
@@ -84,7 +90,8 @@ export async function createDeadline(appDataDir, subjectId, { title, date, topic
     date: cleanDate(date),
     topicIds: await cleanTopicIds(appDataDir, subjectId, topicIds),
     studying: studying !== false,
-    source: "manual",
+    source,
+    ...(externalId ? { externalId } : {}),
     createdAt: now,
     updatedAt: now,
   };

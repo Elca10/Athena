@@ -1799,6 +1799,112 @@ select {
   gap: 0.5rem;
 }
 
+/* Canvas calendar-feed import (CanvasImport.tsx), collapsed by default. */
+.canvas-import {
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.canvas-import summary {
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.canvas-import-body,
+.canvas-connect,
+.canvas-events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.canvas-import-body {
+  margin-top: 0.75rem;
+}
+
+.canvas-import-hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.canvas-connect-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  font-size: 0.9rem;
+}
+
+.canvas-connect-field input {
+  width: 100%;
+}
+
+.canvas-import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.canvas-events-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.canvas-events-subheading {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.canvas-event-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.canvas-event {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.canvas-event-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+
+.canvas-event-title {
+  font-weight: 500;
+}
+
+.canvas-event-meta {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+
+.canvas-event-changed {
+  flex-basis: 100%;
+  color: var(--text-h);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
 .calendar-days {
   list-style: none;
   padding: 0;

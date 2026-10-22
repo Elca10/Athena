@@ -82,8 +82,22 @@ an open owner decision (v1 section 12).
   by block id (`<originDate>:<topicId>`); any override still on today or
   later claims its topic so nothing computed replaces it, and overrides
   are applied last. Real sessions mark today's blocks done. Study adds
-  today's pulled-forward and user-placed topics. Still to do: Canvas
-  calendar-feed import; the ICS feed of study blocks (deferred).
+  today's pulled-forward and user-placed topics. Still to do: the ICS
+  feed of study blocks (deferred).
+- **Built (v0.8.0), Canvas calendar-feed import.** `canvasFeed.js`: the
+  user pastes the feed link once (Calendar → Import deadlines from
+  Canvas); it must be an https `/feeds/calendars/*.ics` link (webcal://
+  accepted), is test-fetched before it's saved to `canvas-feed.json`, and
+  never leaves the server again (status reports the host only; error
+  messages never contain it; `redact.js` strips feed links from bug
+  reports). The ICS is fetched (20s timeout, 5 MB cap) and parsed in plain
+  code; upcoming events are listed with a subject suggested from the
+  course in brackets when exactly one subject matches. Ticked events
+  become ordinary deadlines (`source: "canvas"`, the event UID as
+  `externalId`, never imported twice), with title and date taken from a
+  fresh fetch, not the browser. An added event whose title or date later
+  changes in Canvas is only flagged, with an Update button; nothing is
+  rewritten on its own.
 
 ## 3. Make It Stick — remaining rows (v1 section 6)
 

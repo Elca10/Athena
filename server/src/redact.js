@@ -21,6 +21,11 @@ const POSIX_HOME_RE = /\/(home|Users)\/([^/\s]+)/g;
 // slash direction since text pasted from different tools varies.
 const WINDOWS_HOME_RE = /([A-Za-z]:[\\/]Users[\\/])([^\\/\s]+)/g;
 
+// A calendar-feed link (canvasFeed.js) is a secret: anyone holding it can
+// read the user's Canvas calendar. Matched by shape, so it's caught even
+// in text the user typed or pasted themselves.
+const CALENDAR_FEED_RE = /(?:https?|webcal):\/\/[^\s"'<>]*\/feeds\/calendars\/[^\s"'<>]+/gi;
+
 function redactPaths(text) {
   return text.replace(POSIX_HOME_RE, (_m, prefix) => `/${prefix}/<user>`).replace(WINDOWS_HOME_RE, (_m, prefix) => `${prefix}<user>`);
 }
@@ -49,6 +54,8 @@ function redactLiterals(text, literals, placeholder) {
 
 /**
  * Redacts `text` for inclusion in a public GitHub issue. Order:
+ * 0. calendar-feed links, whole (before paths, which would only blank
+ *    part of one).
  * 1. home-directory paths (POSIX and Windows forms).
  * 2. email addresses — must come before extraLiterals below: an OS
  *    username is very often also the local part of the user's email
@@ -65,6 +72,7 @@ function redactLiterals(text, literals, placeholder) {
  */
 export function redactText(text, { subjectNames = [], topicNames = [], extraLiterals = [] } = {}) {
   let result = String(text ?? "");
+  result = result.replace(CALENDAR_FEED_RE, "<calendar-feed>");
   result = redactPaths(result);
   result = redactEmails(result);
   result = redactLiterals(result, extraLiterals, "<redacted>");

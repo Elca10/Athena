@@ -20,6 +20,7 @@ import { makeSessionsRouter } from "./routes/sessions.js";
 import { makeReflectionsRouter } from "./routes/reflections.js";
 import { makeDeadlinesRouter } from "./routes/deadlines.js";
 import { makeScheduleRouter } from "./routes/schedule.js";
+import { makeCanvasFeedRouter } from "./routes/canvasFeed.js";
 import { makeBigIdeasRouter } from "./routes/bigIdeas.js";
 import { makeStatsRouter } from "./routes/stats.js";
 import { makePreferencesRouter } from "./routes/preferences.js";
@@ -85,6 +86,7 @@ export async function createApp() {
   app.use("/api/subjects/:id/reflections", makeReflectionsRouter(appDataDir));
   app.use("/api/subjects/:id/deadlines", makeDeadlinesRouter(appDataDir));
   app.use("/api/schedule", makeScheduleRouter(appDataDir));
+  app.use("/api/canvas-feed", makeCanvasFeedRouter(appDataDir));
   app.use("/api/subjects/:id/big-ideas", makeBigIdeasRouter(appDataDir));
   app.use(
     "/api/sessions",

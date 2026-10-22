@@ -117,3 +117,10 @@ test("does not redact a username-shaped word that isn't actually a home path or 
   const result = redactText("my friend chris helped me set this up", { extraLiterals: [] });
   assert.equal(result, "my friend chris helped me set this up");
 });
+
+test("redacts a calendar-feed link whole, in https and webcal form", () => {
+  const text =
+    "my feed https://school.instructure.com/feeds/calendars/user_SECRET123.ics broke, also webcal://canvas.uni.edu/feeds/calendars/user_SECRET456.ics";
+  const out = redactText(text);
+  assert.equal(out, "my feed <calendar-feed> broke, also <calendar-feed>");
+});

@@ -541,6 +541,44 @@ export function deleteDeadline(subjectId: string, id: string): Promise<void> {
   return deleteJson(`/api/subjects/${subjectId}/deadlines/${id}`);
 }
 
+// Canvas calendar-feed import (server/src/canvasFeed.js). The feed URL is
+// a secret and never comes back from the server: status names the host only.
+export type CanvasFeedStatus = { connected: boolean; host: string | null };
+
+export type CanvasFeedEvent = {
+  uid: string;
+  title: string;
+  course: string | null;
+  date: string;
+  /** The deadline this event was already added as, if any. */
+  imported: { deadlineId: string; subjectId: string; title: string; date: string } | null;
+  /** Canvas's title or date no longer matches that deadline. */
+  changed: boolean;
+  suggestedSubjectId: string | null;
+};
+
+export function getCanvasFeedStatus(): Promise<CanvasFeedStatus> {
+  return getJson("/api/canvas-feed");
+}
+
+export function connectCanvasFeed(url: string): Promise<CanvasFeedStatus> {
+  return putJsonBody("/api/canvas-feed", { url });
+}
+
+export function disconnectCanvasFeed(): Promise<void> {
+  return deleteJson("/api/canvas-feed");
+}
+
+export async function listCanvasFeedEvents(): Promise<CanvasFeedEvent[]> {
+  const res = await fetch("/api/canvas-feed/events");
+  if (!res.ok) throw new Error(await errorMessage(res, `Couldn't load your Canvas events (${res.status}).`));
+  return res.json();
+}
+
+export function importCanvasFeedEvents(subjectId: string, uids: string[]): Promise<{ added: Deadline[]; skipped: number }> {
+  return postJsonBody("/api/canvas-feed/import", { subjectId, uids });
+}
+
 // The suggested schedule (server/src/schedule.js, routes/schedule.js).
 // Weekdays are 0 = Sunday ... 6 = Saturday.
 export type Availability = { weekdays: number[]; minutesPerDay: number };
