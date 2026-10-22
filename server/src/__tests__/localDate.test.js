@@ -3,7 +3,7 @@
 // Node re-reads TZ when it changes, on every OS.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addDays, daysBetween, isValidDateString, localDateOf, weekdayOf } from "../localDate.js";
+import { addDays, daysBetween, isValidDateString, localDateOf, startOfWeek, weekdayOf } from "../localDate.js";
 
 function inZone(tz, fn) {
   const before = process.env.TZ;
@@ -76,4 +76,12 @@ test("isValidDateString accepts real dates only", () => {
   for (const bad of ["2026-02-30", "2027-02-29", "2026-13-01", "2026-1-1", "20261020", "", null, 20261020, "2026-10-20T00:00"]) {
     assert.equal(isValidDateString(bad), false, String(bad));
   }
+});
+
+test("startOfWeek is the Monday on or before the date", () => {
+  assert.equal(startOfWeek("2026-10-19"), "2026-10-19"); // Monday
+  assert.equal(startOfWeek("2026-10-21"), "2026-10-19");
+  assert.equal(startOfWeek("2026-10-25"), "2026-10-19"); // Sunday ends the week
+  assert.equal(startOfWeek("2026-11-01"), "2026-10-26");
+  assert.equal(startOfWeek("2027-01-02"), "2026-12-28"); // across a year
 });

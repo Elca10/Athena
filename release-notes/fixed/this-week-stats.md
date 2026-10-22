@@ -1,0 +1,1 @@
+**This week** on the dashboard now means the current week, Monday to Sunday, so it starts again from zero every Monday. Your streak also follows your own clock now, so a late-evening session counts for the day you studied. (#12)

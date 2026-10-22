@@ -56,3 +56,9 @@ export function daysBetween(a, b) {
 export function weekdayOf(dateString) {
   return new Date(toUtcMs(dateString)).getUTCDay();
 }
+
+/** The Monday on or before `dateString` (weeks run Monday to Sunday, the
+ *  same order the Calendar shows them in). */
+export function startOfWeek(dateString) {
+  return addDays(dateString, -((weekdayOf(dateString) + 6) % 7));
+}

@@ -3,18 +3,18 @@
 // over sessions.js's existing data — no storage of its own, same posture
 // as subjectSummary.js.
 //
-// "This week" is a rolling 7-day window ending now (not a calendar week) —
-// simpler than reasoning about week-start day or the user's timezone, and
-// consistent with how the scheduler already treats "due" as relative to
-// `now` rather than a calendar boundary (Ada's call, section 11-style).
+// "This week" is the current local calendar week, Monday to Sunday (the
+// Calendar's own week order). It used to be a rolling 7-day window, which
+// kept showing last week's activity as "this week" for days after Monday
+// (issue #12). Days are the user's local days (localDate.js): Athena runs
+// on the user's machine, so the server's zone is theirs.
 // Accuracy and calibration are deliberately all-time, not weekly: section
 // 6 describes calibration as "predicted vs actual accuracy over time",
 // and a 7-day accuracy figure would be noisy at the small session counts
 // this app expects.
 
+import { addDays, localDateOf, startOfWeek } from "./localDate.js";
 import { listSessions } from "./sessions.js";
-
-const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 // "good"/"easy" mean the answer was right or solid; "again"/"hard" mean it
 // wasn't there yet. This holds across Live's model-graded rating and
@@ -30,24 +30,22 @@ function allAnsweredQuestions(sessions) {
   return sessions.flatMap((s) => s.history ?? []);
 }
 
-function dayKey(isoString) {
-  return isoString.slice(0, 10); // YYYY-MM-DD, UTC
-}
-
 /**
- * Longest-running streak of consecutive days (including today) with at
- * least one answered question, counting backward from `now`. A day with
- * zero answered questions anywhere in it breaks the streak. Day boundaries
- * are UTC calendar days (server has no reliable user timezone) — a rough
- * edge at midnight is an acceptable tradeoff for a stat this informal.
+ * Longest-running streak of consecutive local days (including today) with
+ * at least one answered question, counting backward from `now`. A day with
+ * zero answered questions anywhere in it breaks the streak.
  */
 export function computeStreakDays(sessions, now = new Date()) {
-  const answeredDays = new Set(allAnsweredQuestions(sessions).map((q) => dayKey(q.answeredAt)).filter(Boolean));
+  const answeredDays = new Set(
+    allAnsweredQuestions(sessions)
+      .filter((q) => q.answeredAt)
+      .map((q) => localDateOf(q.answeredAt)),
+  );
   let streak = 0;
-  const cursor = new Date(now);
-  while (answeredDays.has(dayKey(cursor.toISOString()))) {
+  let day = localDateOf(now);
+  while (answeredDays.has(day)) {
     streak += 1;
-    cursor.setUTCDate(cursor.getUTCDate() - 1);
+    day = addDays(day, -1);
   }
   return streak;
 }
@@ -86,13 +84,12 @@ export async function getSessionStats(appDataDir, now = new Date()) {
   // 4) — it shouldn't also erase it from stats that are about historical
   // activity, so this reads every session, archived or not.
   const sessions = await listSessions(appDataDir, { includeArchived: true });
-  const weekStart = new Date(now.getTime() - WEEK_MS);
+  // YYYY-MM-DD strings compare correctly as plain strings.
+  const weekStart = startOfWeek(localDateOf(now));
+  const inThisWeek = (instant) => instant && new Date(instant) <= now && localDateOf(instant) >= weekStart;
 
-  const sessionsThisWeek = sessions.filter((s) => new Date(s.startedAt) >= weekStart).length;
-  const questionsThisWeek = allAnsweredQuestions(sessions).filter((q) => {
-    const answeredAt = q.answeredAt ? new Date(q.answeredAt) : null;
-    return answeredAt && answeredAt >= weekStart && answeredAt <= now;
-  }).length;
+  const sessionsThisWeek = sessions.filter((s) => inThisWeek(s.startedAt)).length;
+  const questionsThisWeek = allAnsweredQuestions(sessions).filter((q) => inThisWeek(q.answeredAt)).length;
 
   return {
     sessionsThisWeek,
