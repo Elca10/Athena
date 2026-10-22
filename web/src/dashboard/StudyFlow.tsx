@@ -24,7 +24,7 @@ import {
   type Subject,
 } from "./api";
 import { BigIdeasEditor } from "./BigIdeasEditor";
-import { ThemeToggle } from "../theme/ThemeToggle";
+import { AppearanceMenu } from "../theme/AppearanceMenu";
 
 // The Study flow (SPEC.md section 4's Study button; section 5's session
 // screen): the mode picker, Ready mode's bank-backed session loop
@@ -149,7 +149,7 @@ export function StudyFlow({
         <div className="dashboard-header-top">
           <h1>Study</h1>
           <div className="dashboard-header-actions">
-            <ThemeToggle />
+            <AppearanceMenu />
             {session && !reflectingId && (
               <button type="button" onClick={endEarly}>
                 End session

@@ -9,7 +9,7 @@ import {
   type ScheduleBlock,
 } from "./api";
 import { dayHeading, formatDay, WEEKDAY_NAMES, WEEKDAY_ORDER, WEEKDAY_SHORT } from "./calendarDates";
-import { ThemeToggle } from "../theme/ThemeToggle";
+import { AppearanceMenu } from "../theme/AppearanceMenu";
 
 // The Calendar (SPEC.md section 9, SPEC-v2.md section 2): the suggested
 // schedule for the next two weeks, worked out on the server from what's
@@ -91,7 +91,7 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
         <div className="dashboard-header-top">
           <h1>Calendar</h1>
           <div className="dashboard-header-actions">
-            <ThemeToggle />
+            <AppearanceMenu />
             <button type="button" onClick={leave}>
               Back to dashboard
             </button>

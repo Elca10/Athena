@@ -29,7 +29,7 @@ import { StudyFlow } from "./StudyFlow";
 import { CalendarView } from "./CalendarView";
 import { formatDay, localToday, relativeDay } from "./calendarDates";
 import { UpdateControl } from "../update/UpdateControl";
-import { ThemeToggle } from "../theme/ThemeToggle";
+import { AppearanceMenu } from "../theme/AppearanceMenu";
 
 // The real dashboard (SPEC.md section 4). The top bar's stats row
 // (StatsTiles.tsx) shows session stats and subscription usage as tiles,
@@ -271,7 +271,7 @@ export function Dashboard() {
           <h1>Athena</h1>
           <div className="dashboard-header-actions">
             <UpdateControl onReportBug={() => openPanel("bug")} />
-            <ThemeToggle />
+            <AppearanceMenu />
             <button type="button" onClick={() => openPanel("bug")}>
               Report a bug
             </button>
@@ -462,7 +462,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
         <div className="dashboard-header-top">
           <h1>Archive</h1>
           <div className="dashboard-header-actions">
-            <ThemeToggle />
+            <AppearanceMenu />
             <button type="button" onClick={onBack}>
               Back to dashboard
             </button>

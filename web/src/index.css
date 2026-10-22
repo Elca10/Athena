@@ -207,6 +207,93 @@ select {
   filter: brightness(1.08);
 }
 
+/* Appearance popover (AppearanceMenu.tsx): theme + accent color. */
+.appearance-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.appearance-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: max-content;
+  max-width: min(20rem, calc(100vw - 2rem));
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.15);
+  text-align: left;
+}
+
+.appearance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.appearance-section > .theme-toggle {
+  align-self: flex-start;
+}
+
+.appearance-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.accent-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* Background comes from an inline style, which also beats button:hover. */
+.accent-swatch {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid var(--bg-elevated);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.accent-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--text-h);
+}
+
+.accent-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.accent-custom input[type="color"] {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.accent-custom-active input[type="color"] {
+  box-shadow: 0 0 0 2px var(--text-h);
+}
+
+.appearance-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .setup-wizard {
   max-width: 40rem;
   margin: 3rem auto;

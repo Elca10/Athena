@@ -5,16 +5,33 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Athena-Studying</title>
     <script>
-      // Applies a stored Light/Dark override before first paint, so a
-      // user who picked one doesn't see a flash of the OS-preferred
-      // theme first. Kept in sync by hand with web/src/theme/theme.ts's
-      // readStoredTheme/applyTheme (this has to run before any module
+      // Applies a stored Light/Dark override and custom accent color
+      // before first paint, so a user who picked one doesn't see a flash
+      // of the defaults first. Kept in sync by hand with
+      // web/src/theme/theme.ts's readStoredTheme/applyTheme and
+      // readStoredAccent/applyAccent (this has to run before any module
       // loads, so it can't import that file).
       (function () {
         try {
+          var root = document.documentElement;
           var stored = localStorage.getItem("athena-theme");
           if (stored === "light" || stored === "dark") {
-            document.documentElement.setAttribute("data-theme", stored);
+            root.setAttribute("data-theme", stored);
+          }
+          var accent = localStorage.getItem("athena-accent");
+          if (accent && /^#[0-9a-f]{6}$/i.test(accent)) {
+            var lum = function (hex) {
+              return [1, 3, 5].reduce(function (sum, i, k) {
+                var c = parseInt(hex.slice(i, i + 2), 16) / 255;
+                c = c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+                return sum + [0.2126, 0.7152, 0.0722][k] * c;
+              }, 0);
+            };
+            var l = lum(accent);
+            var text = 1.05 / (l + 0.05) >= (l + 0.05) / (lum("#101014") + 0.05) ? "#ffffff" : "#101014";
+            root.style.setProperty("--accent", accent.toLowerCase());
+            root.style.setProperty("--accent-contrast", text);
+            root.style.setProperty("--focus-ring", accent.toLowerCase());
           }
         } catch (e) {}
       })();

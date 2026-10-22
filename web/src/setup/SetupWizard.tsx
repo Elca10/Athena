@@ -12,7 +12,7 @@ import {
   type GithubCheck,
   type GithubConnectState,
 } from "./api";
-import { ThemeToggle } from "../theme/ThemeToggle";
+import { AppearanceMenu } from "../theme/AppearanceMenu";
 
 type ConfirmedOs = "windows" | "mac";
 
@@ -31,7 +31,7 @@ export function SetupWizard({ onComplete }: { onComplete: () => void }) {
     <div className="setup-wizard">
       <div className="setup-header">
         <h1>Set up Athena-Studying</h1>
-        <ThemeToggle />
+        <AppearanceMenu />
       </div>
       <ol className="setup-steps">
         <li className={step === 1 ? "active" : step > 1 ? "done" : ""}>Computer</li>
