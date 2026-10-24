@@ -6,20 +6,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { resolveRevArgs } from "../check-release-trailers.mjs";
 
-const FALLBACK = ["-20", "HEAD"];
+const FALLBACK = ["v0.8.0..HEAD"];
+const lastReleaseTag = () => "v0.8.0";
 
-test("resolveRevArgs: no event path at all falls back to the last 20 commits", () => {
-  assert.deepEqual(resolveRevArgs({ eventPath: undefined }), FALLBACK);
+test("resolveRevArgs: no event path at all falls back to the commits since the last release", () => {
+  assert.deepEqual(resolveRevArgs({ eventPath: undefined, lastReleaseTag }), FALLBACK);
 });
 
 test("resolveRevArgs: event path that doesn't exist falls back", () => {
-  assert.deepEqual(resolveRevArgs({ eventPath: "/no/such/file", pathExists: () => false }), FALLBACK);
+  assert.deepEqual(resolveRevArgs({ eventPath: "/no/such/file", pathExists: () => false, lastReleaseTag }), FALLBACK);
 });
 
 test("resolveRevArgs: a real, reachable before SHA becomes before..HEAD", () => {
   const result = resolveRevArgs({
     eventPath: "/fake/event.json",
     pathExists: () => true,
+    lastReleaseTag,
     readEventFile: () => JSON.stringify({ before: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }),
     commitExists: (sha) => sha === "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
   });
@@ -30,6 +32,7 @@ test("resolveRevArgs: an all-zeros before (brand-new branch) falls back", () => 
   const result = resolveRevArgs({
     eventPath: "/fake/event.json",
     pathExists: () => true,
+    lastReleaseTag,
     readEventFile: () => JSON.stringify({ before: "0000000000000000000000000000000000000000" }),
     commitExists: () => {
       throw new Error("must not be called for an all-zeros before");
@@ -42,6 +45,7 @@ test("resolveRevArgs: a before SHA that isn't reachable (e.g. shallow checkout) 
   const result = resolveRevArgs({
     eventPath: "/fake/event.json",
     pathExists: () => true,
+    lastReleaseTag,
     readEventFile: () => JSON.stringify({ before: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" }),
     commitExists: () => false,
   });
@@ -52,6 +56,7 @@ test("resolveRevArgs: missing before field falls back", () => {
   const result = resolveRevArgs({
     eventPath: "/fake/event.json",
     pathExists: () => true,
+    lastReleaseTag,
     readEventFile: () => JSON.stringify({ ref: "refs/heads/main" }),
   });
   assert.deepEqual(result, FALLBACK);
@@ -61,7 +66,12 @@ test("resolveRevArgs: unreadable/invalid event payload falls back instead of thr
   const result = resolveRevArgs({
     eventPath: "/fake/event.json",
     pathExists: () => true,
+    lastReleaseTag,
     readEventFile: () => "not json",
   });
   assert.deepEqual(result, FALLBACK);
+});
+
+test("resolveRevArgs: with no release tag yet, the fallback is the last 20 commits", () => {
+  assert.deepEqual(resolveRevArgs({ eventPath: undefined, lastReleaseTag: () => null }), ["-20", "HEAD"]);
 });

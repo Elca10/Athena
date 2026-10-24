@@ -14,8 +14,10 @@
 // commit, the range is `before..HEAD`. Otherwise (no event payload, e.g. a
 // manual/local run; `before` is all-zeros, e.g. a brand-new branch; or
 // `before` isn't reachable, e.g. a shallow checkout) this falls back to
-// just the last 20 commits reachable from HEAD — wide enough to catch a
-// mistake without scanning this repo's entire history on every push.
+// the commits since the last release tag, the same range promotion itself
+// checks. Already-released commits are never re-flagged: their version is
+// settled, so failing CI over them would only block the next release.
+// With no release tag at all, it's the last 20 commits.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -36,17 +38,19 @@ function defaultCommitExists(sha) {
 
 /**
  * The `git log` revision args to check: `[\`${before}..HEAD\`]` when a
- * usable previous-head SHA is available, else `["-20", "HEAD"]`. Exported
- * for testing; `readEventFile`/`commitExists` are injectable so tests
- * don't need a real GitHub event payload or a real git repo.
+ * usable previous-head SHA is available, else `[\`${tag}..HEAD\`]` for the
+ * last release tag, else `["-20", "HEAD"]`. Exported for testing; every
+ * lookup is injectable so tests need no event payload or git repo.
  */
 export function resolveRevArgs({
   eventPath = process.env.GITHUB_EVENT_PATH,
   readEventFile = (p) => readFileSync(p, "utf8"),
   pathExists = existsSync,
   commitExists = defaultCommitExists,
+  lastReleaseTag = defaultLastReleaseTag,
 } = {}) {
-  const fallback = ["-20", "HEAD"];
+  const tag = lastReleaseTag();
+  const fallback = tag ? [`${tag}..HEAD`] : ["-20", "HEAD"];
   if (!eventPath || !pathExists(eventPath)) return fallback;
   let before;
   try {
@@ -62,6 +66,14 @@ export function resolveRevArgs({
   // fail outright.
   if (!commitExists(before)) return fallback;
   return [`${before}..HEAD`];
+}
+
+function defaultLastReleaseTag() {
+  try {
+    return runGit(["describe", "--tags", "--abbrev=0", "--match", "v*", "HEAD"]);
+  } catch {
+    return null;
+  }
 }
 
 function main() {
