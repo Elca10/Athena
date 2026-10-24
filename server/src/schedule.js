@@ -59,7 +59,7 @@ export const HORIZON_DAYS = 14;
  * cheap); they come into range as the date gets closer. */
 export const MAX_PLAN_DAYS = 120;
 /** Rough time one topic takes in a session: one question, a confidence
- * rating and the feedback. Ada's call; no number is given in the spec. */
+ * rating and the feedback. A judgment call; no number is given in the spec. */
 export const MINUTES_PER_BLOCK = 5;
 export const DEFAULT_AVAILABILITY = Object.freeze({ weekdays: [0, 1, 2, 3, 4, 5, 6], minutesPerDay: 30 });
 export const MIN_MINUTES_PER_DAY = MINUTES_PER_BLOCK;

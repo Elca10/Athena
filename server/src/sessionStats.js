@@ -63,7 +63,7 @@ export function computeAccuracy(sessions) {
 
 /**
  * Predicted (confidence 1-5) vs actual accuracy, bucketed by confidence
- * level (Hermione's `hermione_calibration.json` model, per section 6 —
+ * level (the original tool's calibration model, per section 6 —
  * ported as a live bucketing over existing history rather than its own
  * telemetry log, since every answered question here already carries both
  * `confidence` and `rating`). Good calibration means the correctRate rises

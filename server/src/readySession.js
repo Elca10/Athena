@@ -155,7 +155,7 @@ export function gradeAutoGradedAnswer(question, { selectedIndex, answerText } = 
  * model's judgment (Live mode) or a human's own self-grade (the free-form
  * path below) can express — "hard"/"easy" are reserved for that richer
  * judgment. A correct auto-graded answer is "good", a wrong one is
- * "again". Ada's call, section 11-style (SPEC.md doesn't give an exact
+ * "again". An implementer's call, section 11-style (SPEC.md doesn't give an exact
  * mapping).
  */
 export function mapAutoGradeToRating(isCorrect) {

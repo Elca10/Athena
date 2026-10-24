@@ -110,22 +110,18 @@ function findHomePathLeak(text) {
   return null;
 }
 
+// Checked everywhere, docs included: the specs once named the private
+// system this product grew out of, which a public repo shouldn't.
 const LITERAL_FORBIDDEN = [
   { needle: "eliskaj", label: "the maintainer's real username" },
   { needle: "elcaj.sp", label: "the maintainer's real email" },
+  { needle: "zeona", label: "a Zeona-specific name (this product must stand alone)" },
 ];
-// Checked in code/config, but NOT in docs (README.md/SPEC.md) — SPEC.md is
-// this product's pre-existing, already-public authoritative design doc and
-// legitimately documents what it's derived from; the actual risk this
-// guards against is Athena's own CODE depending on or leaking
-// Zeona-specific behavior/data, not the project's documented history.
-const CODE_ONLY_FORBIDDEN = [{ needle: "zeona", label: "a Zeona-specific name (this product must stand alone)" }];
 
-function scanContent(text, { isDoc }) {
+function scanContent(text) {
   const violations = [];
   const lower = text.toLowerCase();
-  const forbidden = isDoc ? LITERAL_FORBIDDEN : [...LITERAL_FORBIDDEN, ...CODE_ONLY_FORBIDDEN];
-  for (const { needle, label } of forbidden) {
+  for (const { needle, label } of LITERAL_FORBIDDEN) {
     if (lower.includes(needle)) violations.push(`contains ${label} ("${needle}")`);
   }
   const email = findEmailLeak(text);
@@ -183,7 +179,7 @@ function main() {
     if (isLikelyBinary(raw)) continue;
 
     const text = raw.toString("utf8");
-    const violations = scanContent(text, { isDoc: /\.md$/i.test(relPath) });
+    const violations = scanContent(text);
     if (violations.length > 0) {
       contentViolations.push({ relPath, violations });
     }

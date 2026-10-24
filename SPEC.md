@@ -1,23 +1,19 @@
 # Athena-Studying — Tech Spec (v1)
 
-Status: draft, written in Eden sessions 2026-10-06, to be handed to Ada once
-the new repo exists. Decisions marked **(Ada)** are deliberately left to
-the implementer; everything else is decided.
+Status: the original v1 design, written 2026-10-06 before the first line
+of code. Decisions marked **(implementer)** were deliberately left to
+whoever built it; everything else was decided up front. What changed or
+moved later is in `SPEC-v2.md`.
 
 ## 1. What this is
 
-A standalone, installable version of Zeona's Hermione study workspace,
-renamed **Athena**, for the user's friends (and eventually anyone). Each
-person runs their own copy locally; the model work runs through **their
-own** Claude Code login. It shares Zeona Hub's look and patterns but none
-of its data, and none of Zeona's other agents.
+A standalone, installable study app, **Athena**, grown out of the
+owner's personal study tool, for the owner's friends (and eventually
+anyone). Each person runs their own copy locally; the model work runs
+through **their own** Claude Code login.
 
-Not to be confused with `~/Desktop/Coding/Athena` (2026-08-23), a separate
-public template repo for building your own Zeona-style multi-agent Hub.
-This product's repo is **`git@github.com:Elca10/Athena.git`** (public;
-product name Athena-Studying). That takes the GitHub name the template repo
-was going to use, so the template needs a different name if it's ever
-pushed.
+This product's repo is **`github.com/Elca10/Athena`** (public; product
+name Athena-Studying).
 
 ### Goals
 
@@ -31,16 +27,16 @@ pushed.
 
 - Full calendar mode / Google Calendar sync (deferred — section 9).
 - Hosted/multi-tenant version, metered API keys, billing.
-- Importing the user's existing Hermione data — every install starts empty.
-- Any Zeona agent besides Athena and the bug fixer.
+- Importing data from the personal tool it grew out of — every install
+  starts empty.
 
 ## 2. Platform and install
 
-- **Local web app**: a local backend server + browser UI, same shape as
-  Zeona Hub. Binds to localhost only.
+- **Local web app**: a local backend server + browser UI. Binds to
+  localhost only, and only answers its own page (`server/src/localOnly.js`).
 - **Model access**: shells out to the user's own `claude` CLI
   (`claude -p ... --output-format stream-json`, `--resume` for multi-turn
-  sessions), exactly as Hub's `claudeRunner.js` does. Never reads or
+  sessions). Never reads or
   requires an Anthropic API key. Each friend has their own Claude account
   (Pro or higher, since Claude Code needs it).
 - **OS**: macOS and Windows are both first-class. No bash-only scripts in
@@ -49,9 +45,9 @@ pushed.
 - **One-command installer** per OS (e.g. a `curl … | sh` for macOS and a
   PowerShell one-liner for Windows) that installs/checks prerequisites,
   clones the repo, installs dependencies, and launches the app.
-  - Prerequisites to minimise: Node, git, Claude Code, GitHub CLI. Hub's
-    content parser is Python (`Hermione/canvas_parse/`); requiring Python
-    on Windows is real friction — **(Ada)** port the parser to Node or
+  - Prerequisites to minimise: Node, git, Claude Code, GitHub CLI. The
+    original tool's content parser is Python; requiring Python on Windows
+    is real friction — **(implementer)** port the parser to Node or
     bundle Python, whichever is more robust.
 - **First-run setup screen** (in the browser, not a terminal):
   1. Confirm Claude Code is installed and logged in (button runs a cheap
@@ -97,24 +93,18 @@ constraint in the spec; treat any leak as a severity-1 bug.
 
 ## 4. UI
 
-Visually modelled on Zeona Hub's dashboard (same general look, panels,
-card style). Reference components in Zeona: `Hub/web/src/components/`
-(`Dashboard.tsx`, `StatsBox.tsx`, `BugReportBox.tsx`, `BugTracker.tsx`,
-`AgentUpdateInput.tsx`, `SessionRow.tsx`) and the `hunter/` view for the
-"open from a top-bar button" pattern.
+Visually modelled on the owner's existing dashboard (same general look,
+panels, card style), including its "open from a top-bar button" pattern.
 
 ### Top bar
 
-- Stats: **subscription usage** (Claude Code rate-limit/usage windows, as
-  Hub's `usageLimitStatus.js` / `usageLog.js` do) and **session stats**
+- Stats: **subscription usage** (Claude Code rate-limit/usage windows) and **session stats**
   (sessions/questions this week, streak, accuracy, calibration).
 - **Report a bug** box + bug tracker (status of filed bugs, linked to their
   GitHub issues).
 - **Tune Athena** — renamed "agent update" (section 8).
-- **Calendar** button — opens the schedule view (like Hub's Hunter dash
-  button).
-- **Archive** button — same as Hub's: opens archived sessions and archived
-  subjects.
+- **Calendar** button — opens the schedule view.
+- **Archive** button — opens archived sessions and archived subjects.
 
 ### Main area
 
@@ -144,7 +134,7 @@ Every session is started as one of:
   without a model call wherever possible (below). Goal: near-zero model
   usage per session.
 - **Live** — Athena generates custom questions and responses in real time
-  in a Claude Code session (today's Hermione experience): follow-ups,
+  in a Claude Code session (the original tool's experience): follow-ups,
   elaboration dialogue, tailored explanations. Uses more model time; the
   user chooses it when they want that.
 
@@ -173,7 +163,7 @@ Every session is started as one of:
   practice.
 - Model escalation, only on user action: "Explain what I'm missing" or
   "Check my answer" sends that one answer + rubric to Claude. Cheap model
-  is acceptable here **(Ada)** — though grading feeds progress, so lean
+  is acceptable here **(implementer)** — though grading feeds progress, so lean
   Sonnet if quality suffers.
 
 ### Empty or thin banks
@@ -189,36 +179,36 @@ builder must be **deterministic code**, not model calls.
 | Principle | How Athena does it |
 |---|---|
 | Retrieval practice | Every session is questions answered from memory; never re-reading or summaries as "study". |
-| Spaced repetition | A real scheduling algorithm — recommend **FSRS** (open source, well validated) replacing Hermione's SM-2-lite (`Hub/server/src/hermione/scheduler.js`) **(Ada: library vs port)**. Review intervals grow with demonstrated retention and shrink on misses. |
+| Spaced repetition | A real scheduling algorithm — recommend **FSRS** (open source, well validated) replacing the original tool's SM-2-lite **(implementer: library vs port)**. Review intervals grow with demonstrated retention and shrink on misses. |
 | Interleaving | Sessions mix topics (and subjects, when the user picks multiple) instead of blocking one topic. |
 | Variation | Same topic tested from different angles/question types across reviews. |
 | Generation | New topics start with an attempt *before* explanation ("what do you think X means / how would you solve this?"), then feedback. |
 | Elaboration | Explain-why and connect-to-something-you-know questions; Live mode pushes follow-up "why". |
 | Reflection | Short end-of-session prompt: what did you learn, what surprised you, what connects to what, what will you do differently. Stored per subject. |
-| Calibration | Confidence rating (1–5) on every question, given AFTER answering and BEFORE any feedback (confidence in the answer just given — the order calibration/hypercorrection research uses; issue #7); dashboard shows predicted vs actual accuracy over time (Hermione's `hermione_calibration.json` model). |
+| Calibration | Confidence rating (1–5) on every question, given AFTER answering and BEFORE any feedback (confidence in the answer just given — the order calibration/hypercorrection research uses; issue #7); dashboard shows predicted vs actual accuracy over time (the original tool's calibration model). |
 | Desirable difficulty | Difficulty adapts so success is high but not automatic; mastered topics get harder variants, not just longer gaps. |
 | Structure building / mental models | Per subject, a living "big ideas" summary the user builds and revises (prompted after sessions), shown on the subject view. |
 | Mastery is earned | New topics start unfamiliar; nothing is pre-credited. Blunt, accurate feedback; no ego-boosting. |
 | Exam-aware pacing | Upcoming deadlines pull their topics forward in the schedule. |
 
-Tone and personality come from Hermione's `PERSONA.md`, renamed to Athena:
+Tone and personality come from the original tool's persona doc, renamed to Athena:
 positive but never ego-boosting, blunt about wrong answers, accurate
 calibration over comfort.
 
 ## 7. Content ingestion
 
 - **Add content** button on each subject opens a native file picker
-  (PDF, PPTX, and plain text/markdown at minimum **(Ada: DOCX too?)**).
-  Also a "paste class notes" text box (Hermione's "summary of what I
-  learned" path).
-- Flow, same as Hub's today: copy into the subject's raw folder in the
-  app-data dir → local text extraction (no network, no model) with the
-  garbled-text detection already built in `canvas_parse` → one background
+  (PDF, PPTX, and plain text/markdown at minimum **(implementer: DOCX too?)**).
+  Also a "paste class notes" text box (the original tool's "summary of
+  what I learned" path).
+- Flow, same as the original tool's: copy into the subject's raw folder
+  in the app-data dir → local text extraction (no network, no model) with
+  garbled-text detection → one background
   turn extracts topics from the newly parsed files only → seed them as
   planned topics → generate the question bank (section 5).
 - Each step shows progress as an Active session; failures surface in the
   UI, not just logs.
-- Limits on file size and count per batch **(Ada)**.
+- Limits on file size and count per batch **(implementer)**.
 
 ## 8. Tune Athena
 
@@ -235,16 +225,15 @@ shared persona, code, or repo. Viewable and deletable in the UI.
 - The Calendar button opens a **suggested schedule**: which topics to
   study on which days, derived deterministically from the scheduler, due
   dates, and deadlines. Read-only in v1.
-- Deferred, to be designed later (reminder in the user's Hub inbox):
+- Deferred, to be designed later:
   missed-day handling, Google Calendar connection vs. ICS feed (including
   Canvas's calendar feed), editing the schedule.
 
 ## 10. Bug fixer
 
-A background coding persona **derived from Ada** but written mostly fresh
-for this repo — copy only the relevant parts of Ada's instructions and
-lessons (test before shipping, verify the real app, clean commits, never
-trust a green test count alone). Named **Bug Fixer**. End users never see
+A background coding persona written for this repo (test before shipping,
+verify the real app, clean commits, never trust a green test count
+alone). Named **Bug Fixer**. End users never see
 its persona; they just use **Report a bug**.
 
 Flow, started by the user submitting a bug report:
@@ -277,13 +266,12 @@ Rules:
 - Notifications to the owner: GitHub's own issue emails for now; a
   dedicated notification feature is future work.
 
-## 11. Decisions for Ada
+## 11. Decisions left to the implementer
 
-- Storage engine (Zeona Hub's JSON-file stores had torn-write/data-loss
-  incidents — see `shared/memory/ada/hub-data-loss-and-stores.md` before
-  choosing).
-- Stack (Hub's Node + React is the obvious default given how much UI
-  carries over).
+- Storage engine (the original tool's JSON-file stores had torn-write and
+  data-loss incidents; whatever is chosen must rule those out).
+- Stack (Node + React is the obvious default given how much UI carries
+  over).
 - FSRS library vs. own port; parser in Node vs. bundled Python.
 - Installer mechanics per OS; how auto-update restarts the server on
   Windows.
@@ -300,7 +288,7 @@ Rules:
 1. Repo skeleton, data dir outside the repo, privacy guards (hooks + CI),
    installer + setup screen, auto-update + rollback.
 2. Subjects, content ingestion, topic extraction.
-3. Scheduler (FSRS) + Live sessions (port of Hermione).
+3. Scheduler (FSRS) + Live sessions (port of the original tool).
 4. Question banks + Ready sessions + local grading.
 5. Dashboard: session sections, stats, archive, Tune Athena.
 6. Bug report → issue → fixer → push loop.

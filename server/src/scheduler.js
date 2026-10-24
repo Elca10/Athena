@@ -1,6 +1,6 @@
 // FSRS-based review scheduling (SPEC.md section 6: "a real scheduling
 // algorithm — recommend FSRS ... replacing [a hand-rolled SM-2-lite]";
-// section 11 leaves "library vs. own port" to Ada). Decision: use the
+// section 11 leaves "library vs. own port" to the implementer). Decision: use the
 // `ts-fsrs` library (MIT, the reference TypeScript/JS port of the FSRS
 // algorithm, maintained by the algorithm's own open-spaced-repetition
 // org) rather than hand-porting the math ourselves — FSRS's stability/
@@ -87,7 +87,7 @@ export function listDueTopics(topics, now = new Date()) {
 
 // SPEC.md section 3's Desirable difficulty row: "mastered topics (FSRS
 // state Review) get harder variants; new/learning topics get easier ones."
-// Mature-vs-young within Review is Ada's own call (the spec names no exact
+// Mature-vs-young within Review is a judgment call (the spec names no exact
 // number): 21 days (3 weeks) is a common "young vs. mature" boundary
 // already used by other spaced-repetition tools (e.g. Anki's default),
 // picked for that precedent rather than anything tuned against real data

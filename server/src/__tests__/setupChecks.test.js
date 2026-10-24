@@ -5,7 +5,7 @@ import { checkClaudeCode, checkGh, detectOs, interpretClaudeUsageOutput, interpr
 
 // An env whose PATH points nowhere real — guarantees ENOENT for any CLI
 // lookup regardless of what's actually installed on the machine running
-// this test (this dev Pi genuinely has `claude` installed; a CI runner
+// this test (a dev machine may genuinely have `claude` installed; a CI runner
 // genuinely doesn't have either — this makes the "not installed" branch
 // deterministic either way).
 function emptyPathEnv() {

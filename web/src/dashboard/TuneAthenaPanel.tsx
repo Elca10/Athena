@@ -5,11 +5,9 @@ import { useFocusTrap } from "../useFocusTrap";
 
 // Tune Athena (SPEC.md section 8): plain-language study preferences the
 // user writes, stored verbatim and later included in Athena's prompts
-// (server/src/preferencesPrompt.js). Unlike Hub's AgentUpdateInput.tsx —
-// the "agent update" panel this one is renamed from — add/delete here are
-// synchronous REST calls that complete before responding, with no
-// background model turn in flight; none of that panel's draft-recovery or
-// pending-turn reconciliation applies.
+// (server/src/preferencesPrompt.js). Add/delete are synchronous REST
+// calls that complete before responding, with no background model turn in
+// flight, so there is no draft recovery or pending-turn reconciliation.
 //
 // Also holds the one app setting that exists so far (server/src/settings.js):
 // whether a study session's reflection is followed by a short "revise your

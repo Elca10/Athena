@@ -1,8 +1,7 @@
 # Athena-Studying — Tech Spec (v2)
 
-Status: draft, started in an Eden session 2026-10-11. Holds everything cut
-from v1 to ship a first friend-ready build that week. The v1 spec
-(`SPEC.md`; a copy of this file lives at `specs/athena-studying-v2.md` in the owner's private repo) still defines
+Status: started 2026-10-11. Holds everything cut from v1 to ship a first
+friend-ready build that week. The v1 spec (`SPEC.md`) still defines
 how each item below should work — this file records *what* moved here and
 *what's already built toward it*, not a redesign. Section numbers refer to
 the v1 spec.
@@ -132,7 +131,7 @@ together with section 3's big-ideas row, which needs somewhere to live.
 
 ## 5. Athena persona doc (v1 section 6, closing paragraph)
 
-A single `PERSONA.md` for Athena (from Hermione's, renamed: positive but
+A single `PERSONA.md` for Athena (from the original tool's, renamed: positive but
 never ego-boosting, blunt about wrong answers, calibration over comfort)
 that every prompt draws from. v1.0's prompts already carry this tone ad
 hoc in their own wording; the doc makes it consistent as more prompts are
@@ -196,5 +195,5 @@ Shelved: Bug Fixer (section 1).
 ## Already out of scope for v1, still out for v2 unless decided otherwise
 
 - Hosted/multi-tenant version, metered API keys, billing.
-- Importing existing Hermione data.
+- Importing data from the personal tool Athena grew out of.
 - Scaling model access past each person's own Claude account (v1 section 12).

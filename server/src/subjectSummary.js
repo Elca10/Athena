@@ -13,8 +13,8 @@ import { localDateOf } from "./localDate.js";
 
 // ts-fsrs's State enum: New=0, Learning=1, Review=2, Relearning=3. "Review"
 // is the only state meaning a topic has graduated past its initial learning
-// steps, so it's the natural "mastered" bucket for a v1 summary (Ada's call,
-// section 11-style — a deeper mastery model, if ever wanted, is a bigger
+// steps, so it's the natural "mastered" bucket for a v1 summary (an implementer's
+// call, section 11-style — a deeper mastery model, if ever wanted, is a bigger
 // feature than a dashboard card stat).
 export function classifyMastery(topic) {
   const state = topic.fsrs?.state;

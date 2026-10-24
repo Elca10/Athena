@@ -11,7 +11,7 @@
 //
 // A session can span multiple subjects (sessions.js); SPEC's "stored per
 // subject" doesn't say what a multi-subject session's single reflection
-// does — Ada's call, section 11-style: one reflection row is stored once
+// does — an implementer's call, section 11-style: one reflection row is stored once
 // per session, tagged with every subject it covered, rather than asking
 // the user to reflect once per subject. Still correctly filterable by a
 // single subject later via `listReflectionsForSubject` (needed once a

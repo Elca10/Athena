@@ -10,8 +10,8 @@
 // the reverse, which a count-only comparison could misreport as a leak).
 // That's intentionally only safe to run in CI, where this job has a
 // runner to itself — nothing else on the machine is creating its own
-// athena-* temp dirs at the same time, which a real dev machine (e.g. a
-// Pi running multiple concurrent Athena sessions) can't promise.
+// athena-* temp dirs at the same time, which a real dev machine (e.g. one
+// running several Athena test runs at once) can't promise.
 //
 // Usage:
 //   node scripts/ci/tmpDirGuard.mjs snapshot <snapshotFile>   (run first)

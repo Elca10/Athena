@@ -87,7 +87,7 @@ test("--staged allows a git SSH clone URL even though it's email-shaped", () => 
   });
 });
 
-test("--staged blocks the CODE_ONLY_FORBIDDEN product name in code, but not in a doc file", () => {
+test("--staged blocks the source system's name in code and in docs", () => {
   // Built via concatenation rather than typed literally: the needle itself
   // is one of check-privacy.js's own forbidden strings, and this test file
   // is real committed source, not a fixture file inside a disposable
@@ -102,9 +102,10 @@ test("--staged blocks the CODE_ONLY_FORBIDDEN product name in code, but not in a
   });
 
   withFixture((dir) => {
-    stageFile(dir, "README.md", `# Athena\n\nDerived from ${sourceSystemName}'s Hub.\n`);
+    stageFile(dir, "README.md", `# Athena\n\nDerived from ${sourceSystemName}.\n`);
     const docResult = runNodeScript(dir, "scripts/check-privacy.js", ["--staged"]);
-    assert.equal(docResult.code, 0, docResult.stderr);
+    assert.notEqual(docResult.code, 0);
+    assert.match(docResult.stderr, /this product must stand alone/);
   });
 });
 
@@ -121,7 +122,7 @@ test("full-tree mode (no --staged) scans the committed working tree via git ls-f
 test("the guard's own source is exempt from matching its own detection needles", () => {
   withFixture((dir) => {
     // scripts/check-privacy.js necessarily contains its own LITERAL_FORBIDDEN
-    // and CODE_ONLY_FORBIDDEN needles as literal text (they're the detection
+    // needles as literal text (they're the detection
     // patterns, not leaked data). Re-stage a trivial edit to the
     // file itself (so it's actually part of the staged diff being
     // checked, not just sitting unchanged in a prior commit) and confirm

@@ -27,7 +27,7 @@ test("Preview is disabled until a description is typed, then shows the server's 
   // "public" sits inside a <strong>, a separate text node from the rest of
   // the sentence — checking the warning element's own textContent avoids
   // the known RTL pitfall where a regex can't span a sibling text-node
-  // boundary (see ada.json's React Testing Library lesson).
+  // boundary.
   expect(document.querySelector(".bug-report-warning")?.textContent).toMatch(/public.*GitHub issue/i);
 });
 

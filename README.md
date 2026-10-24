@@ -3,7 +3,9 @@
 A local study app built on *Make It Stick*: retrieval practice, spaced
 repetition, interleaving, calibration. It runs on your own Claude Code
 login — there's no separate account or API key for Athena-Studying
-itself.
+itself. It runs on Mac and Windows and needs a Claude Pro (or higher)
+plan. Your study data stays on your computer; see
+[Your data and privacy](#your-data-and-privacy).
 
 ## Setup
 
@@ -173,6 +175,34 @@ personal details (file paths, your username, subject and topic names)
 removed. You see the exact text before anything is sent. **Send** posts
 it as a **public** GitHub issue under your GitHub username, and Athena
 shows you the link.
+
+## Your data and privacy
+
+Athena has no server and no account of its own. Everything it keeps
+(subjects, files you add, questions, answers and progress) is stored in a
+data folder on your computer, outside the app folder, so updates never
+touch it. The folder is listed under [Uninstalling](#uninstalling).
+
+Athena only sends data in these cases:
+
+- **Claude**, through your own Claude Code login, when Athena needs the
+  model: reading your files to list their topics, writing practice
+  questions, and asking and grading questions in **Live** mode. It sends
+  only the material that step needs. This uses your Claude plan's usage,
+  and your Claude account's own terms cover what Anthropic does with it.
+  **Ready** mode grading stays on your computer: multiple-choice is
+  checked automatically, and you mark written answers against the model
+  answer yourself.
+- **GitHub**, to check for and download updates, and to file a bug report
+  when you click **Send**. A report is public, so you see the exact text
+  first, with file paths, your username and subject and topic names
+  removed.
+- **Canvas**, only if you paste a calendar feed link into the Calendar.
+  Athena downloads that link to read your deadlines. Treat the link like a
+  password: anyone who has it can read your Canvas calendar.
+
+There are no analytics or tracking. Athena only accepts requests from its
+own page in your browser, not from other computers or other websites.
 
 ## Uninstalling
 

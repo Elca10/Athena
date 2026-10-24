@@ -16,7 +16,7 @@ import { extraTopicIdsForToday } from "./schedule.js";
 /** Most topics one session is built with. A session longer than this
  * risks exactly the fatigue/low-quality-answers problem "desirable
  * difficulty" (section 6) warns against. No number is given in the spec —
- * Ada's call, section 11. */
+ * an implementer's call, section 11. */
 export const MAX_SESSION_TOPICS = 12;
 
 // `contentIds` (issue #6: "not all exams are cumulative") keeps only

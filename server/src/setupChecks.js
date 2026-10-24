@@ -76,8 +76,8 @@ export async function checkClaudeCode({ env } = {}) {
   let usageResult;
   try {
     // `--` terminates the flag list so the literal string "/usage" is
-    // always read as the prompt, never as an option — see Ada's memory of
-    // the `claude -p` "unknown option" bug class this avoids.
+    // always read as the prompt, never as an option (a `claude -p`
+    // "unknown option" bug class this avoids).
     usageResult = await runCommand("claude", ["-p", "--", "/usage"], { timeoutMs: 45_000, env });
   } catch (err) {
     return { installed: true, loggedIn: false, detail: `Could not run \`claude -p -- "/usage"\`: ${err.message}` };
