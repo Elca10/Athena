@@ -1,0 +1,1 @@
+Other websites open in your browser can no longer reach Athena behind your back. Before, a malicious page could in principle read your study data or start actions in Athena while it was running; now Athena only answers its own page. Nothing changes in how you use it.

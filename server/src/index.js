@@ -35,6 +35,7 @@ import { reconcileInterruptedSessions } from "./sessions.js";
 import { getSubject } from "./subjects.js";
 import { keepBankAhead } from "./questionBankGeneration.js";
 import { ensureKnownCliDirsOnPath } from "./processUtil.js";
+import { localOnly } from "./localOnly.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -60,6 +61,8 @@ export async function createApp() {
   });
 
   const app = express();
+  // First, before anything reads a body: see localOnly.js.
+  app.use(localOnly);
   // Default (100kb) is too small for a plain-text upload (content.js caps
   // those at 2MB; JSON escaping can roughly double that). Binary files
   // don't come through here at all: routes/content.js's /file route takes
