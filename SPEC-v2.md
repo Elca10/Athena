@@ -186,11 +186,12 @@ Each step is a `--minor` release (strict semver, see README).
 | v0.6.0 | Athena's voice | Section 5: persona doc, carefully revised; prompts brought in line. Owner reviews the draft first. |
 | v0.7.0 | Big ideas | Section 3's structure-building row, **optional**: off unless the user turns it on. |
 | v0.8.0 | Deadlines | Section 2 with the calendar decisions above. May split if Canvas import or the ICS feed grows. |
-| v0.9.0 | Pick your version | Updater follows release tags (beta channel / pinning). |
 | v1.0.0 | Public launch | Clean-machine pass on both OSes, public-ready docs, privacy audit. |
 
 Dropped: Elaboration (section 3's Live follow-up "why"), owner decision
-2026-10-19. Shelved: Bug Fixer (section 1).
+2026-10-19. Dropped: v0.9.0 "Pick your version" (beta channel, version
+pinning), owner decision 2026-10-24; installs keep following `release`.
+Shelved: Bug Fixer (section 1).
 
 ## Already out of scope for v1, still out for v2 unless decided otherwise
 
