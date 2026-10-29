@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import {
   getSchedule,
+  listSubjects,
+  listTopics,
+  type Subject,
+  type Topic,
   saveAvailability,
   scheduleBlockAction,
   type Availability,
@@ -11,6 +15,7 @@ import {
 import { dayHeading, formatDay, WEEKDAY_NAMES, WEEKDAY_ORDER, WEEKDAY_SHORT } from "./calendarDates";
 import { AppearanceMenu } from "../theme/AppearanceMenu";
 import { CanvasImport } from "./CanvasImport";
+import { DeadlinesSection } from "./DeadlinesSection";
 
 // The Calendar (SPEC.md section 9, SPEC-v2.md section 2): the suggested
 // schedule for the next two weeks, worked out on the server from what's
@@ -30,6 +35,7 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
   const [message, setMessage] = useState<{ text: string; ok: boolean; undoId?: string } | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [availabilityDirty, setAvailabilityDirty] = useState(false);
+  const [deadlineDirty, setDeadlineDirty] = useState(false);
 
   async function load() {
     setLoadError(null);
@@ -46,6 +52,7 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
 
   function leave() {
     if (availabilityDirty && !window.confirm("Leave without saving your study days?")) return;
+    if (deadlineDirty && !window.confirm("Leave without saving this deadline?")) return;
     onBack();
   }
 
@@ -127,6 +134,8 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
             }}
           />
 
+          <CalendarDeadlines onChanged={load} onDirtyChange={setDeadlineDirty} />
+
           <CanvasImport onImported={load} />
 
           {message && (
@@ -159,7 +168,7 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
           {nothingPlanned && schedule.availability.weekdays.length > 0 && (
             <div className="dashboard-empty">
               Nothing to plan for the next two weeks. Add content to a subject so Athena has topics to quiz you on, or add a
-              deadline by clicking a subject's name on the dashboard.
+              deadline above.
             </div>
           )}
 
@@ -203,6 +212,82 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
           </ol>
         </div>
       )}
+    </div>
+  );
+}
+
+// Issue #21: deadlines can be added here, not only from a subject's detail
+// view, for courses that don't put their dates on Canvas. Same list and
+// form as the detail view, one subject at a time.
+function CalendarDeadlines({ onChanged, onDirtyChange }: { onChanged: () => void; onDirtyChange: (dirty: boolean) => void }) {
+  const [subjects, setSubjects] = useState<Subject[] | null>(null);
+  const [subjectId, setSubjectId] = useState<string | null>(null);
+  const [topics, setTopics] = useState<Topic[] | null>(null);
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const active = (await listSubjects()).filter((s) => !s.archived);
+        setSubjects(active);
+        setSubjectId((current) => current ?? active[0]?.id ?? null);
+      } catch {
+        // No subjects to offer: the panel stays hidden, the rest of the
+        // Calendar still works.
+        setSubjects([]);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!subjectId) return;
+    let cancelled = false;
+    setTopics(null);
+    (async () => {
+      let list: Topic[] = [];
+      try {
+        list = await listTopics(subjectId);
+      } catch {
+        // The form still works: it just can't offer "only some topics".
+      }
+      if (!cancelled) setTopics(Array.isArray(list) ? list : []);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [subjectId]);
+
+  function reportDirty(next: boolean) {
+    setDirty(next);
+    onDirtyChange(next);
+  }
+
+  if (subjects === null || subjects.length === 0 || !subjectId) return null;
+
+  const picker = (
+    <label className="calendar-deadlines-subject">
+      for
+      <select
+        value={subjectId}
+        aria-label="Subject for deadlines"
+        onChange={(e) => {
+          if (dirty && !window.confirm("Discard this deadline? What you typed won't be saved.")) return;
+          reportDirty(false);
+          setSubjectId(e.target.value);
+        }}
+      >
+        {subjects.map((s) => (
+          <option key={s.id} value={s.id}>
+            {s.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+
+  return (
+    <div className="calendar-deadlines">
+      <DeadlinesSection key={subjectId} subjectId={subjectId} topics={topics} onChanged={onChanged} onDirtyChange={reportDirty} headerExtra={picker} />
     </div>
   );
 }

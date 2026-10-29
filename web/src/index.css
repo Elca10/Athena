@@ -1761,6 +1761,21 @@ select {
   max-width: 56rem;
 }
 
+/* Issue #21: the Calendar's deadline list, one subject at a time. */
+.calendar-deadlines {
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.calendar-deadlines-subject {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-right: auto;
+}
+
 .calendar-availability {
   display: flex;
   flex-wrap: wrap;

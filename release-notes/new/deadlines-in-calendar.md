@@ -1,0 +1,1 @@
+Add, edit and delete deadlines straight from the **Calendar**, under **Deadlines**: pick the subject, then **Add deadline**. Handy for courses that don't post their dates on Canvas. Deadlines you add yourself are never changed by a Canvas import. (#21)

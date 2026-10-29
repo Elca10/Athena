@@ -242,3 +242,32 @@ test("an action that can't reach Athena says so and leaves the schedule as it wa
   expect(screen.getByText("Osmosis")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Delete Osmosis (Biology)" })).toBeEnabled();
 });
+
+test("deadlines can be added from the Calendar for any subject (issue #21)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSchedule).mockResolvedValue(schedule());
+  vi.mocked(api.listSubjects).mockResolvedValue([
+    { id: "s1", name: "Biology", archived: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    { id: "s2", name: "History", archived: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    { id: "s3", name: "Old course", archived: true, createdAt: "2026-01-01T00:00:00.000Z" },
+  ]);
+  vi.mocked(api.listTopics).mockResolvedValue([]);
+  vi.mocked(api.listDeadlines).mockResolvedValue([]);
+  vi.mocked(api.createDeadline).mockResolvedValue({} as api.Deadline);
+  render(<CalendarView onBack={() => {}} />);
+
+  const picker = await screen.findByRole("combobox", { name: "Subject for deadlines" });
+  expect(within(picker).queryByRole("option", { name: "Old course" })).not.toBeInTheDocument();
+  await user.selectOptions(picker, "s2");
+  await waitFor(() => expect(api.listDeadlines).toHaveBeenCalledWith("s2"));
+
+  await user.click(await screen.findByRole("button", { name: "Add deadline" }));
+  await user.type(screen.getByPlaceholderText("e.g. Midterm exam"), "Essay due");
+  await user.type(screen.getByLabelText("Date"), "2026-11-20");
+  const callsBefore = vi.mocked(api.getSchedule).mock.calls.length;
+  await user.click(within(screen.getByRole("form", { name: "New deadline" })).getByRole("button", { name: "Add deadline" }));
+
+  expect(api.createDeadline).toHaveBeenCalledWith("s2", { title: "Essay due", date: "2026-11-20", topicIds: [] });
+  // The plan is rebuilt so the new deadline shows on its day.
+  await waitFor(() => expect(vi.mocked(api.getSchedule).mock.calls.length).toBeGreaterThan(callsBefore));
+});

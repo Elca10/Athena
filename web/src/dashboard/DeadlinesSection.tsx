@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { createDeadline, deleteDeadline, listDeadlines, updateDeadline, type Deadline, type Topic } from "./api";
 import { formatDay, localToday, relativeDay } from "./calendarDates";
 
@@ -15,8 +15,11 @@ export function DeadlinesSection({
   topics,
   onChanged,
   onDirtyChange,
+  headerExtra,
 }: {
   subjectId: string;
+  /** Shown beside the heading, e.g. the Calendar's subject picker. */
+  headerExtra?: ReactNode;
   /** The subject's topics, or null while the panel is still loading them. */
   topics: Topic[] | null;
   /** After any saved change, so the subject card's next deadline updates. */
@@ -99,6 +102,7 @@ export function DeadlinesSection({
     <section className="subject-detail-section" aria-labelledby="subject-detail-deadlines">
       <div className="subject-detail-section-header">
         <h3 id="subject-detail-deadlines">Deadlines</h3>
+        {headerExtra}
         {!editing && deadlines !== null && (
           <button type="button" className="btn-secondary" onClick={() => setEditing("new")}>
             Add deadline
