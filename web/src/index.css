@@ -1350,6 +1350,14 @@ select {
   line-height: 1.5;
 }
 
+/* The user's own answer (issue #15): keep their line breaks, and set it
+   apart from the model answer it is being compared with. */
+.study-reveal-yours {
+  white-space: pre-wrap;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--border);
+}
+
 .study-reveal-rubric {
   list-style: none;
   padding: 0;

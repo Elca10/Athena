@@ -251,6 +251,8 @@ test("free-form: submitting an answer reveals the rubric, and self-grading every
     selectedIndex: undefined,
   });
   expect(await screen.findByText(/Plants convert light energy/)).toBeInTheDocument();
+  // Issue #15: the user's own answer stays visible while they grade it.
+  expect(screen.getByText("Your answer:").parentElement).toHaveTextContent("Your answer: It makes sugar from sunlight.");
 
   const submitSelfGrade = screen.getByRole("button", { name: "Submit self-grade" });
   expect(submitSelfGrade).toBeDisabled();
@@ -591,6 +593,7 @@ test("resuming a self-graded question with a pending answer reopens straight int
 
   expect(await screen.findByText(/Plants convert light energy/)).toBeInTheDocument();
   expect(screen.queryByPlaceholderText("Your answer…")).not.toBeInTheDocument();
+  expect(screen.getByText("Your answer:").parentElement).toHaveTextContent("Your answer: It makes sugar.");
   expect(api.generateNextReadyQuestion).not.toHaveBeenCalled();
 
   const gotItButtons = screen.getAllByRole("button", { name: "Got it" });

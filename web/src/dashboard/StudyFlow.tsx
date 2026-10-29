@@ -400,7 +400,8 @@ function ModePicker({
   );
 }
 
-type RevealedAnswer = { modelAnswer: string; rubric: string[]; misconceptions: string[] };
+// `userAnswer`: what the user wrote, shown while they grade it (issue #15).
+type RevealedAnswer = { userAnswer: string; modelAnswer: string; rubric: string[]; misconceptions: string[] };
 type LastResult =
   | {
       kind: "auto";
@@ -435,7 +436,12 @@ const SELF_GRADE_OPTIONS: { status: SelfGradeStatus; label: string }[] = [
 // to resume straight into the reveal screen with them.
 function revealedFromPendingAnswer(question: SessionQuestion | null): RevealedAnswer | null {
   if (!question?.pendingAnswer || !question.modelAnswer || !question.rubric) return null;
-  return { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions ?? [] };
+  return {
+    userAnswer: question.pendingAnswer.answerText,
+    modelAnswer: question.modelAnswer,
+    rubric: question.rubric,
+    misconceptions: question.misconceptions ?? [],
+  };
 }
 
 // "Question 2 of 5". `answered` is true once the shown question is in the
@@ -669,7 +675,7 @@ function ReadySessionScreen({
           milestone: result.milestone ?? null,
         });
       } else {
-        setRevealed({ modelAnswer: result.modelAnswer, rubric: result.rubric, misconceptions: result.misconceptions });
+        setRevealed({ userAnswer: answerText, modelAnswer: result.modelAnswer, rubric: result.rubric, misconceptions: result.misconceptions });
         setSelfGrades(result.rubric.map(() => null));
       }
     } catch (err) {
@@ -847,6 +853,9 @@ function ReadySessionScreen({
 
           {revealed && !lastResult && (
             <div className="study-reveal">
+              <p className="study-reveal-answer study-reveal-yours">
+                <strong>Your answer:</strong> {revealed.userAnswer}
+              </p>
               <p className="study-reveal-answer">
                 <strong>Model answer:</strong> {revealed.modelAnswer}
               </p>
