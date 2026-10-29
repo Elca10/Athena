@@ -670,11 +670,23 @@ test("parseGradingReply rejects an invalid rating rather than defaulting it", ()
   assert.match(result.reason, /not one of/);
 });
 
-test("parseGradingReply truncates an absurdly long feedback", () => {
-  const long = "x".repeat(5000);
+test("parseGradingReply trims an overlong feedback to whole sentences (issue #19)", () => {
+  const long = "This part is right. ".repeat(100);
   const result = parseGradingReply(feedbackFence({ feedback: long, rating: "good" }));
   assert.equal(result.ok, true);
-  assert.equal(result.feedback.length, 2000);
+  assert.ok(result.feedback.length <= 600, `feedback is ${result.feedback.length} chars`);
+  assert.match(result.feedback, /right\.$/);
+});
+
+test("buildGradingPrompt asks for short feedback (issue #19)", () => {
+  const prompt = buildGradingPrompt({
+    subjectNames: ["Biology"],
+    topic: { name: "Osmosis", notes: "" },
+    question: { type: "free_recall", difficulty: "medium", prompt: "What is osmosis?" },
+    answerText: "Water moving.",
+  });
+  assert.match(prompt, /at most three short sentences/);
+  assert.match(prompt, /## Length/);
 });
 
 // --- runGradingTurn (the CLI call itself) --------------------------------

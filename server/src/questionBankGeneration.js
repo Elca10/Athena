@@ -24,6 +24,7 @@ import { addBankQuestions, QUESTION_TYPES, DIFFICULTIES } from "./questionBank.j
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
 import { getPersonaBlock } from "./persona/persona.js";
+import { trimToSentences } from "./textLimits.js";
 
 const DENIED_TOOLS = ["Write", "Edit", "MultiEdit", "NotebookEdit", "Bash", "WebFetch", "WebSearch", "mcp__*"];
 
@@ -51,6 +52,9 @@ export const QUESTIONS_PER_TOPIC = 4;
 
 const MAX_PROMPT_CHARS = 1000;
 const MAX_ANSWER_CHARS = 2000;
+// Issue #19: model answers are read by the user, so they get a tighter
+// cap that trims at a sentence end (cloze answers keep MAX_ANSWER_CHARS).
+const MAX_MODEL_ANSWER_CHARS = 700;
 const MAX_RUBRIC_POINTS = 6;
 const MAX_RUBRIC_POINT_CHARS = 200;
 const MAX_MISCONCEPTIONS = 4;
@@ -113,11 +117,11 @@ Write a question bank for these topics:
 ${topicsBlock}
 
 For EACH topic above, write exactly ${questionsPerTopic} questions, varied in type and angle (not ${questionsPerTopic} versions of the same question) — pick from: ${QUESTION_TYPES.join(", ")}. For every question, give:
-- "prompt": the question text shown to the user (for "cloze", include a blank in the text, e.g. "_____").
+- "prompt": the question text shown to the user, one or two sentences (for "cloze", include a blank in the text, e.g. "_____").
 - "difficulty": one of intro, medium, hard.
-- "modelAnswer": a correct, complete answer, written in the voice above (specific, no padding, no inflation) — this is shown to the user verbatim later, as Ready mode's self-grading comparison.
+- "modelAnswer": the shortest correct, complete answer, usually one to three sentences, written in the voice above (specific, no padding, no inflation) — this is shown to the user verbatim later, as Ready mode's self-grading comparison.
 - "rubric": the key points a correct answer should hit, as a short list — required for every type except multiple_choice/cloze (those are graded automatically from their own answer key below, not a rubric).
-- "misconceptions": common wrong answers or mix-ups for this question, as a short list (can be empty if none are notable), also in the voice above.
+- "misconceptions": common wrong answers or mix-ups for this question, as a short list of short phrases (can be empty if none are notable), also in the voice above.
 - "isGenerationQuestion": true or false (see below; false unless told otherwise for a specific topic).
 ${generationBlock}
 Additionally, for a "multiple_choice" question also give "choices" (2-6 short options) and "correctIndex" (the 0-based index of the right one in "choices"). For a "cloze" question also give "clozeAnswer" (the exact text that fills the blank).
@@ -191,7 +195,7 @@ function normalizeQuestion(raw) {
     type: raw.type,
     prompt: prompt.slice(0, MAX_PROMPT_CHARS),
     difficulty: DIFFICULTIES.includes(raw.difficulty) ? raw.difficulty : "medium",
-    modelAnswer: modelAnswer.slice(0, MAX_ANSWER_CHARS),
+    modelAnswer: trimToSentences(modelAnswer, MAX_MODEL_ANSWER_CHARS),
     rubric,
     misconceptions: cappedStringArray(raw.misconceptions, { maxCount: MAX_MISCONCEPTIONS, maxChars: MAX_RUBRIC_POINT_CHARS }),
     // Clamped to false for multiple_choice/cloze regardless of what the

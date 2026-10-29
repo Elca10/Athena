@@ -119,6 +119,20 @@ test("parseBankReply reads the tagged fence and normalizes a valid question", ()
   assert.equal(result.topics[0].questions[0].prompt, validQuestion().prompt);
 });
 
+test("parseBankReply trims an overlong model answer to whole sentences (issue #19)", () => {
+  const long = "Each node holds a key. ".repeat(80);
+  const reply = bankReply([{ topicName: "Binary search trees", questions: [validQuestion({ modelAnswer: long })] }]);
+  const answer = parseBankReply(reply).topics[0].questions[0].modelAnswer;
+  assert.ok(answer.length <= 700, `model answer is ${answer.length} chars`);
+  assert.match(answer, /key\.$/);
+});
+
+test("buildBankPrompt asks for short questions and model answers (issue #19)", () => {
+  const prompt = buildBankPrompt({ subjectName: "CS", topics: [{ name: "Stacks", notes: "" }], files: [] });
+  assert.match(prompt, /one or two sentences/);
+  assert.match(prompt, /shortest correct, complete answer/);
+});
+
 test("parseBankReply falls back to a plain fence when the tag is missing", () => {
   const reply = "```\n" + JSON.stringify({ topics: [{ topicName: "Stacks", questions: [validQuestion()] }] }) + "\n```";
   const result = parseBankReply(reply);

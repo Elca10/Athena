@@ -42,6 +42,7 @@ import { RATINGS, targetDifficultyForCard } from "./scheduler.js";
 import { listPreferences } from "./preferences.js";
 import { formatPreferencesBlock } from "./preferencesPrompt.js";
 import { getPersonaBlock } from "./persona/persona.js";
+import { trimToSentences } from "./textLimits.js";
 import { justReachedMastered } from "./subjectSummary.js";
 
 /** This turn needs no tools at all — it answers from the topic name/notes
@@ -62,7 +63,9 @@ export const DIFFICULTIES = ["intro", "medium", "hard"];
 const MAX_PROMPT_CHARS = 2000;
 const MAX_REPLY_CHARS = 400_000;
 const MAX_ANSWER_CHARS = 4000;
-const MAX_FEEDBACK_CHARS = 2000;
+// Issue #19: the prompt asks for at most three short sentences; this only
+// catches a reply that ignores it.
+const MAX_FEEDBACK_CHARS = 600;
 
 // A single short model reply — generous relative to topicExtraction's
 // 180s (which also reads files), stingy enough a hung CLI doesn't block a
@@ -160,7 +163,7 @@ Topic to ask about: "${topic.name}"${notesLine}
 
 ${framingLine}
 
-The question must be answerable from memory with no tools, in a few sentences to a short paragraph — not multiple choice, not fill-in-the-blank. Pick whichever of these types fits best: ${QUESTION_TYPES.join(", ")}. Pick a difficulty of intro, medium, or hard.${varietyLine}${difficultyLine}
+Keep the question itself to one or two sentences. It must be answerable from memory with no tools, in a few sentences — not multiple choice, not fill-in-the-blank. Pick whichever of these types fits best: ${QUESTION_TYPES.join(", ")}. Pick a difficulty of intro, medium, or hard.${varietyLine}${difficultyLine}
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
 
@@ -345,7 +348,7 @@ Question asked (${question.type}, ${question.difficulty}): "${question.prompt}"
 
 ${referenceBlock}The user's answer: "${answerText}"${confidenceLine}
 
-Grade this answer: say exactly what's right, wrong, or missing, per the voice above. Then pick exactly one rating for how this should affect spaced-repetition scheduling:
+Grade this answer: say exactly what's right, wrong, or missing, per the voice above, and keep it short (see Length above). Then pick exactly one rating for how this should affect spaced-repetition scheduling:
 - "again": the answer was wrong, or shows the user doesn't actually know this yet.
 - "hard": basically correct, but incomplete, hesitant, or clearly took real effort.
 - "good": a solid, correct answer.
@@ -355,7 +358,7 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
 
 \`\`\`json athena-live-feedback
 {
-  "feedback": "<your specific feedback on this answer, a sentence or two to a short paragraph>",
+  "feedback": "<at most three short sentences: the verdict, then only what's wrong or missing>",
   "rating": "<one of: again, hard, good, easy>"
 }
 \`\`\`${formatPreferencesBlock(preferences)}`;
@@ -412,7 +415,7 @@ export function parseGradingReply(resultText) {
     return { ok: false, reason: `the reply's rating was not one of ${RATINGS.join(", ")}: ${JSON.stringify(data.rating)}` };
   }
 
-  return { ok: true, feedback: feedback.slice(0, MAX_FEEDBACK_CHARS), rating: data.rating };
+  return { ok: true, feedback: trimToSentences(feedback, MAX_FEEDBACK_CHARS), rating: data.rating };
 }
 
 /** Test seam for the grading model call — same convention as
