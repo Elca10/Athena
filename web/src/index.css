@@ -1994,6 +1994,62 @@ select {
   border-top: 1px solid var(--border);
 }
 
+/* Issue #22: a subject's topics on one day, collapsed to one row. */
+.calendar-group {
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.calendar-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.calendar-group-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.calendar-group-toggle:hover {
+  background: none;
+  text-decoration: underline;
+}
+
+.calendar-group-blocks {
+  margin: 0.4rem 0 0 1.5rem;
+}
+
+/* Stays on screen while scrolling the days, so picks can be moved. */
+.calendar-batch-bar {
+  position: sticky;
+  bottom: 0.75rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  padding: 0.6rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 0.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
+
+.calendar-batch-bar label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 .calendar-block-main {
   display: flex;
   flex-wrap: wrap;

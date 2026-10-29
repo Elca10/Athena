@@ -678,6 +678,19 @@ export async function scheduleBlockAction(blockId: string, action: BlockAction, 
   return { ok: false, error, schedule: body?.schedule };
 }
 
+// Several blocks to one day at once (issue #22): all move, or none do.
+export async function moveScheduleBlocks(ids: string[], toDate: string): Promise<BlockActionResult> {
+  const res = await fetch("/api/schedule/blocks/move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids, toDate }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.ok && body) return { ok: true, schedule: body };
+  const error = (body && typeof body.error === "string" && body.error) || `That didn't work (${res.status}). Try again.`;
+  return { ok: false, error, schedule: body?.schedule };
+}
+
 // Mirrors server/src/bigIdeas.js's record shape (SPEC-v2.md section 3's
 // structure-building row / SPEC.md section 6: a per-subject "big ideas"
 // summary the user writes and revises themselves — no model call anywhere

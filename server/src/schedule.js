@@ -375,6 +375,16 @@ export async function setAvailability(appDataDir, value) {
 
 export const BLOCK_ACTIONS = ["done", "undone", "move", "delete", "restore"];
 
+/** Most blocks one batch move takes: far above a real two-week plan, only
+ * a bound on what a request can ask for. */
+export const MAX_BATCH_BLOCKS = 500;
+
+function checkMoveDate(toDate, today, horizonDays) {
+  if (!isValidDateString(toDate)) throw new Error("Pick a day to move it to.");
+  const horizonEnd = addDays(today, horizonDays - 1);
+  if (toDate < today || toDate > horizonEnd) throw new Error("You can move a block to any day from today to the end of the schedule.");
+}
+
 export class BlockChangedError extends Error {}
 
 /**
@@ -408,11 +418,7 @@ export async function applyBlockAction(appDataDir, id, action, { toDate } = {}, 
   if (action === "undone" && block.doneBy === "session") {
     throw new Error("This one was done in a study session, so it stays done. Delete it if you don't want it shown.");
   }
-  if (action === "move") {
-    if (!isValidDateString(toDate)) throw new Error("Pick a day to move it to.");
-    const horizonEnd = addDays(today, schedule.horizonDays - 1);
-    if (toDate < today || toDate > horizonEnd) throw new Error("You can move a block to any day from today to the end of the schedule.");
-  }
+  if (action === "move") checkMoveDate(toDate, today, schedule.horizonDays);
 
   let record = null;
   if (action === "done") record = { status: "done", date: block.date };
@@ -426,6 +432,49 @@ export async function applyBlockAction(appDataDir, id, action, { toDate } = {}, 
     );
     if (record) {
       overrides.push({ id, topicId: parsed.topicId, ...record, updatedAt: now.toISOString() });
+    }
+    return { ...(current ?? {}), overrides };
+  });
+  return getSchedule(appDataDir, now);
+}
+
+/**
+ * Moves several blocks to `toDate` at once (issue #22), as one write: if
+ * any of them isn't on the schedule any more, nothing moves and it throws
+ * BlockChangedError, same as a single move. A block already marked done
+ * stays done on its new day, same as `applyBlockAction`'s move. Returns
+ * the new schedule.
+ */
+export async function moveBlocks(appDataDir, ids, toDate, now = new Date()) {
+  if (!Array.isArray(ids) || ids.length === 0 || ids.some((id) => typeof id !== "string")) {
+    throw new Error("Pick at least one study block to move.");
+  }
+  const unique = [...new Set(ids)];
+  if (unique.length > MAX_BATCH_BLOCKS) throw new Error(`You can move at most ${MAX_BATCH_BLOCKS} study blocks at once.`);
+  const today = localDateOf(now);
+  const parsed = new Map(unique.map((id) => [id, parseBlockId(id)]));
+  const stale = "Some of those study blocks aren't on your schedule any more. The schedule has been refreshed.";
+  if ([...parsed.values()].some((p) => !p)) throw new BlockChangedError(stale);
+
+  const inputs = await gatherInputs(appDataDir, today);
+  const schedule = computeSchedule(inputs);
+  const onSchedule = new Set(schedule.days.flatMap((d) => d.blocks).map((b) => b.id));
+  if (unique.some((id) => !onSchedule.has(id))) throw new BlockChangedError(stale);
+  checkMoveDate(toDate, today, schedule.horizonDays);
+
+  const moving = new Set(unique);
+  await storeFor(appDataDir).update((current) => {
+    const previous = (Array.isArray(current?.overrides) ? current.overrides : []).filter((o) => o && o.date >= today);
+    const doneBefore = new Set(previous.filter((o) => moving.has(o.id) && o.status === "done").map((o) => o.id));
+    const overrides = previous.filter((o) => !moving.has(o.id));
+    for (const id of unique) {
+      overrides.push({
+        id,
+        topicId: parsed.get(id).topicId,
+        status: doneBefore.has(id) ? "done" : "planned",
+        date: toDate,
+        updatedAt: now.toISOString(),
+      });
     }
     return { ...(current ?? {}), overrides };
   });

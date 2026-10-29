@@ -56,6 +56,7 @@ function dayCard(heading: RegExp) {
 }
 
 test("shows two weeks of days: today's blocks, deadlines, days off, and why a block is there", async () => {
+  const user = userEvent.setup();
   vi.mocked(api.getSchedule).mockResolvedValue(
     schedule({
       "2026-10-20": [block(), block({ id: "2026-10-20:t9", topicId: "t9", topicName: "Mitosis", status: "done", doneBy: "session", reason: "studied" })],
@@ -74,6 +75,11 @@ test("shows two weeks of days: today's blocks, deadlines, days off, and why a bl
   render(<CalendarView onBack={() => {}} />);
   expect(screen.getByText("Loading your schedule…")).toBeInTheDocument();
   const today = await waitFor(() => dayCard(/^Today ·/));
+  // Two Biology topics today: one collapsed row until opened (issue #22).
+  expect(within(today).queryByText("Osmosis")).not.toBeInTheDocument();
+  const group = within(today).getByRole("button", { name: /Biology\s*2 topics · 1 done/ });
+  expect(group).toHaveAttribute("aria-expanded", "false");
+  await user.click(group);
   expect(within(today).getByText("Osmosis")).toBeInTheDocument();
   expect(within(today).getByText("done in a study session")).toBeInTheDocument();
   expect(within(today).getByText("about 5 min to go")).toBeInTheDocument();
@@ -270,4 +276,56 @@ test("deadlines can be added from the Calendar for any subject (issue #21)", asy
   expect(api.createDeadline).toHaveBeenCalledWith("s2", { title: "Essay due", date: "2026-11-20", topicIds: [] });
   // The plan is rebuilt so the new deadline shows on its day.
   await waitFor(() => expect(vi.mocked(api.getSchedule).mock.calls.length).toBeGreaterThan(callsBefore));
+});
+
+test("batch move: pick single topics and a whole subject, move them to one day in one request (issue #22)", async () => {
+  const user = userEvent.setup();
+  const bio = (id: string, name: string) => block({ id: `2026-10-20:${id}`, topicId: id, topicName: name });
+  vi.mocked(api.getSchedule).mockResolvedValue(
+    schedule({
+      "2026-10-20": [bio("t1", "Osmosis"), bio("t2", "Mitosis"), bio("t3", "Meiosis")],
+      "2026-10-21": [block({ id: "2026-10-21:h1", topicId: "h1", topicName: "Treaty of Versailles", subjectId: "s2", subjectName: "History", date: "2026-10-21" })],
+    }),
+  );
+  vi.mocked(api.moveScheduleBlocks).mockResolvedValue({ ok: true, schedule: schedule() });
+  render(<CalendarView onBack={() => {}} />);
+
+  const today = await waitFor(() => dayCard(/^Today ·/));
+  await user.click(within(today).getByRole("checkbox", { name: "Select all Biology topics" }));
+  await user.click(screen.getByRole("checkbox", { name: "Select Treaty of Versailles (History)" }));
+  const bar = screen.getByRole("region", { name: "Move selected topics" });
+  expect(bar).toHaveTextContent("4 topics selected");
+
+  // Unpicking one topic inside the group leaves the group partly picked.
+  await user.click(within(today).getByRole("button", { name: /Biology/ }));
+  await user.click(within(today).getByRole("checkbox", { name: "Select Mitosis (Biology)" }));
+  expect(within(today).getByRole("checkbox", { name: "Select all Biology topics" })).toHaveProperty("indeterminate", true);
+  expect(bar).toHaveTextContent("3 topics selected");
+
+  expect(within(bar).getByRole("button", { name: "Move" })).toBeDisabled();
+  await user.selectOptions(within(bar).getByRole("combobox"), "2026-10-23");
+  await user.click(within(bar).getByRole("button", { name: "Move" }));
+
+  expect(api.moveScheduleBlocks).toHaveBeenCalledTimes(1);
+  const [ids, toDate] = vi.mocked(api.moveScheduleBlocks).mock.calls[0];
+  expect([...ids].sort()).toEqual(["2026-10-20:t1", "2026-10-20:t3", "2026-10-21:h1"]);
+  expect(toDate).toBe("2026-10-23");
+  expect(await screen.findByText(/Moved 3 topics to/)).toBeInTheDocument();
+  expect(screen.queryByRole("region", { name: "Move selected topics" })).not.toBeInTheDocument();
+});
+
+test("batch move refused because the schedule changed: shows why and the fresh schedule", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSchedule).mockResolvedValue(schedule({ "2026-10-20": [block()] }));
+  vi.mocked(api.moveScheduleBlocks).mockResolvedValue({ ok: false, error: "Some of those study blocks aren't on your schedule any more.", schedule: schedule() });
+  render(<CalendarView onBack={() => {}} />);
+
+  await user.click(await screen.findByRole("checkbox", { name: "Select Osmosis (Biology)" }));
+  const bar = screen.getByRole("region", { name: "Move selected topics" });
+  await user.selectOptions(within(bar).getByRole("combobox"), "2026-10-22");
+  await user.click(within(bar).getByRole("button", { name: "Move" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(/aren't on your schedule any more/);
+  // Osmosis is gone from the fresh schedule, so nothing stays picked.
+  expect(screen.queryByRole("region", { name: "Move selected topics" })).not.toBeInTheDocument();
 });

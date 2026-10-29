@@ -14,6 +14,7 @@ import {
   computeSchedule,
   getSchedule,
   applyBlockAction,
+  moveBlocks,
   setAvailability,
   getAvailability,
   extraTopicIdsForToday,
@@ -495,4 +496,28 @@ test("Study picks up today's planned topics that aren't due yet (pulled forward 
   assert.equal(ids[0], "due", "what's due still comes first");
   assert.deepEqual(ids.slice(1).sort(), ["mine", "paced"]);
   assert.ok(!ids.includes("idle"));
+});
+
+test("stored: moveBlocks moves several blocks in one go, keeping done ones done (issue #22)", async () => {
+  const { dir } = await seed({ a: TODAY, b: TODAY, c: "2026-10-22" });
+  await applyBlockAction(dir, `${TODAY}:b`, "done", {}, NOW);
+  const moved = await moveBlocks(dir, [`${TODAY}:a`, `${TODAY}:b`, "2026-10-22:c", `${TODAY}:a`], "2026-10-24", NOW);
+  assert.deepEqual(
+    blocks(moved).map((b) => [b.topicId, b.date, b.status]).sort(),
+    [["a", "2026-10-24", "planned"], ["b", "2026-10-24", "done"], ["c", "2026-10-24", "planned"]],
+  );
+  const stored = (await makeJsonFileStore(appDataSubdirs(dir).db, "schedule.json", {}).read()).overrides;
+  assert.equal(stored.length, 3, "one decision per block, no duplicates");
+});
+
+test("stored: moveBlocks is all or nothing when any block is stale or the input is bad", async () => {
+  const { dir } = await seed({ a: TODAY, b: TODAY });
+  const empty = async () => assert.deepEqual(await makeJsonFileStore(appDataSubdirs(dir).db, "schedule.json", {}).read(), {});
+  await assert.rejects(moveBlocks(dir, [`${TODAY}:a`, "2026-10-21:b"], "2026-10-24", NOW), BlockChangedError);
+  await assert.rejects(moveBlocks(dir, [`${TODAY}:a`, "garbage"], "2026-10-24", NOW), BlockChangedError);
+  await assert.rejects(moveBlocks(dir, [], "2026-10-24", NOW), /at least one/);
+  await assert.rejects(moveBlocks(dir, "nope", "2026-10-24", NOW), /at least one/);
+  await assert.rejects(moveBlocks(dir, [`${TODAY}:a`], "2026-11-03", NOW), /from today/);
+  await assert.rejects(moveBlocks(dir, Array.from({ length: 501 }, (_, i) => `${TODAY}:t${i}`), "2026-10-24", NOW), /at most/);
+  await empty();
 });

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   getSchedule,
   listSubjects,
   listTopics,
+  moveScheduleBlocks,
   type Subject,
   type Topic,
   saveAvailability,
@@ -36,6 +37,52 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
   const [movingId, setMovingId] = useState<string | null>(null);
   const [availabilityDirty, setAvailabilityDirty] = useState(false);
   const [deadlineDirty, setDeadlineDirty] = useState(false);
+  // Issue #22: planned blocks picked for a batch move, and where to.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchTo, setBatchTo] = useState("");
+
+  // A fresh schedule can drop blocks (done in a session, the day passed):
+  // keep only picks that are still planned.
+  useEffect(() => {
+    if (!schedule) return;
+    const planned = new Set(schedule.days.flatMap((d) => d.blocks).filter((b) => b.status === "planned").map((b) => b.id));
+    setSelected((current) => {
+      const kept = [...current].filter((id) => planned.has(id));
+      return kept.length === current.size ? current : new Set(kept);
+    });
+  }, [schedule]);
+
+  function toggleSelected(ids: string[], on: boolean) {
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  async function moveSelected() {
+    if (!batchTo || selected.size === 0) return;
+    const count = selected.size;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await moveScheduleBlocks([...selected], batchTo);
+      if (result.schedule) setSchedule(result.schedule);
+      if (!result.ok) {
+        setMessage({ text: result.error, ok: false });
+      } else {
+        setSelected(new Set());
+        setMessage({ text: `Moved ${count} topic${count === 1 ? "" : "s"} to ${formatDay(batchTo)}.`, ok: true });
+      }
+    } catch {
+      setMessage({ text: "Couldn't reach Athena. Check it's still running, then try again.", ok: false });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function load() {
     setLoadError(null);
@@ -192,27 +239,134 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
                   {day.blocks.length === 0 && day.available && <div className="calendar-day-empty">Nothing planned.</div>}
                   {day.blocks.length > 0 && (
                     <ul className="calendar-blocks">
-                      {day.blocks.map((block) => (
-                        <BlockRow
-                          key={block.id}
-                          block={block}
-                          schedule={schedule}
-                          busy={busy}
-                          moving={movingId === block.id}
-                          onStartMove={() => setMovingId(block.id)}
-                          onCancelMove={() => setMovingId(null)}
-                          onAction={(action, toDate) => act(block, action, toDate)}
-                        />
-                      ))}
+                      {groupBySubject(day.blocks).map((group) => {
+                        const row = (block: ScheduleBlock) => (
+                          <BlockRow
+                            key={block.id}
+                            block={block}
+                            schedule={schedule}
+                            busy={busy}
+                            moving={movingId === block.id}
+                            selected={selected.has(block.id)}
+                            onToggleSelected={(on) => toggleSelected([block.id], on)}
+                            onStartMove={() => setMovingId(block.id)}
+                            onCancelMove={() => setMovingId(null)}
+                            onAction={(action, toDate) => act(block, action, toDate)}
+                          />
+                        );
+                        if (group.blocks.length === 1) return row(group.blocks[0]);
+                        return (
+                          <SubjectGroup
+                            key={`${day.date}:${group.subjectId}`}
+                            subjectName={group.subjectName}
+                            blocks={group.blocks}
+                            selected={selected}
+                            busy={busy}
+                            onToggleSelected={toggleSelected}
+                          >
+                            {group.blocks.map(row)}
+                          </SubjectGroup>
+                        );
+                      })}
                     </ul>
                   )}
                 </li>
               );
             })}
           </ol>
+
+          {selected.size > 0 && (
+            <div className="calendar-batch-bar" role="region" aria-label="Move selected topics">
+              <span>
+                {selected.size} topic{selected.size === 1 ? "" : "s"} selected
+              </span>
+              <label>
+                Move to
+                <select value={batchTo} onChange={(e) => setBatchTo(e.target.value)} disabled={busy} aria-label="Move selected topics to">
+                  <option value="">Pick a day…</option>
+                  {schedule.days.map((d) => (
+                    <option key={d.date} value={d.date}>
+                      {dayHeading(d.date, schedule.today)}
+                      {d.available ? "" : " (day off)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn-primary" disabled={busy || !batchTo} onClick={moveSelected}>
+                Move
+              </button>
+              <button type="button" className="btn-secondary" disabled={busy} onClick={() => setSelected(new Set())}>
+                Clear selection
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+type SubjectBlocks = { subjectId: string; subjectName: string; blocks: ScheduleBlock[] };
+
+/** A day's blocks grouped by subject, in the order subjects first appear. */
+function groupBySubject(blocks: ScheduleBlock[]): SubjectBlocks[] {
+  const groups = new Map<string, SubjectBlocks>();
+  for (const block of blocks) {
+    const group = groups.get(block.subjectId) ?? { subjectId: block.subjectId, subjectName: block.subjectName, blocks: [] };
+    group.blocks.push(block);
+    groups.set(block.subjectId, group);
+  }
+  return [...groups.values()];
+}
+
+// Issue #22: a day's topics for one subject, collapsed to one row until
+// opened. Its checkbox picks every planned topic in it for a batch move.
+function SubjectGroup({
+  subjectName,
+  blocks,
+  selected,
+  busy,
+  onToggleSelected,
+  children,
+}: {
+  subjectName: string;
+  blocks: ScheduleBlock[];
+  selected: Set<string>;
+  busy: boolean;
+  onToggleSelected: (ids: string[], on: boolean) => void;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const plannedIds = blocks.filter((b) => b.status === "planned").map((b) => b.id);
+  const pickedCount = plannedIds.filter((id) => selected.has(id)).length;
+  const done = blocks.length - plannedIds.length;
+  const checkbox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (checkbox.current) checkbox.current.indeterminate = pickedCount > 0 && pickedCount < plannedIds.length;
+  }, [pickedCount, plannedIds.length]);
+
+  return (
+    <li className="calendar-group">
+      <div className="calendar-group-header">
+        {plannedIds.length > 0 && (
+          <input
+            ref={checkbox}
+            type="checkbox"
+            checked={pickedCount === plannedIds.length}
+            disabled={busy}
+            aria-label={`Select all ${subjectName} topics`}
+            onChange={(e) => onToggleSelected(plannedIds, e.target.checked)}
+          />
+        )}
+        <button type="button" className="calendar-group-toggle" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span aria-hidden="true">{open ? "▾" : "▸"}</span> <span className="calendar-block-topic">{subjectName}</span>
+          <span className="calendar-block-subject">
+            {blocks.length} topics{done ? ` · ${done} done` : ""}
+          </span>
+        </button>
+      </div>
+      {open && <ul className="calendar-blocks calendar-group-blocks">{children}</ul>}
+    </li>
   );
 }
 
@@ -297,6 +451,8 @@ function BlockRow({
   schedule,
   busy,
   moving,
+  selected,
+  onToggleSelected,
   onStartMove,
   onCancelMove,
   onAction,
@@ -305,6 +461,8 @@ function BlockRow({
   schedule: Schedule;
   busy: boolean;
   moving: boolean;
+  selected: boolean;
+  onToggleSelected: (on: boolean) => void;
   onStartMove: () => void;
   onCancelMove: () => void;
   onAction: (action: BlockAction, toDate?: string) => void;
@@ -323,6 +481,15 @@ function BlockRow({
   return (
     <li className={done ? "calendar-block calendar-block-done" : "calendar-block"}>
       <div className="calendar-block-main">
+        {!done && (
+          <input
+            type="checkbox"
+            checked={selected}
+            disabled={busy}
+            aria-label={`Select ${label}`}
+            onChange={(e) => onToggleSelected(e.target.checked)}
+          />
+        )}
         <span className="calendar-block-topic">{block.topicName}</span>
         <span className="calendar-block-subject">{block.subjectName}</span>
         {note && <span className="calendar-tag">{note}</span>}

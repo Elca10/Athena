@@ -1,5 +1,5 @@
 import express from "express";
-import { getSchedule, setAvailability, applyBlockAction, BlockChangedError, BLOCK_ACTIONS } from "../schedule.js";
+import { getSchedule, setAvailability, applyBlockAction, moveBlocks, BlockChangedError, BLOCK_ACTIONS } from "../schedule.js";
 
 // Mounted at /api/schedule: the Calendar's suggested schedule (schedule.js)
 // and the user's decisions about it. Every response that changes
@@ -16,6 +16,19 @@ export function makeScheduleRouter(appDataDir) {
       await setAvailability(appDataDir, req.body ?? {});
       res.json(await getSchedule(appDataDir));
     } catch (err) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Several blocks to one day in one go (issue #22). All or nothing.
+  router.post("/blocks/move", async (req, res) => {
+    try {
+      res.json(await moveBlocks(appDataDir, req.body?.ids, req.body?.toDate));
+    } catch (err) {
+      if (err instanceof BlockChangedError) {
+        res.status(409).json({ error: err.message, schedule: await getSchedule(appDataDir) });
+        return;
+      }
       res.status(400).json({ error: err.message });
     }
   });

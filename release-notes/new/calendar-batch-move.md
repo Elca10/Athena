@@ -1,0 +1,1 @@
+In the **Calendar**, a subject's topics for a day are now one row you can open, instead of a long list. Tick topics, or a whole subject, and move them all to another day at once with the bar that appears at the bottom. (#22)
