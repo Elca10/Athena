@@ -176,6 +176,35 @@ test("polls usage again after a few minutes while the tab stays visible", async 
   }
 });
 
+test("an Active session is re-checked until its turn ends, then shows as Waiting (issue #17)", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    const active: api.Session = { id: "live-1", subjectIds: [], mode: "live", status: "active", endedAt: null, archived: false, currentQuestion: null, history: [] };
+    const settled: api.Session = {
+      ...active,
+      status: "waiting",
+      currentQuestion: { topicId: "t1", subjectId: "s1", type: "free_recall", prompt: "What is osmosis?", difficulty: "intro", askedAt: "2026-01-01T00:00:00.000Z" },
+    };
+    vi.mocked(api.listSubjects).mockResolvedValue([]);
+    vi.mocked(api.listSessions).mockResolvedValueOnce([active]).mockResolvedValue([settled]);
+    vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+    mockEmptyUsage();
+    render(<Dashboard />);
+    expect(await screen.findByText("Working…")).toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(await screen.findByText("What is osmosis?")).toBeInTheDocument();
+    expect(screen.queryByText("Working…")).not.toBeInTheDocument();
+
+    // Nothing Active any more: polling stops.
+    const calls = vi.mocked(api.listSessions).mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(api.listSessions).toHaveBeenCalledTimes(calls);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 test("does not poll usage while the tab is hidden, and checks again as soon as it's visible", async () => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   const visibilitySpy = vi.spyOn(document, "visibilityState", "get");

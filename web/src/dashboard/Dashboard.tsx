@@ -153,6 +153,25 @@ export function Dashboard() {
     };
   }, []);
 
+  // Issue #17: leaving a Live session while its question was being written
+  // listed it under Active as "Working…" forever, because the list was
+  // only fetched on load. While anything is Active, re-check every few
+  // seconds; once its turn ends it moves to Waiting with a Resume button.
+  const anyActive = sessions?.some((s) => s.status === "active") ?? false;
+  useEffect(() => {
+    if (!anyActive) return;
+    const ACTIVE_POLL_MS = 3000;
+    const interval = setInterval(async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        setSessions(await listSessions());
+      } catch {
+        // Athena restarting: the next tick tries again.
+      }
+    }, ACTIVE_POLL_MS);
+    return () => clearInterval(interval);
+  }, [anyActive]);
+
   // Done in Add content closes the panel straight away and lands here.
   // If that subject is already being read (Done again after adding more),
   // the server would skip an overlapping scan, so run one more pass once

@@ -1,0 +1,1 @@
+Leaving a Live session while Athena was still writing its first question no longer leaves it stuck as **Working…** on the dashboard. Once the question is ready it moves to **Waiting**, where **Resume** picks it up. (#17)
