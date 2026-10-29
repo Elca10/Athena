@@ -11,7 +11,7 @@ import {
   restoreSession,
   STATUSES,
 } from "../sessions.js";
-import { buildSessionTopicIds, explainNothingDue } from "../sessionBuilder.js";
+import { buildSessionTopicIds, explainNothingDue, MAX_SESSION_TOPICS, MAX_REQUESTED_SESSION_TOPICS } from "../sessionBuilder.js";
 import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
 import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView, BANK_MODES } from "../readySession.js";
 import { submitSessionReflection, skipSessionReflection } from "../reflection.js";
@@ -82,9 +82,15 @@ export function makeSessionsRouter(appDataDir, { onReadySessionDone = () => {} }
       const requestedTopicIds = Array.isArray(req.body?.topicIds) ? req.body.topicIds : [];
       const reviewAhead = req.body?.reviewAhead === true;
       const contentIds = Array.isArray(req.body?.contentIds) ? req.body.contentIds.filter((id) => typeof id === "string") : null;
+      // Issue #24: how many topics (one question each) the user wants.
+      const size = req.body?.size ?? MAX_SESSION_TOPICS;
+      if (!Number.isInteger(size) || size < 1 || size > MAX_REQUESTED_SESSION_TOPICS) {
+        res.status(400).json({ error: `A session can have 1 to ${MAX_REQUESTED_SESSION_TOPICS} questions.` });
+        return;
+      }
       const topicIds = requestedTopicIds.length
         ? requestedTopicIds
-        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds, preferBanked: BANK_MODES.includes(req.body?.mode) });
+        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds, limit: size, preferBanked: BANK_MODES.includes(req.body?.mode) });
       // An empty session can't ask anything; refuse with a reason instead
       // of creating one that dead-ends on its first question. `nothingDue`
       // lets the UI offer "Review ahead anyway" when there ARE topics.

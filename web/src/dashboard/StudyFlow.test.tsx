@@ -7,6 +7,7 @@ import * as api from "./api";
 vi.mock("./api");
 
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
@@ -876,4 +877,35 @@ test("choosing exam prep starts a session with no intro questions (issue #18)", 
   await user.click(screen.getByRole("button", { name: "Start session" }));
 
   expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready", { focus: "exam" });
+});
+
+test("choosing a longer session asks for that many questions, and the choice is remembered (issue #24)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({ ok: true, session: baseSession({ currentQuestion: mcQuestion() }) });
+  const { unmount } = render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  const length = screen.getByRole("combobox", { name: "Questions per session" });
+  expect(length).toHaveValue("12");
+  await user.selectOptions(length, "30");
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready", { size: 30 });
+  unmount();
+
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+  expect(screen.getByRole("combobox", { name: "Questions per session" })).toHaveValue("30");
+});
+
+test("Review ahead keeps the chosen length", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession)
+    .mockRejectedValueOnce(Object.assign(new Error("You're all caught up."), { nothingDue: true }))
+    .mockResolvedValueOnce(baseSession());
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({ ok: true, session: baseSession({ currentQuestion: mcQuestion() }) });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.selectOptions(screen.getByRole("combobox", { name: "Questions per session" }), "5");
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  await user.click(await screen.findByRole("button", { name: "Review ahead anyway" }));
+  expect(api.createSession).toHaveBeenLastCalledWith(["s1"], "ready", { reviewAhead: true, size: 5 });
 });

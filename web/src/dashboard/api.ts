@@ -200,7 +200,12 @@ export function restoreSession(id: string): Promise<Session> {
 export async function createSession(
   subjectIds: string[],
   mode: SessionMode,
-  { reviewAhead = false, contentIds, focus }: { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus } = {},
+  {
+    reviewAhead = false,
+    contentIds,
+    focus,
+    size,
+  }: { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus; size?: number } = {},
 ): Promise<Session> {
   const res = await fetch("/api/sessions", {
     method: "POST",
@@ -211,6 +216,7 @@ export async function createSession(
       ...(reviewAhead ? { reviewAhead } : {}),
       ...(contentIds?.length ? { contentIds } : {}),
       ...(focus === "exam" ? { focus } : {}),
+      ...(size !== undefined ? { size } : {}),
     }),
   });
   if (!res.ok) {

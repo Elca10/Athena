@@ -256,3 +256,34 @@ test("an error thrown inside an async route is a 500, not a crash (Express 5 for
     await fs.rm(prefsPath, { force: true });
   }
 });
+
+test("POST /api/sessions builds a session of the requested size, 12 by default, and refuses bad sizes (issue #24)", async () => {
+  const { createApp } = await import("../index.js");
+  const { createSubject } = await import("../subjects.js");
+  const { addPlannedTopics } = await import("../topics.js");
+  const { app, appDataDir } = await createApp();
+  const subject = await createSubject(appDataDir, { name: "Session size" });
+  await addPlannedTopics(appDataDir, subject.id, Array.from({ length: 30 }, (_, i) => `Topic ${i + 1}`));
+
+  const server = app.listen(0);
+  const { port } = server.address();
+  const post = (body) =>
+    fetch(`http://127.0.0.1:${port}/api/sessions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subjectIds: [subject.id], mode: "ready", ...body }),
+    });
+  try {
+    assert.equal((await (await post({})).json()).topicIds.length, 12);
+    assert.equal((await (await post({ size: 20 })).json()).topicIds.length, 20);
+    // More than the 30 due topics: just all of them.
+    assert.equal((await (await post({ size: 50 })).json()).topicIds.length, 30);
+    for (const size of [0, 51, 2.5, "20"]) {
+      const res = await post({ size });
+      assert.equal(res.status, 400, `size ${JSON.stringify(size)}`);
+      assert.match((await res.json()).error, /1 to 50 questions/);
+    }
+  } finally {
+    server.close();
+  }
+});

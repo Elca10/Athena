@@ -19,6 +19,10 @@ import { extraTopicIdsForToday } from "./schedule.js";
  * an implementer's call, section 11. */
 export const MAX_SESSION_TOPICS = 12;
 
+/** Largest session a user can ask for (issue #24: 12 was too few for some).
+ * 12 stays the default; this only bounds the request. */
+export const MAX_REQUESTED_SESSION_TOPICS = 50;
+
 // `contentIds` (issue #6: "not all exams are cumulative") keeps only
 // topics found in at least one of those files. Topics whose source is
 // unknown can't match. No ids (or an empty list) means every topic.

@@ -55,7 +55,22 @@ import { AppearanceMenu } from "../theme/AppearanceMenu";
 // `reflectionPending`) to pick up exactly where it left off, whether
 // that's mid-question, mid-self-grade (Ready only), or just waiting on the
 // reflection prompt.
-type StartOptions = { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus };
+type StartOptions = { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus; size?: number };
+
+// Issue #24: how many questions a session asks (one per topic). 12 is the
+// server's default, so it's never sent; the choice is remembered here.
+const DEFAULT_SESSION_SIZE = 12;
+const SESSION_SIZES = [5, 10, 12, 20, 30, 50];
+const SIZE_STORAGE_KEY = "athena.sessionSize";
+
+function storedSessionSize(): number {
+  try {
+    const n = Number(localStorage.getItem(SIZE_STORAGE_KEY));
+    return SESSION_SIZES.includes(n) ? n : DEFAULT_SESSION_SIZE;
+  } catch {
+    return DEFAULT_SESSION_SIZE;
+  }
+}
 
 export function StudyFlow({
   subjects,
@@ -98,7 +113,10 @@ export function StudyFlow({
     };
   }, []);
   // Set when nothing is due but there are topics: offers "Review ahead".
-  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; contentIds?: string[]; focus?: SessionFocus } | null>(null);
+  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; options: StartOptions } | null>(null);
+  // The size the last session was started with, so switching a Ready
+  // session to Live keeps it.
+  const lastSize = useRef<number | undefined>(undefined);
 
   // Stop early: with answers, go to the end-of-session reflection; with
   // none, just close it. Before this, a session could only end by
@@ -120,20 +138,22 @@ export function StudyFlow({
 
   // `contentIds`: the files the user limited the session to (issue #6).
   // `focus`: "exam" when the user already knows the material (issue #18).
-  async function start(subjectIds: string[], mode: SessionMode, { reviewAhead = false, contentIds, focus }: StartOptions = {}) {
+  async function start(subjectIds: string[], mode: SessionMode, { reviewAhead = false, contentIds, focus, size }: StartOptions = {}) {
     setStarting(true);
     setError(null);
     setNothingDue(null);
+    lastSize.current = size;
     try {
       const options = {
         ...(reviewAhead ? { reviewAhead } : {}),
         ...(contentIds?.length ? { contentIds } : {}),
         ...(focus === "exam" ? { focus } : {}),
+        ...(size !== undefined && size !== DEFAULT_SESSION_SIZE ? { size } : {}),
       };
       setSession(await (Object.keys(options).length ? createSession(subjectIds, mode, options) : createSession(subjectIds, mode)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start that session.");
-      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode, contentIds, focus });
+      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode, options: { contentIds, focus, size } });
       setStarting(false);
     }
   }
@@ -148,7 +168,7 @@ export function StudyFlow({
     } catch {
       // Not worth blocking the switch over; worst case it stays listed.
     }
-    await start(abandoned.subjectIds, "live", { contentIds: abandoned.contentIds, focus: abandoned.focus });
+    await start(abandoned.subjectIds, "live", { contentIds: abandoned.contentIds, focus: abandoned.focus, size: lastSize.current });
   }
 
   return (
@@ -179,7 +199,7 @@ export function StudyFlow({
                 type="button"
                 className="btn-secondary"
                 onClick={() =>
-                  start(nothingDue.subjectIds, nothingDue.mode, { reviewAhead: true, contentIds: nothingDue.contentIds, focus: nothingDue.focus })
+                  start(nothingDue.subjectIds, nothingDue.mode, { ...nothingDue.options, reviewAhead: true })
                 }
                 disabled={starting}
               >
@@ -240,6 +260,16 @@ function ModePicker({
   const [selected, setSelected] = useState<Set<string>>(new Set([initialSubjectId]));
   const [mode, setMode] = useState<SessionMode>("ready");
   const [focus, setFocus] = useState<SessionFocus>("learn");
+  const [size, setSize] = useState(storedSessionSize);
+
+  function chooseSize(next: number) {
+    setSize(next);
+    try {
+      localStorage.setItem(SIZE_STORAGE_KEY, String(next));
+    } catch {
+      // Private mode etc.: just not remembered.
+    }
+  }
   // Issue #6 ("not all exams are cumulative"): study only chosen files.
   const [onlySomeFiles, setOnlySomeFiles] = useState(false);
   const [pickedFiles, setPickedFiles] = useState<Set<string>>(new Set());
@@ -272,14 +302,14 @@ function ModePicker({
   const canStart = !busy && selected.size > 0 && (!onlySomeFiles || chosenFiles.length > 0);
 
   function startSession() {
-    const focusOption = focus === "exam" ? { focus } : {};
+    const extra = { ...(focus === "exam" ? { focus } : {}), ...(size !== DEFAULT_SESSION_SIZE ? { size } : {}) };
     if (!onlySomeFiles) {
-      onStart([...selected], mode, focusOption);
+      onStart([...selected], mode, extra);
       return;
     }
     // Only subjects with a picked file: the others would add nothing.
     const subjectIds = [...new Set(chosenFiles.map((c) => c.subjectId))];
-    onStart(subjectIds, mode, { contentIds: chosenFiles.map((c) => c.id), ...focusOption });
+    onStart(subjectIds, mode, { contentIds: chosenFiles.map((c) => c.id), ...extra });
   }
 
   function toggle(id: string) {
@@ -332,6 +362,19 @@ function ModePicker({
           <input type="radio" name="study-focus" checked={focus === "exam"} onChange={() => setFocus("exam")} disabled={busy} />
           Already learned it — exam prep, no intro questions
         </label>
+      </fieldset>
+      <fieldset className="study-picker-mode">
+        <legend>Length</legend>
+        <label>
+          <select value={size} onChange={(e) => chooseSize(Number(e.target.value))} disabled={busy} aria-label="Questions per session">
+            {SESSION_SIZES.map((n) => (
+              <option key={n} value={n}>
+                {n} questions{n === DEFAULT_SESSION_SIZE ? " (standard)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="study-picker-hint">One question per topic. Fewer if fewer topics are due.</p>
       </fieldset>
       <fieldset className="study-picker-mode">
         <legend>Content</legend>
