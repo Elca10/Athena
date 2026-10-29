@@ -792,3 +792,99 @@ test("full ready-mode round trip across two topics moves the session to waiting 
   assert.equal(done.session.reflectionPending, true);
   assert.equal(done.session.history.length, 2);
 });
+
+// --- Hybrid mode (issue #16) ---------------------------------------------
+
+function gradingReply(rating, feedback = "Right idea, but no base case.") {
+  return `Some reasoning.\n\n\`\`\`json athena-live-feedback\n${JSON.stringify({ feedback, rating })}\n\`\`\``;
+}
+
+test("hybrid: a free-form answer is graded by one model turn that sees the bank's answer key, and finalizes", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "hybrid", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const prompts = [];
+  const runTurn = async (prompt) => {
+    prompts.push(prompt);
+    return gradingReply("hard");
+  };
+  const result = await submitReadyAnswer(dir, session.id, { answerText: "it calls itself", confidence: 3 }, { runTurn });
+  assert.equal(prompts.length, 1);
+  assert.match(prompts[0], /it calls itself/);
+  assert.match(prompts[0], /A function that calls itself\./, "the bank's model answer is the grader's reference");
+  assert.match(prompts[0], /mentions a base case/);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.finalized, true);
+  assert.equal(result.rating, "hard");
+  assert.equal(result.feedback, "Right idea, but no base case.");
+  assert.equal(result.modelAnswer, "A function that calls itself.");
+  assert.equal(result.session.currentQuestion, null);
+  assert.equal(result.session.history[0].rating, "hard");
+  assert.equal(result.session.history[0].feedback, "Right idea, but no base case.");
+  assert.equal(result.session.history[0].answerText, "it calls itself");
+  assert.equal((await getTopicById(dir, topic.id)).fsrs.reps, 1);
+});
+
+test("hybrid: a failed grading turn returns a retryable failure and leaves the session and topic untouched", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "hybrid", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  for (const runTurn of [async () => { throw new Error("claude timed out"); }, async () => gradingReply("great")]) {
+    const result = await submitReadyAnswer(dir, session.id, { answerText: "it calls itself", confidence: 3 }, { runTurn });
+    assert.equal(result.ok, false);
+    assert.ok(result.reason);
+  }
+  const after = await getSession(dir, session.id);
+  assert.equal(after.history.length, 0);
+  assert.ok(after.currentQuestion, "the question is still there to retry");
+  assert.equal(after.currentQuestion.pendingAnswer, undefined);
+  assert.equal((await getTopicById(dir, topic.id)).fsrs.reps, 0);
+
+  const retried = await submitReadyAnswer(dir, session.id, { answerText: "it calls itself", confidence: 3 }, { runTurn: async () => gradingReply("good") });
+  assert.equal(retried.ok, true);
+  assert.equal(retried.rating, "good");
+});
+
+test("hybrid: multiple choice still grades locally with no model call", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [
+    { type: "multiple_choice", prompt: "p", difficulty: "medium", modelAnswer: "b", rubric: [], misconceptions: [], choices: ["a", "b"], correctIndex: 1 },
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "hybrid", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+
+  const runTurn = async () => assert.fail("multiple choice must not call the model");
+  const result = await submitReadyAnswer(dir, session.id, { selectedIndex: 0, confidence: 2 }, { runTurn });
+  assert.equal(result.finalized, true);
+  assert.equal(result.isCorrect, false);
+  assert.equal(result.session.history[0].rating, "again");
+});
+
+test("hybrid: the served question's answer key stays hidden from the client until graded", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "hybrid", topicIds: [topic.id] });
+  const served = await generateNextReadyQuestion(dir, session.id);
+  const view = publicQuestionView(served.session.currentQuestion);
+  assert.equal(view.prompt, "Explain recursion.");
+  assert.equal(view.modelAnswer, undefined);
+  assert.equal(view.rubric, undefined);
+});
+
+test("hybrid: self-grading is a Ready-only step", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir);
+  await addBankQuestions(dir, topic.id, subject.id, [shortAnswerQuestion()]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "hybrid", topicIds: [topic.id] });
+  await generateNextReadyQuestion(dir, session.id);
+  await assert.rejects(() => submitReadySelfGrade(dir, session.id, { selfGrades: [{ status: "got_it" }, { status: "got_it" }] }), /ready-mode/);
+});

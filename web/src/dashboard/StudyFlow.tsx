@@ -198,7 +198,7 @@ export function StudyFlow({
           onExit={onExit}
         />
       )}
-      {session && !reflectingId && session.mode === "ready" && (
+      {session && !reflectingId && (session.mode === "ready" || session.mode === "hybrid") && (
         <ReadySessionScreen
           session={session}
           onExit={onExit}
@@ -302,6 +302,10 @@ function ModePicker({
           Ready — pre-generated questions, graded instantly or self-graded
         </label>
         <label>
+          <input type="radio" name="study-mode" checked={mode === "hybrid"} onChange={() => setMode("hybrid")} disabled={busy} />
+          Hybrid — pre-generated questions, written answers graded by Athena (uses some Claude usage)
+        </label>
+        <label>
           <input type="radio" name="study-mode" checked={mode === "live"} onChange={() => setMode("live")} disabled={busy} />
           Live — Athena asks and grades in real time (uses more of your Claude usage)
         </label>
@@ -383,7 +387,8 @@ type LastResult =
       mismatchNote: string | null;
       milestone: string | null;
     }
-  | { kind: "self"; mismatchNote: string | null; milestone: string | null };
+  | { kind: "self"; mismatchNote: string | null; milestone: string | null }
+  | { kind: "graded"; feedback: string; modelAnswer: string | null; milestone: string | null };
 
 // The explanation only adds something when it isn't just the answer again
 // (a bank's modelAnswer for a fill-in is often the bare word).
@@ -551,6 +556,8 @@ function ReadySessionScreen({
     return initialReveal ? initialReveal.rubric.map(() => null) : [];
   });
   const [lastResult, setLastResult] = useState<LastResult | null>(null);
+  // Hybrid only: a grading turn that failed, kept so Submit can retry it.
+  const [answerFailure, setAnswerFailure] = useState<string | null>(null);
   // A session waiting on its reflection (finished, or ended early) shows
   // the reflection straight away. Fetching a "next question" for it could
   // serve a new question, or run a Live model turn, for a session the user
@@ -567,6 +574,7 @@ function ReadySessionScreen({
     setRevealed(null);
     setSelfGrades([]);
     setLastResult(null);
+    setAnswerFailure(null);
   }
 
   async function fetchNext(sessionId: string) {
@@ -609,14 +617,26 @@ function ReadySessionScreen({
 
     setBusy(true);
     setError(null);
+    setAnswerFailure(null);
     try {
       const result = await submitReadyAnswer(session.id, {
         confidence,
         answerText: question.type === "multiple_choice" ? undefined : answerText,
         selectedIndex: question.type === "multiple_choice" ? selectedIndex ?? undefined : undefined,
       });
+      if (!result.ok) {
+        setAnswerFailure(result.reason);
+        return;
+      }
       setSession(result.session);
-      if (result.finalized) {
+      if (result.finalized && "feedback" in result) {
+        setLastResult({
+          kind: "graded",
+          feedback: result.feedback,
+          modelAnswer: result.modelAnswer,
+          milestone: result.milestone ?? null,
+        });
+      } else if (result.finalized) {
         setLastResult({
           kind: "auto",
           isCorrect: result.isCorrect,
@@ -686,6 +706,11 @@ function ReadySessionScreen({
     else submitAnswer();
   }
   useConfidenceKeys(!!activeQuestion && !revealed && !lastResult && !busy, pickConfidence);
+  // Only a Hybrid written answer waits on a model turn; everything else
+  // here answers instantly.
+  const gradedByModel = session.mode === "hybrid" && !["multiple_choice", "cloze"].includes(activeQuestion?.type ?? "");
+  const elapsed = useElapsedSeconds(busy && gradedByModel);
+  const elapsedLabel = elapsed !== null && elapsed >= 3 ? ` (${elapsed}s)` : "";
 
   if (ended) {
     return (
@@ -777,6 +802,12 @@ function ReadySessionScreen({
                 />
               )}
               <ConfidencePicker value={confidence} onPick={pickConfidence} disabled={busy} groupRef={confidenceRef} />
+              {busy && gradedByModel && (
+                <p className="study-working">Athena is grading your answer… This can take up to a minute.{elapsedLabel}</p>
+              )}
+              {answerFailure && (
+                <div className="study-session-error">Athena couldn't grade that answer this time. Details: {answerFailure}</div>
+              )}
               <button
                 ref={submitRef}
                 type="button"
@@ -786,7 +817,7 @@ function ReadySessionScreen({
                   busy || confidence === null || (question.type === "multiple_choice" ? selectedIndex === null : !answerText.trim())
                 }
               >
-                Submit answer
+                {answerFailure ? "Try again" : "Submit answer"}
               </button>
             </div>
           )}
@@ -832,9 +863,17 @@ function ReadySessionScreen({
 
           {lastResult && (
             <div className="study-result">
-              <p className="study-result-verdict">
-                {lastResult.kind === "auto" ? (lastResult.isCorrect ? "Correct!" : "Not quite.") : "Self-grade recorded."}
-              </p>
+              {lastResult.kind !== "graded" && (
+                <p className="study-result-verdict">
+                  {lastResult.kind === "auto" ? (lastResult.isCorrect ? "Correct!" : "Not quite.") : "Self-grade recorded."}
+                </p>
+              )}
+              {lastResult.kind === "graded" && <p>{lastResult.feedback}</p>}
+              {lastResult.kind === "graded" && lastResult.modelAnswer && (
+                <p className="study-reveal-answer">
+                  <strong>Model answer:</strong> {lastResult.modelAnswer}
+                </p>
+              )}
               {lastResult.kind === "auto" && !lastResult.isCorrect && lastResult.correctAnswer && (
                 <p className="study-result-answer">
                   The answer: <strong>{lastResult.correctAnswer}</strong>
@@ -843,7 +882,9 @@ function ReadySessionScreen({
               {lastResult.kind === "auto" && lastResult.explanation && (
                 <p className="study-result-explanation">{lastResult.explanation}</p>
               )}
-              {lastResult.mismatchNote && <p className="study-result-mismatch">{lastResult.mismatchNote}</p>}
+              {lastResult.kind !== "graded" && lastResult.mismatchNote && (
+                <p className="study-result-mismatch">{lastResult.mismatchNote}</p>
+              )}
               {lastResult.milestone && <p className="study-result-milestone">{lastResult.milestone}</p>}
               <button type="button" className="btn-primary" onClick={() => fetchNext(session.id)} disabled={busy} autoFocus>
                 Next question

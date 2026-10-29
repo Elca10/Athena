@@ -319,9 +319,10 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
  * mismatch; the grading/feedback tone itself comes entirely from the
  * persona block below, not from wording duplicated here.
  */
-export function buildGradingPrompt({ subjectNames, topic, question, answerText, confidence, preferences }) {
+export function buildGradingPrompt({ subjectNames, topic, question, answerText, confidence, preferences, reference }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
+  const referenceBlock = formatReferenceBlock(reference);
   const confidenceLine = Number.isInteger(confidence)
     ? `\n\nThe user's own stated confidence in this answer (1 = guessing, 5 = certain), given right after answering and before seeing any feedback: ${confidence}. Apply the voice above's confidence-vs-correctness guidance using this number and how correct the answer actually is.`
     : "";
@@ -335,7 +336,7 @@ Topic: "${topic.name}"${notesLine}
 
 Question asked (${question.type}, ${question.difficulty}): "${question.prompt}"
 
-The user's answer: "${answerText}"${confidenceLine}
+${referenceBlock}The user's answer: "${answerText}"${confidenceLine}
 
 Grade this answer: say exactly what's right, wrong, or missing, per the voice above. Then pick exactly one rating for how this should affect spaced-repetition scheduling:
 - "again": the answer was wrong, or shows the user doesn't actually know this yet.
@@ -351,6 +352,21 @@ Finish your reply with exactly one fenced block in this exact form, and nothing 
   "rating": "<one of: again, hard, good, easy>"
 }
 \`\`\`${formatPreferencesBlock(preferences)}`;
+}
+
+/**
+ * Hybrid mode (issue #16) grades a pre-generated bank question, which
+ * comes with the answer and rubric written alongside it. Handing those to
+ * the grader keeps its judgment consistent with what the bank says is
+ * right. Empty for a Live question, which has none. Pure.
+ */
+function formatReferenceBlock(reference) {
+  if (!reference?.modelAnswer) return "";
+  const rubric = reference.rubric?.length ? `\nKey points a full answer covers:\n${reference.rubric.map((p) => `- ${p}`).join("\n")}` : "";
+  const misconceptions = reference.misconceptions?.length
+    ? `\nCommon misconceptions to watch for:\n${reference.misconceptions.map((m) => `- ${m}`).join("\n")}`
+    : "";
+  return `Reference answer, written with the question (judge against it, but credit a correct answer that's phrased differently): "${reference.modelAnswer}"${rubric}${misconceptions}\n\n`;
 }
 
 /**

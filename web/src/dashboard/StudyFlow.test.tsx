@@ -265,6 +265,44 @@ test("free-form: submitting an answer reveals the rubric, and self-grading every
   expect(await screen.findByText("Self-grade recorded.")).toBeInTheDocument();
 });
 
+test("Hybrid: a written answer to a pre-generated question is graded by Athena, showing feedback and the model answer", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ mode: "hybrid" }));
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValueOnce({
+    ok: true,
+    session: baseSession({ mode: "hybrid", currentQuestion: freeRecallQuestion(), status: "waiting" }),
+  });
+  vi.mocked(api.submitReadyAnswer)
+    .mockResolvedValueOnce({ ok: false, reason: "claude timed out" })
+    .mockResolvedValueOnce({
+      ok: true,
+      finalized: true,
+      feedback: "Right about sugar; you left out where the energy comes from.",
+      rating: "hard",
+      modelAnswer: "Plants convert light energy into chemical energy.",
+      session: baseSession({ mode: "hybrid", status: "active", history: [{}] }),
+    });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  await user.click(screen.getByRole("radio", { name: /Hybrid/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "hybrid");
+  await screen.findByText("Explain photosynthesis in your own words.");
+
+  await user.click(screen.getByRole("button", { name: "3" }));
+  await user.type(screen.getByPlaceholderText("Your answer…"), "It makes sugar.");
+  await user.click(screen.getByRole("button", { name: "Submit answer" }));
+
+  expect(await screen.findByText(/claude timed out/)).toBeInTheDocument();
+  expect(screen.getByPlaceholderText("Your answer…")).toHaveValue("It makes sugar.");
+  await user.click(screen.getByRole("button", { name: "Try again" }));
+
+  expect(await screen.findByText(/you left out where the energy comes from/)).toBeInTheDocument();
+  expect(screen.getByText(/Plants convert light energy/)).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Submit self-grade" })).not.toBeInTheDocument();
+  expect(api.submitReadySelfGrade).not.toHaveBeenCalled();
+});
+
 test("clicking Next question fetches and shows the next served question", async () => {
   const user = userEvent.setup();
   vi.mocked(api.createSession).mockResolvedValue(baseSession());

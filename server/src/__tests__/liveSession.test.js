@@ -526,6 +526,23 @@ test("buildGradingPrompt includes the subject, topic, question, and answer", () 
   assert.match(prompt, /athena-live-feedback/);
 });
 
+test("buildGradingPrompt includes a bank question's reference answer, key points and misconceptions only when given one", () => {
+  const base = {
+    subjectNames: ["Algorithms"],
+    topic: { name: "Recursion", notes: "" },
+    question: { prompt: "Explain recursion.", type: "short_answer", difficulty: "medium" },
+    answerText: "it calls itself",
+  };
+  const withReference = buildGradingPrompt({
+    ...base,
+    reference: { modelAnswer: "A function that calls itself.", rubric: ["mentions a base case"], misconceptions: ["confusing it with iteration"] },
+  });
+  assert.match(withReference, /Reference answer.*"A function that calls itself\."/);
+  assert.match(withReference, /- mentions a base case/);
+  assert.match(withReference, /- confusing it with iteration/);
+  assert.doesNotMatch(buildGradingPrompt(base), /Reference answer/);
+});
+
 test("buildGradingPrompt handles no subject name and no notes", () => {
   const prompt = buildGradingPrompt({
     subjectNames: [],

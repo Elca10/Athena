@@ -44,13 +44,21 @@
 // `publicQuestionView` keeps them — resuming a Waiting session back into
 // the self-grade step needs them, and they're no longer a secret once the
 // user has already answered.
+//
+// Hybrid mode (issue #16) sits between Ready and Live: the same bank
+// questions, served by the same code, but a free-form answer is graded by
+// one model turn (liveSession.js's grading prompt, handed the bank's model
+// answer and rubric as a reference) instead of the self-grade step.
+// Multiple choice and cloze still grade locally, since a model call adds
+// nothing there. `BANK_MODES` is every mode that serves bank questions.
 
 import { getSession, setCurrentQuestion, recordPendingAnswer, recordAnswer, promptReflection, listSessions } from "./sessions.js";
 import { getTopicById, recordTopicReview } from "./topics.js";
 import { listBankQuestions, markQuestionShown, isBankDrained } from "./questionBank.js";
 import { getSubject } from "./subjects.js";
 import { topUpTopicBanks } from "./questionBankGeneration.js";
-import { pickNextTopicId, recentlyAskedTypes } from "./liveSession.js";
+import { pickNextTopicId, recentlyAskedTypes, buildGradingPrompt, parseGradingReply, runGradingTurn } from "./liveSession.js";
+import { listPreferences } from "./preferences.js";
 import { targetDifficultyForCard } from "./scheduler.js";
 import { justReachedMastered } from "./subjectSummary.js";
 
@@ -63,6 +71,11 @@ import { justReachedMastered } from "./subjectSummary.js";
 export const AUTO_GRADED_TYPES = ["multiple_choice", "cloze"];
 
 export const SELF_GRADE_STATUSES = ["got_it", "partly", "missed"];
+
+/** Session modes that serve pre-generated bank questions through this module. */
+export const BANK_MODES = ["ready", "hybrid"];
+
+const MAX_ANSWER_CHARS = 4000;
 
 /**
  * Picks which of a topic's bank questions to serve next: never-shown
@@ -260,7 +273,7 @@ export async function topUpDrainedTopics(appDataDir, topicIds, { topUp = topUpTo
 export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp = topUpTopicBanks } = {}) {
   const session = await getSession(appDataDir, sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
-  if (session.mode !== "ready") throw new Error(`generateNextReadyQuestion only applies to ready-mode sessions: ${sessionId}`);
+  if (!BANK_MODES.includes(session.mode)) throw new Error(`generateNextReadyQuestion only applies to ready-mode sessions: ${sessionId}`);
   if (session.currentQuestion) throw new Error(`Session already has a current question: ${sessionId}`);
   if (!session.topicIds.length) throw new Error(`Session has no topics to ask about: ${sessionId}`);
   if (session.reflectionPending) return { ok: true, done: true, awaitingReflection: true, session, bankTopUps: [] };
@@ -314,15 +327,16 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
  * needs to happen — so the answer+confidence is stashed via
  * `recordPendingAnswer` (session stays "waiting") and the response reveals
  * `modelAnswer`/`rubric`/`misconceptions` for the client to show next.
- * Validation errors (bad session id, wrong mode, no current question, an
- * already-pending answer, a malformed confidence/answer) throw — caller
- * mistakes, not a recoverable outcome, since no model call is ever
- * involved here to fail.
+ * A Hybrid session's free-form answer is instead graded by a model turn
+ * and finalized here (`gradeHybridAnswer`), which can also return the
+ * retryable `{ok: false, reason}`. Validation errors (bad session id,
+ * wrong mode, no current question, an already-pending answer, a malformed
+ * confidence/answer) throw — caller mistakes, not a recoverable outcome.
  */
-export async function submitReadyAnswer(appDataDir, sessionId, { answerText, selectedIndex, confidence } = {}) {
+export async function submitReadyAnswer(appDataDir, sessionId, { answerText, selectedIndex, confidence } = {}, { runTurn = runGradingTurn } = {}) {
   const session = await getSession(appDataDir, sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
-  if (session.mode !== "ready") throw new Error(`submitReadyAnswer only applies to ready-mode sessions: ${sessionId}`);
+  if (!BANK_MODES.includes(session.mode)) throw new Error(`submitReadyAnswer only applies to ready-mode sessions: ${sessionId}`);
   if (!session.currentQuestion) throw new Error(`Session has no current question to answer: ${sessionId}`);
   if (session.currentQuestion.pendingAnswer) {
     throw new Error(`Session's current question already has a pending answer awaiting self-grade: ${sessionId}`);
@@ -367,6 +381,7 @@ export async function submitReadyAnswer(appDataDir, sessionId, { answerText, sel
 
   const trimmedAnswer = typeof answerText === "string" ? answerText.trim() : "";
   if (!trimmedAnswer) throw new Error("answerText must be a non-empty string");
+  if (session.mode === "hybrid") return gradeHybridAnswer(appDataDir, session, trimmedAnswer, confidence, runTurn);
   const updated = await recordPendingAnswer(appDataDir, sessionId, {
     answerText: trimmedAnswer,
     confidence,
@@ -378,6 +393,68 @@ export async function submitReadyAnswer(appDataDir, sessionId, { answerText, sel
     modelAnswer: question.modelAnswer,
     rubric: question.rubric,
     misconceptions: question.misconceptions,
+    session: updated,
+  };
+}
+
+/**
+ * Hybrid mode's free-form grading: one model turn, same prompt and parser
+ * as Live's `submitLiveAnswer` plus the bank question's answer key as a
+ * reference. Same split as Live too: a model-call failure or unusable
+ * reply comes back as `{ok: false, reason}` with the session and topic
+ * untouched, so the user can retry. On success the answer finalizes like
+ * any other (`recordAnswer`), and the model answer is revealed alongside
+ * the feedback. The confidence callout is the model's job here, as in
+ * Live, so there's no `mismatchNote`.
+ */
+async function gradeHybridAnswer(appDataDir, session, answerText, confidence, runTurn) {
+  const question = session.currentQuestion;
+  const topic = await getTopicById(appDataDir, question.topicId);
+  if (!topic) throw new Error(`Topic not found: ${question.topicId}`);
+
+  const subjectNames = [];
+  for (const subjectId of session.subjectIds) {
+    const subject = await getSubject(appDataDir, subjectId);
+    if (subject) subjectNames.push(subject.name);
+  }
+
+  const prompt = buildGradingPrompt({
+    subjectNames,
+    topic,
+    question,
+    answerText: answerText.slice(0, MAX_ANSWER_CHARS),
+    confidence,
+    preferences: await listPreferences(appDataDir),
+    reference: { modelAnswer: question.modelAnswer, rubric: question.rubric, misconceptions: question.misconceptions },
+  });
+
+  let replyText;
+  try {
+    replyText = await runTurn(prompt);
+  } catch (err) {
+    return { ok: false, reason: String(err.message ?? err).slice(0, 300) };
+  }
+  const parsed = parseGradingReply(replyText);
+  if (!parsed.ok) return parsed;
+
+  const topicAfter = await recordTopicReview(appDataDir, topic.id, parsed.rating);
+  const entry = {
+    ...question,
+    answerText,
+    confidence,
+    rating: parsed.rating,
+    feedback: parsed.feedback,
+    answeredAt: new Date().toISOString(),
+  };
+  const updated = await recordAnswer(appDataDir, session.id, entry);
+  const milestone = justReachedMastered(topic, topicAfter) ? `"${topic.name}" just reached mastered.` : null;
+  return {
+    ok: true,
+    finalized: true,
+    feedback: parsed.feedback,
+    rating: parsed.rating,
+    modelAnswer: question.modelAnswer ?? null,
+    milestone,
     session: updated,
   };
 }

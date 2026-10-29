@@ -16,7 +16,11 @@ export type SubjectSummary = {
 };
 
 export type SessionStatus = "active" | "waiting" | "completed";
-export type SessionMode = "live" | "ready";
+export type SessionMode = "live" | "ready" | "hybrid";
+
+/** How each mode is named on screen. Hybrid (issue #16): Ready's
+ * pre-generated questions, with written answers graded by Athena. */
+export const MODE_LABELS: Record<SessionMode, string> = { live: "Live", ready: "Ready", hybrid: "Hybrid" };
 
 // Mirrors readySession.js's QUESTION_TYPES (questionBank.js) — the subset
 // of fields `publicQuestionView` leaves on a served question. `choices`
@@ -252,7 +256,9 @@ export function generateNextReadyQuestion(sessionId: string): Promise<ReadyQuest
 // Mirrors readySession.js's `submitReadyAnswer` result: multiple_choice/
 // cloze grade and finalize immediately (`finalized: true`); every other
 // type instead reveals the model answer/rubric for a self-grade step next
-// (`finalized: false`).
+// (`finalized: false`). In a Hybrid session those other types are graded
+// by a model turn instead (`feedback` + `rating`), which can also fail
+// with the same retryable `{ok: false, reason}` as /live/answer.
 export type ReadyAnswerResult =
   | {
       ok: true;
@@ -270,7 +276,17 @@ export type ReadyAnswerResult =
       milestone?: string | null;
       session: Session;
     }
-  | { ok: true; finalized: false; modelAnswer: string; rubric: string[]; misconceptions: string[]; session: Session };
+  | {
+      ok: true;
+      finalized: true;
+      feedback: string;
+      rating: "again" | "hard" | "good" | "easy";
+      modelAnswer: string | null;
+      milestone?: string | null;
+      session: Session;
+    }
+  | { ok: true; finalized: false; modelAnswer: string; rubric: string[]; misconceptions: string[]; session: Session }
+  | { ok: false; reason: string };
 
 export function submitReadyAnswer(
   sessionId: string,

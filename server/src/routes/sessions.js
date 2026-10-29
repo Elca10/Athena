@@ -13,7 +13,7 @@ import {
 } from "../sessions.js";
 import { buildSessionTopicIds, explainNothingDue } from "../sessionBuilder.js";
 import { generateNextLiveQuestion, submitLiveAnswer } from "../liveSession.js";
-import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView } from "../readySession.js";
+import { generateNextReadyQuestion, submitReadyAnswer, submitReadySelfGrade, publicQuestionView, BANK_MODES } from "../readySession.js";
 import { submitSessionReflection, skipSessionReflection } from "../reflection.js";
 
 // Scrubs a session's `currentQuestion` before it reaches a client, same as
@@ -84,7 +84,7 @@ export function makeSessionsRouter(appDataDir, { onReadySessionDone = () => {} }
       const contentIds = Array.isArray(req.body?.contentIds) ? req.body.contentIds.filter((id) => typeof id === "string") : null;
       const topicIds = requestedTopicIds.length
         ? requestedTopicIds
-        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds, preferBanked: req.body?.mode === "ready" });
+        : await buildSessionTopicIds(appDataDir, subjectIds, { reviewAhead, contentIds, preferBanked: BANK_MODES.includes(req.body?.mode) });
       // An empty session can't ask anything; refuse with a reason instead
       // of creating one that dead-ends on its first question. `nothingDue`
       // lets the UI offer "Review ahead anyway" when there ARE topics.
@@ -193,20 +193,27 @@ export function makeSessionsRouter(appDataDir, { onReadySessionDone = () => {} }
   // /live/answer plus `isCorrect`); every other type instead reveals the
   // model answer/rubric here (`finalized: false`) and waits for
   // /ready/self-grade to finish the job (SPEC.md section 5's two-step
-  // self-grading flow). No model call either way, so every failure here
-  // is a caller mistake — 400, never the {ok:false} "try again" shape
-  // /live/answer uses for a real model-call failure.
+  // self-grading flow). In a Hybrid session a free-form answer is graded
+  // by a model turn instead (issue #16), which can come back as the same
+  // retryable 200 `{ok: false, reason}` /live/answer uses; anything else
+  // that fails here is a caller mistake — 400.
   router.post("/:id/ready/answer", async (req, res) => {
     if (!(await getSession(appDataDir, req.params.id))) {
       res.status(404).json({ error: `Session not found: ${req.params.id}` });
       return;
     }
     try {
-      const result = await submitReadyAnswer(appDataDir, req.params.id, {
-        answerText: req.body?.answerText,
-        selectedIndex: req.body?.selectedIndex,
-        confidence: req.body?.confidence,
-      });
+      const result = await duringTurn(req.params.id, () =>
+        submitReadyAnswer(appDataDir, req.params.id, {
+          answerText: req.body?.answerText,
+          selectedIndex: req.body?.selectedIndex,
+          confidence: req.body?.confidence,
+        }),
+      );
+      if (!result.ok) {
+        res.json(result);
+        return;
+      }
       // `finalized: false` means the reveal in this very response IS the
       // first legitimate disclosure of modelAnswer/rubric/misconceptions —
       // scrubbing them here would contradict the route's own job. Only

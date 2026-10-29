@@ -17,7 +17,7 @@ import { makeJsonFileStore } from "./store/jsonFileStore.js";
 
 const FILE_NAME = "sessions.json";
 
-export const MODES = ["live", "ready"];
+export const MODES = ["live", "ready", "hybrid"];
 export const STATUSES = ["active", "waiting", "completed"];
 
 function storeFor(appDataDir) {

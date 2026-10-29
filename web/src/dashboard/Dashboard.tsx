@@ -10,6 +10,7 @@ import {
   getUsageStatus,
   listSessions,
   listSubjects,
+  MODE_LABELS,
   restoreSession,
   restoreSubject,
   type Session,
@@ -506,7 +507,7 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
             <article className="session-row" key={session.id}>
               <div className="session-row-header">
                 <span className="session-row-subjects">{session.subjectIds.map(subjectName).join(", ")}</span>
-                <span className="session-row-mode">{session.mode === "live" ? "Live" : "Ready"}</span>
+                <span className="session-row-mode">{MODE_LABELS[session.mode] ?? session.mode}</span>
               </div>
               <button
                 type="button"
@@ -542,7 +543,7 @@ function SessionRow({
   onArchive?: () => void;
 }) {
   const subjectLabel = session.subjectIds.map(subjectName).join(", ");
-  const modeLabel = session.mode === "live" ? "Live" : "Ready";
+  const modeLabel = MODE_LABELS[session.mode] ?? session.mode;
 
   let detail: string;
   if (session.status === "active") {
