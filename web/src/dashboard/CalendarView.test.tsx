@@ -3,10 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 import { CalendarView } from "./CalendarView";
 import * as api from "./api";
+import { formatDay } from "./calendarDates";
 
 vi.mock("./api");
 
 afterEach(() => {
+  localStorage.clear();
   vi.restoreAllMocks();
   vi.clearAllMocks();
 });
@@ -328,4 +330,51 @@ test("batch move refused because the schedule changed: shows why and the fresh s
   expect(await screen.findByRole("alert")).toHaveTextContent(/aren't on your schedule any more/);
   // Osmosis is gone from the fresh schedule, so nothing stays picked.
   expect(screen.queryByRole("region", { name: "Move selected topics" })).not.toBeInTheDocument();
+});
+
+test("week view: seven Monday-first columns, grouped topics, deadlines, and Open day back to the list (issue #23)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSchedule).mockResolvedValue(
+    schedule({
+      "2026-10-20": [block(), block({ id: "2026-10-20:t2", topicId: "t2", topicName: "Mitosis", status: "done", doneBy: "you" })],
+    }),
+  );
+  render(<CalendarView onBack={() => {}} />);
+  await user.click(await screen.findByRole("button", { name: "Week" }));
+
+  const week = screen.getByRole("region", { name: /^Week of/ });
+  const columns = within(week).getAllByRole("group");
+  expect(columns).toHaveLength(7);
+  expect(columns[0]).toHaveAccessibleName(formatDay("2026-10-19"));
+  expect(within(columns[0]).getByText("Past")).toBeInTheDocument();
+  expect(within(columns[6]).getByText("Day off")).toBeInTheDocument(); // Sunday isn't a study day here
+
+  const tuesday = columns[1];
+  const biology = within(tuesday).getByRole("button", { name: /Biology\s*1\/2/ });
+  await user.click(biology);
+  expect(within(tuesday).getByText("Osmosis")).toBeInTheDocument();
+  expect(within(tuesday).getByText("Mitosis")).toHaveClass("calendar-week-topic-done");
+
+  // The deadline on Mon 26 Oct is in next week.
+  expect(screen.getByRole("button", { name: "Previous week" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Next week" }));
+  const nextWeek = screen.getByRole("region", { name: /^Week of/ });
+  expect(within(nextWeek).getByText("Midterm")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Next week" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "Previous week" }));
+
+  const backAgain = screen.getByRole("region", { name: /^Week of/ });
+  await user.click(within(within(backAgain).getAllByRole("group")[1]).getByRole("button", { name: "Open day" }));
+  expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true");
+  expect(dayCard(/^Today ·/)).toBeInTheDocument();
+});
+
+test("the chosen layout is remembered on this device", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.getSchedule).mockResolvedValue(schedule());
+  const { unmount } = render(<CalendarView onBack={() => {}} />);
+  await user.click(await screen.findByRole("button", { name: "Week" }));
+  unmount();
+  render(<CalendarView onBack={() => {}} />);
+  expect(await screen.findByRole("region", { name: /^Week of/ })).toBeInTheDocument();
 });

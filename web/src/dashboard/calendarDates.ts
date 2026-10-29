@@ -58,3 +58,18 @@ export function dayHeading(date: string, today: string): string {
   if (n === 1) return `Tomorrow · ${formatDay(date)}`;
   return formatDay(date);
 }
+
+/** The date `n` days after `date` (negative goes back). */
+export function addDays(date: string, n: number): string {
+  const d = parseLocalDate(date);
+  if (!d) return date;
+  d.setDate(d.getDate() + n);
+  return localToday(d);
+}
+
+/** The Monday on or before `date`: where its week starts in WEEKDAY_ORDER. */
+export function weekStart(date: string): string {
+  const d = parseLocalDate(date);
+  if (!d) return date;
+  return addDays(date, -((d.getDay() + 6) % 7));
+}

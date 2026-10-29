@@ -1774,6 +1774,17 @@ select {
   align-items: center;
   gap: 0.5rem;
   margin-right: auto;
+  white-space: nowrap;
+}
+
+/* On a phone the heading, picker and Add button wrap as whole pieces
+   instead of breaking "Deadlines" mid-word. */
+.calendar-deadlines .subject-detail-section-header {
+  flex-wrap: wrap;
+}
+
+.calendar-deadlines .subject-detail-section-header h3 {
+  white-space: nowrap;
 }
 
 .calendar-availability {
@@ -2189,4 +2200,136 @@ select {
 
 .tune-panel-setting .tune-panel-hint {
   margin: 0.4rem 0 0;
+}
+
+/* Issue #23: the Calendar's week view. */
+.calendar-layout-toggle {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.calendar-layout-toggle button {
+  border: none;
+  border-radius: 0;
+  padding: 0.35rem 1rem;
+}
+
+.calendar-layout-toggle button[aria-pressed="true"],
+.calendar-layout-toggle button[aria-pressed="true"]:hover {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.calendar-week-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.calendar-week-nav h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* Seven columns; on a narrow screen they scroll sideways rather than
+   squeezing topic names to nothing. */
+.calendar-week-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(7.5rem, 1fr));
+  gap: 0.4rem;
+  overflow-x: auto;
+}
+
+.calendar-week-day {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 9rem;
+  padding: 0.5rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.calendar-week-today {
+  border-color: var(--accent);
+  box-shadow: inset 0 3px 0 var(--accent);
+}
+
+.calendar-week-off {
+  opacity: 0.6;
+}
+
+.calendar-week-day-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.calendar-week-weekday {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+}
+
+.calendar-week-date {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.calendar-week-deadline {
+  padding: 0.15rem 0.4rem;
+  border-left: 3px solid var(--danger);
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-week-empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.calendar-week-subject button {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.calendar-week-subject-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-week-subject-count {
+  color: var(--text-dim);
+}
+
+.calendar-week-subject-done .calendar-week-subject-name,
+.calendar-week-topic-done {
+  text-decoration: line-through;
+  color: var(--text-dim);
+}
+
+.calendar-week-subject ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+.calendar-week-open {
+  margin-top: auto;
+  padding: 0.2rem 0.4rem;
+  font-size: 0.8rem;
 }

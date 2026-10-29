@@ -17,6 +17,19 @@ import { dayHeading, formatDay, WEEKDAY_NAMES, WEEKDAY_ORDER, WEEKDAY_SHORT } fr
 import { AppearanceMenu } from "../theme/AppearanceMenu";
 import { CanvasImport } from "./CanvasImport";
 import { DeadlinesSection } from "./DeadlinesSection";
+import { CalendarWeek, groupBySubject } from "./CalendarWeek";
+
+// Issue #23: List or Week, remembered on this device.
+const VIEW_STORAGE_KEY = "athena.calendarView";
+type CalendarLayout = "list" | "week";
+
+function storedLayout(): CalendarLayout {
+  try {
+    return localStorage.getItem(VIEW_STORAGE_KEY) === "week" ? "week" : "list";
+  } catch {
+    return "list";
+  }
+}
 
 // The Calendar (SPEC.md section 9, SPEC-v2.md section 2): the suggested
 // schedule for the next two weeks, worked out on the server from what's
@@ -40,6 +53,29 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
   // Issue #22: planned blocks picked for a batch move, and where to.
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [batchTo, setBatchTo] = useState("");
+  const [layout, setLayout] = useState<CalendarLayout>(storedLayout);
+  const [scrollTo, setScrollTo] = useState<string | null>(null);
+
+  function chooseLayout(next: CalendarLayout) {
+    setLayout(next);
+    try {
+      localStorage.setItem(VIEW_STORAGE_KEY, next);
+    } catch {
+      // Private mode etc.: the choice just isn't remembered.
+    }
+  }
+
+  // "Open day" in the week view: switch to the list, then bring that day
+  // into view once it has rendered.
+  useEffect(() => {
+    if (!scrollTo || layout !== "list") return;
+    const el = document.getElementById(`calendar-day-${scrollTo}`);
+    setScrollTo(null);
+    if (!el) return;
+    // The page header is sticky: land the day just below it, not under it.
+    const header = document.querySelector(".dashboard-header")?.getBoundingClientRect().height ?? 0;
+    window.scrollTo?.({ top: el.getBoundingClientRect().top + window.scrollY - header - 8 });
+  }, [scrollTo, layout]);
 
   // A fresh schedule can drop blocks (done in a session, the day passed):
   // keep only picks that are still planned.
@@ -219,63 +255,84 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
             </div>
           )}
 
-          <ol className="calendar-days">
-            {schedule.days.map((day) => {
-              const minutes = day.blocks.filter((b) => b.status === "planned").length * schedule.minutesPerBlock;
-              return (
-                <li key={day.date} className={day.available ? "calendar-day" : "calendar-day calendar-day-off"}>
-                  <div className="calendar-day-header">
-                    <h2>{dayHeading(day.date, schedule.today)}</h2>
-                    <span className="calendar-day-meta">
-                      {!day.available ? "Day off" : minutes ? `about ${minutes} min to go` : day.blocks.length ? "All done" : ""}
-                    </span>
-                  </div>
-                  {day.deadlines.map((d) => (
-                    <div key={d.id} className="calendar-deadline">
-                      Deadline: <strong>{d.title}</strong> · {d.subjectName}
-                      {!d.studying && <span className="calendar-tag">not studying for it</span>}
-                    </div>
-                  ))}
-                  {day.blocks.length === 0 && day.available && <div className="calendar-day-empty">Nothing planned.</div>}
-                  {day.blocks.length > 0 && (
-                    <ul className="calendar-blocks">
-                      {groupBySubject(day.blocks).map((group) => {
-                        const row = (block: ScheduleBlock) => (
-                          <BlockRow
-                            key={block.id}
-                            block={block}
-                            schedule={schedule}
-                            busy={busy}
-                            moving={movingId === block.id}
-                            selected={selected.has(block.id)}
-                            onToggleSelected={(on) => toggleSelected([block.id], on)}
-                            onStartMove={() => setMovingId(block.id)}
-                            onCancelMove={() => setMovingId(null)}
-                            onAction={(action, toDate) => act(block, action, toDate)}
-                          />
-                        );
-                        if (group.blocks.length === 1) return row(group.blocks[0]);
-                        return (
-                          <SubjectGroup
-                            key={`${day.date}:${group.subjectId}`}
-                            subjectName={group.subjectName}
-                            blocks={group.blocks}
-                            selected={selected}
-                            busy={busy}
-                            onToggleSelected={toggleSelected}
-                          >
-                            {group.blocks.map(row)}
-                          </SubjectGroup>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
+          <div className="calendar-layout-toggle" role="group" aria-label="Calendar layout">
+            <button type="button" aria-pressed={layout === "list"} onClick={() => chooseLayout("list")}>
+              List
+            </button>
+            <button type="button" aria-pressed={layout === "week"} onClick={() => chooseLayout("week")}>
+              Week
+            </button>
+          </div>
 
-          {selected.size > 0 && (
+          {layout === "week" && (
+            <CalendarWeek
+              schedule={schedule}
+              onOpenDay={(date) => {
+                chooseLayout("list");
+                setScrollTo(date);
+              }}
+            />
+          )}
+
+          {layout === "list" && (
+            <ol className="calendar-days">
+              {schedule.days.map((day) => {
+                const minutes = day.blocks.filter((b) => b.status === "planned").length * schedule.minutesPerBlock;
+                return (
+                  <li key={day.date} id={`calendar-day-${day.date}`} className={day.available ? "calendar-day" : "calendar-day calendar-day-off"}>
+                    <div className="calendar-day-header">
+                      <h2>{dayHeading(day.date, schedule.today)}</h2>
+                      <span className="calendar-day-meta">
+                        {!day.available ? "Day off" : minutes ? `about ${minutes} min to go` : day.blocks.length ? "All done" : ""}
+                      </span>
+                    </div>
+                    {day.deadlines.map((d) => (
+                      <div key={d.id} className="calendar-deadline">
+                        Deadline: <strong>{d.title}</strong> · {d.subjectName}
+                        {!d.studying && <span className="calendar-tag">not studying for it</span>}
+                      </div>
+                    ))}
+                    {day.blocks.length === 0 && day.available && <div className="calendar-day-empty">Nothing planned.</div>}
+                    {day.blocks.length > 0 && (
+                      <ul className="calendar-blocks">
+                        {groupBySubject(day.blocks).map((group) => {
+                          const row = (block: ScheduleBlock) => (
+                            <BlockRow
+                              key={block.id}
+                              block={block}
+                              schedule={schedule}
+                              busy={busy}
+                              moving={movingId === block.id}
+                              selected={selected.has(block.id)}
+                              onToggleSelected={(on) => toggleSelected([block.id], on)}
+                              onStartMove={() => setMovingId(block.id)}
+                              onCancelMove={() => setMovingId(null)}
+                              onAction={(action, toDate) => act(block, action, toDate)}
+                            />
+                          );
+                          if (group.blocks.length === 1) return row(group.blocks[0]);
+                          return (
+                            <SubjectGroup
+                              key={`${day.date}:${group.subjectId}`}
+                              subjectName={group.subjectName}
+                              blocks={group.blocks}
+                              selected={selected}
+                              busy={busy}
+                              onToggleSelected={toggleSelected}
+                            >
+                              {group.blocks.map(row)}
+                            </SubjectGroup>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+
+          {layout === "list" && selected.size > 0 && (
             <div className="calendar-batch-bar" role="region" aria-label="Move selected topics">
               <span>
                 {selected.size} topic{selected.size === 1 ? "" : "s"} selected
@@ -304,19 +361,6 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
       )}
     </div>
   );
-}
-
-type SubjectBlocks = { subjectId: string; subjectName: string; blocks: ScheduleBlock[] };
-
-/** A day's blocks grouped by subject, in the order subjects first appear. */
-function groupBySubject(blocks: ScheduleBlock[]): SubjectBlocks[] {
-  const groups = new Map<string, SubjectBlocks>();
-  for (const block of blocks) {
-    const group = groups.get(block.subjectId) ?? { subjectId: block.subjectId, subjectName: block.subjectName, blocks: [] };
-    group.blocks.push(block);
-    groups.set(block.subjectId, group);
-  }
-  return [...groups.values()];
 }
 
 // Issue #22: a day's topics for one subject, collapsed to one row until

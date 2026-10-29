@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "vitest";
-import { dayHeading, daysBetween, formatDay, localToday, parseLocalDate, relativeDay } from "./calendarDates";
+import { addDays, dayHeading, daysBetween, formatDay, localToday, parseLocalDate, relativeDay, weekStart } from "./calendarDates";
 
 const originalTz = process.env.TZ;
 afterEach(() => {
@@ -42,4 +42,18 @@ test("relative labels and day headings", () => {
   expect(dayHeading("2026-10-20", "2026-10-20")).toMatch(/^Today · /);
   expect(dayHeading("2026-10-21", "2026-10-20")).toMatch(/^Tomorrow · /);
   expect(dayHeading("2026-10-23", "2026-10-20")).not.toMatch(/Today|Tomorrow/);
+});
+
+test("addDays crosses month and year ends, and DST changes, without slipping a day", () => {
+  expect(addDays("2026-10-31", 1)).toBe("2026-11-01");
+  expect(addDays("2026-12-31", 1)).toBe("2027-01-01");
+  expect(addDays("2026-03-01", -1)).toBe("2026-02-28");
+  expect(addDays("2026-03-07", 2)).toBe("2026-03-09"); // US DST starts 2026-03-08
+  expect(addDays("2026-10-20", 0)).toBe("2026-10-20");
+});
+
+test("weekStart is the Monday on or before the date", () => {
+  expect(weekStart("2026-10-19")).toBe("2026-10-19"); // Monday
+  expect(weekStart("2026-10-25")).toBe("2026-10-19"); // Sunday
+  expect(weekStart("2026-11-01")).toBe("2026-10-26"); // Sunday, across a month end
 });

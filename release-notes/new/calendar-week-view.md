@@ -1,0 +1,1 @@
+The **Calendar** has a **Week** view: seven day columns, Monday to Sunday, with each day's deadlines and topics grouped by subject. Switch with **List** / **Week** above the plan; Athena remembers your choice. **Open day** jumps to that day in the list to move or tick things off. (#23)
