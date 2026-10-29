@@ -288,11 +288,14 @@ export async function generateNextReadyQuestion(appDataDir, sessionId, { topUp =
   if (!topic) throw new Error(`Topic not found: ${topicId}`);
 
   const bankQuestions = await listBankQuestions(appDataDir, topicId);
+  // Exam prep (issue #18): the user already knows this, so no
+  // attempt-first question even for a topic Athena hasn't quizzed yet.
+  const examPrep = session.focus === "exam";
   const isNewTopic = (topic.fsrs?.reps ?? 0) === 0;
   const sessions = await listSessions(appDataDir, { includeArchived: true });
   const recentTypes = recentlyAskedTypes(sessions, topicId);
-  const targetDifficulty = targetDifficultyForCard(topic.fsrs);
-  const picked = pickBankQuestion(bankQuestions, { preferGeneration: isNewTopic, recentTypes, targetDifficulty });
+  const targetDifficulty = targetDifficultyForCard(topic.fsrs, { examPrep });
+  const picked = pickBankQuestion(bankQuestions, { preferGeneration: isNewTopic && !examPrep, recentTypes, targetDifficulty });
   if (!picked) {
     return { ok: false, noBank: true, topicId, reason: `No bank questions available yet for topic "${topic.name}"` };
   }

@@ -861,3 +861,16 @@ test("going back to Everything starts a session over all content again", async (
 
   expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready");
 });
+
+test("choosing exam prep starts a session with no intro questions (issue #18)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.createSession).mockResolvedValue(baseSession({ focus: "exam" }));
+  vi.mocked(api.generateNextReadyQuestion).mockResolvedValue({ ok: true, session: baseSession({ currentQuestion: mcQuestion() }) });
+  render(<StudyFlow subjects={SUBJECTS} initialSubjectId="s1" onExit={() => {}} />);
+
+  expect(screen.getByRole("radio", { name: /Still learning it/ })).toBeChecked();
+  await user.click(screen.getByRole("radio", { name: /Already learned it/ }));
+  await user.click(screen.getByRole("button", { name: "Start session" }));
+
+  expect(api.createSession).toHaveBeenCalledWith(["s1"], "ready", { focus: "exam" });
+});

@@ -96,6 +96,7 @@ export function makeSessionsRouter(appDataDir, { onReadySessionDone = () => {} }
       const session = await createSession(appDataDir, {
         subjectIds,
         mode: req.body?.mode,
+        focus: req.body?.focus ?? "learn",
         topicIds,
         contentIds: contentIds ?? [],
       });

@@ -1,0 +1,1 @@
+Already know the material and just revising for an exam? Under **Where you are** in the study picker, choose **Already learned it** and the session skips intro questions and goes straight to exam-level ones. (#18)

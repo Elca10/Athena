@@ -17,6 +17,8 @@ export type SubjectSummary = {
 
 export type SessionStatus = "active" | "waiting" | "completed";
 export type SessionMode = "live" | "ready" | "hybrid";
+/** "exam": the user already knows the material, so no intro questions (issue #18). */
+export type SessionFocus = "learn" | "exam";
 
 /** How each mode is named on screen. Hybrid (issue #16): Ready's
  * pre-generated questions, with written answers graded by Athena. */
@@ -68,6 +70,8 @@ export type Session = {
   /** The files this session was limited to; empty or absent means all content. */
   contentIds?: string[];
   mode: SessionMode;
+  /** Absent on sessions from before issue #18: same as "learn". */
+  focus?: SessionFocus;
   status: SessionStatus;
   endedAt: string | null;
   archived: boolean;
@@ -196,12 +200,18 @@ export function restoreSession(id: string): Promise<Session> {
 export async function createSession(
   subjectIds: string[],
   mode: SessionMode,
-  { reviewAhead = false, contentIds }: { reviewAhead?: boolean; contentIds?: string[] } = {},
+  { reviewAhead = false, contentIds, focus }: { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus } = {},
 ): Promise<Session> {
   const res = await fetch("/api/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ subjectIds, mode, ...(reviewAhead ? { reviewAhead } : {}), ...(contentIds?.length ? { contentIds } : {}) }),
+    body: JSON.stringify({
+      subjectIds,
+      mode,
+      ...(reviewAhead ? { reviewAhead } : {}),
+      ...(contentIds?.length ? { contentIds } : {}),
+      ...(focus === "exam" ? { focus } : {}),
+    }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);

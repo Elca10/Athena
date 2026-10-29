@@ -78,10 +78,28 @@ test("targetDifficultyForCard treats a missing card state as intro, same as isDu
   assert.equal(targetDifficultyForCard(undefined), "intro");
 });
 
-test("targetDifficultyForCard is intro for New, Learning, and Relearning states regardless of stability", () => {
+test("targetDifficultyForCard is intro only for a never-reviewed (New) topic", () => {
   assert.equal(targetDifficultyForCard({ state: State.New, stability: 0 }), "intro");
-  assert.equal(targetDifficultyForCard({ state: State.Learning, stability: 2 }), "intro");
-  assert.equal(targetDifficultyForCard({ state: State.Relearning, stability: 50 }), "intro");
+});
+
+test("targetDifficultyForCard is medium for Learning and Relearning, regardless of stability", () => {
+  assert.equal(targetDifficultyForCard({ state: State.Learning, stability: 2 }), "medium");
+  assert.equal(targetDifficultyForCard({ state: State.Relearning, stability: 50 }), "medium");
+});
+
+test("targetDifficultyForCard: one review is enough to stop getting intro questions (issue #20)", () => {
+  const now = new Date("2026-10-06T12:00:00Z");
+  for (const rating of RATINGS) {
+    const card = reviewCard(createNewCardState(now), rating, now);
+    assert.notEqual(targetDifficultyForCard(card), "intro", rating);
+  }
+});
+
+test("targetDifficultyForCard with examPrep never returns intro, and leaves harder targets alone (issue #18)", () => {
+  assert.equal(targetDifficultyForCard(null, { examPrep: true }), "medium");
+  assert.equal(targetDifficultyForCard({ state: State.New, stability: 0 }, { examPrep: true }), "medium");
+  assert.equal(targetDifficultyForCard({ state: State.Learning, stability: 2 }, { examPrep: true }), "medium");
+  assert.equal(targetDifficultyForCard({ state: State.Review, stability: 30 }, { examPrep: true }), "hard");
 });
 
 test("targetDifficultyForCard is medium for a Review-state topic below the stability threshold", () => {

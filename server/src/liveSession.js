@@ -131,11 +131,17 @@ export function recentlyAskedTypes(sessions, topicId, { limit = 2 } = {}) {
  * model must satisfy, since a bank-free Live turn has nothing to fall back
  * on if the steer can't be honored (unlike Ready mode's `pickBankQuestion`,
  * which can actually filter candidates).
+ *
+ * `examPrep` (the session's focus is "exam", issue #18): the user says they
+ * already know the material, so a never-reviewed topic gets a recall
+ * framing instead of the attempt-first one.
  */
-export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes = [], targetDifficulty }) {
+export function buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes = [], targetDifficulty, examPrep = false }) {
   const subjectLine = subjectNames.length ? subjectNames.join(", ") : "an unspecified subject";
   const notesLine = topic.notes ? `\nNotes on what this topic covers: ${topic.notes}` : "";
-  const framingLine = isNewTopic
+  const framingLine = examPrep && isNewTopic
+    ? `The user has already learned this material and is revising for an exam, though they haven't been quizzed on this topic here yet. Don't treat it as new or ask what they think it might mean: ask a question that tests recall or application at the level an exam would.`
+    : isNewTopic
     ? `The user has never been reviewed on this topic before. Per this app's "generation" study principle, do NOT explain it first — ask a question that invites an attempt or a prediction before any explanation (e.g. "what do you think X means", "how would you approach Y"), pitched at someone encountering it for the first time.`
     : `The user has reviewed this topic before. Ask a question that genuinely tests recall or application, not just recognition — vary the angle from a plain definition.`;
   const varietyLine = avoidTypes.length
@@ -285,8 +291,9 @@ export async function generateNextLiveQuestion(appDataDir, sessionId, { runTurn 
   const preferences = await listPreferences(appDataDir);
   const sessions = await listSessions(appDataDir, { includeArchived: true });
   const avoidTypes = recentlyAskedTypes(sessions, topic.id);
-  const targetDifficulty = targetDifficultyForCard(topic.fsrs);
-  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes, targetDifficulty });
+  const examPrep = session.focus === "exam";
+  const targetDifficulty = targetDifficultyForCard(topic.fsrs, { examPrep });
+  const prompt = buildFirstQuestionPrompt({ subjectNames, topic, isNewTopic, preferences, avoidTypes, targetDifficulty, examPrep });
 
   let replyText;
   try {

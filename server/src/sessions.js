@@ -19,6 +19,10 @@ const FILE_NAME = "sessions.json";
 
 export const MODES = ["live", "ready", "hybrid"];
 export const STATUSES = ["active", "waiting", "completed"];
+// "learn": questions follow each topic's progress, new topics start with
+// an intro question. "exam": the user already knows the material and is
+// revising (issue #18), so no intro or attempt-first questions.
+export const FOCUSES = ["learn", "exam"];
 
 function storeFor(appDataDir) {
   return makeJsonFileStore(appDataSubdirs(appDataDir).db, FILE_NAME, []);
@@ -38,10 +42,11 @@ export async function getSession(appDataDir, id) {
   return sessions.find((s) => s.id === id) ?? null;
 }
 
-export async function createSession(appDataDir, { subjectIds, mode, topicIds = [], contentIds = [] }) {
+export async function createSession(appDataDir, { subjectIds, mode, topicIds = [], contentIds = [], focus = "learn" }) {
   const subjects = stringIds(subjectIds);
   if (subjects.length === 0) throw new Error("subjectIds must be a non-empty array");
   if (!MODES.includes(mode)) throw new Error(`mode must be one of ${MODES.join(", ")}`);
+  if (!FOCUSES.includes(focus)) throw new Error(`focus must be one of ${FOCUSES.join(", ")}`);
 
   const session = {
     id: randomUUID(),
@@ -51,6 +56,7 @@ export async function createSession(appDataDir, { subjectIds, mode, topicIds = [
     // reviewing ahead keeps the same choice. Empty: all content.
     contentIds: stringIds(contentIds),
     mode,
+    focus,
     status: "active",
     startedAt: new Date().toISOString(),
     endedAt: null,

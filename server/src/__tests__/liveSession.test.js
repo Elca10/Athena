@@ -176,6 +176,17 @@ test("buildFirstQuestionPrompt frames a reviewed topic as a real recall/applicat
   assert.doesNotMatch(prompt, /do NOT explain it first/);
 });
 
+test("buildFirstQuestionPrompt in exam prep asks a never-reviewed topic at exam level, not attempt-first (issue #18)", () => {
+  const prompt = buildFirstQuestionPrompt({
+    subjectNames: ["Organic Chemistry"],
+    topic: { name: "SN1 vs SN2", notes: "" },
+    isNewTopic: true,
+    examPrep: true,
+  });
+  assert.match(prompt, /revising for an exam/);
+  assert.doesNotMatch(prompt, /do NOT explain it first/);
+});
+
 test("buildFirstQuestionPrompt handles no subject name and no notes", () => {
   const prompt = buildFirstQuestionPrompt({ subjectNames: [], topic: { name: "Topic X", notes: "" }, isNewTopic: true });
   assert.match(prompt, /an unspecified subject/);

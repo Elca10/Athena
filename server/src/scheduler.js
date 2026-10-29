@@ -86,7 +86,7 @@ export function listDueTopics(topics, now = new Date()) {
 }
 
 // SPEC.md section 3's Desirable difficulty row: "mastered topics (FSRS
-// state Review) get harder variants; new/learning topics get easier ones."
+// state Review) get harder variants; new topics get easier ones."
 // Mature-vs-young within Review is a judgment call (the spec names no exact
 // number): 21 days (3 weeks) is a common "young vs. mature" boundary
 // already used by other spaced-repetition tools (e.g. Anki's default),
@@ -97,14 +97,20 @@ const STABILITY_HARD_DAYS = 21;
 /**
  * The difficulty variant a topic's current mastery calls for, derived
  * deterministically from its FSRS card state (never a model call — section
- * 6's "scheduler ... must be deterministic code"). Anything short of FSRS's
- * own Review state (New, Learning, and Relearning — a lapsed-and-relearning
- * topic is, by definition, not holding onto what it knew, so it gets the
- * same easy treatment as a topic that's never been reviewed) gets "intro";
- * within Review, `stability` (the fitted memory half-life, in days) picks
- * "medium" vs. "hard". Pure, exported for its own test.
+ * 6's "scheduler ... must be deterministic code"). Only a topic that has
+ * never been reviewed (FSRS New, or no card at all) gets "intro". Learning
+ * and Relearning get "medium": FSRS keeps a topic in Learning for a review
+ * or two after its first one, so treating Learning as new served intro
+ * questions again in the session after an intro one (issue #20). Within
+ * Review, `stability` (the fitted memory half-life, in days) picks
+ * "medium" vs. "hard".
+ *
+ * `examPrep` (the user said they already know the material, issue #18)
+ * never goes below "medium": no intro questions at all. Pure, exported for
+ * its own test.
  */
-export function targetDifficultyForCard(cardState) {
-  if (!cardState || cardState.state !== State.Review) return "intro";
+export function targetDifficultyForCard(cardState, { examPrep = false } = {}) {
+  if (!cardState || cardState.state === State.New) return examPrep ? "medium" : "intro";
+  if (cardState.state !== State.Review) return "medium";
   return cardState.stability >= STABILITY_HARD_DAYS ? "hard" : "medium";
 }

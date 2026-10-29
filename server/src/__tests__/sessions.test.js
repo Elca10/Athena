@@ -67,6 +67,16 @@ test("createSession rejects an unknown mode", async () => {
   );
 });
 
+test("createSession defaults focus to learn, accepts exam, and rejects anything else", async () => {
+  const dir = await scratchDir();
+  assert.equal((await createSession(dir, { subjectIds: ["subject-1"], mode: "ready" })).focus, "learn");
+  assert.equal((await createSession(dir, { subjectIds: ["subject-1"], mode: "ready", focus: "exam" })).focus, "exam");
+  await assert.rejects(
+    () => createSession(dir, { subjectIds: ["subject-1"], mode: "ready", focus: "cram" }),
+    /focus must be one of/,
+  );
+});
+
 test("getSession returns null for an unknown id", async () => {
   const dir = await scratchDir();
   assert.equal(await getSession(dir, "no-such-id"), null);

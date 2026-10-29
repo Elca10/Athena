@@ -304,6 +304,20 @@ test("generateNextReadyQuestion does NOT prefer a generation-flagged question fo
   assert.equal(result.session.currentQuestion.prompt, "Plain question, added first");
 });
 
+test("generateNextReadyQuestion in an exam-prep session skips a never-reviewed topic's intro and attempt-first questions (issue #18)", async () => {
+  const dir = await scratchDir();
+  const { subject, topic } = await seedSubjectWithTopic(dir); // fresh topic: fsrs.reps === 0
+  await addBankQuestions(dir, topic.id, subject.id, [
+    shortAnswerQuestion({ prompt: "Attempt-first generation question", difficulty: "intro", isGenerationQuestion: true }),
+    shortAnswerQuestion({ prompt: "Plain intro question", difficulty: "intro" }),
+    shortAnswerQuestion({ prompt: "Exam-level question", difficulty: "medium" }),
+  ]);
+  const session = await createSession(dir, { subjectIds: [subject.id], mode: "ready", topicIds: [topic.id], focus: "exam" });
+
+  const result = await generateNextReadyQuestion(dir, session.id);
+  assert.equal(result.session.currentQuestion.prompt, "Exam-level question");
+});
+
 test("generateNextReadyQuestion prefers the bank question matching a mastered topic's FSRS-derived target difficulty", async () => {
   const dir = await scratchDir();
   const { subject, topic } = await seedSubjectWithTopic(dir);

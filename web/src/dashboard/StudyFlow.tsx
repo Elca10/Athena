@@ -19,6 +19,7 @@ import {
   type ReflectionAnswers,
   type SelfGradeStatus,
   type Session,
+  type SessionFocus,
   type SessionMode,
   type SessionQuestion,
   type Subject,
@@ -54,6 +55,8 @@ import { AppearanceMenu } from "../theme/AppearanceMenu";
 // `reflectionPending`) to pick up exactly where it left off, whether
 // that's mid-question, mid-self-grade (Ready only), or just waiting on the
 // reflection prompt.
+type StartOptions = { reviewAhead?: boolean; contentIds?: string[]; focus?: SessionFocus };
+
 export function StudyFlow({
   subjects,
   initialSubjectId,
@@ -95,7 +98,7 @@ export function StudyFlow({
     };
   }, []);
   // Set when nothing is due but there are topics: offers "Review ahead".
-  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; contentIds?: string[] } | null>(null);
+  const [nothingDue, setNothingDue] = useState<{ subjectIds: string[]; mode: SessionMode; contentIds?: string[]; focus?: SessionFocus } | null>(null);
 
   // Stop early: with answers, go to the end-of-session reflection; with
   // none, just close it. Before this, a session could only end by
@@ -116,16 +119,21 @@ export function StudyFlow({
   }
 
   // `contentIds`: the files the user limited the session to (issue #6).
-  async function start(subjectIds: string[], mode: SessionMode, { reviewAhead = false, contentIds }: { reviewAhead?: boolean; contentIds?: string[] } = {}) {
+  // `focus`: "exam" when the user already knows the material (issue #18).
+  async function start(subjectIds: string[], mode: SessionMode, { reviewAhead = false, contentIds, focus }: StartOptions = {}) {
     setStarting(true);
     setError(null);
     setNothingDue(null);
     try {
-      const options = { ...(reviewAhead ? { reviewAhead } : {}), ...(contentIds?.length ? { contentIds } : {}) };
+      const options = {
+        ...(reviewAhead ? { reviewAhead } : {}),
+        ...(contentIds?.length ? { contentIds } : {}),
+        ...(focus === "exam" ? { focus } : {}),
+      };
       setSession(await (Object.keys(options).length ? createSession(subjectIds, mode, options) : createSession(subjectIds, mode)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't start that session.");
-      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode, contentIds });
+      if ((err as { nothingDue?: boolean } | null)?.nothingDue) setNothingDue({ subjectIds, mode, contentIds, focus });
       setStarting(false);
     }
   }
@@ -140,7 +148,7 @@ export function StudyFlow({
     } catch {
       // Not worth blocking the switch over; worst case it stays listed.
     }
-    await start(abandoned.subjectIds, "live", { contentIds: abandoned.contentIds });
+    await start(abandoned.subjectIds, "live", { contentIds: abandoned.contentIds, focus: abandoned.focus });
   }
 
   return (
@@ -170,7 +178,9 @@ export function StudyFlow({
               <button
                 type="button"
                 className="btn-secondary"
-                onClick={() => start(nothingDue.subjectIds, nothingDue.mode, { reviewAhead: true, contentIds: nothingDue.contentIds })}
+                onClick={() =>
+                  start(nothingDue.subjectIds, nothingDue.mode, { reviewAhead: true, contentIds: nothingDue.contentIds, focus: nothingDue.focus })
+                }
                 disabled={starting}
               >
                 Review ahead anyway
@@ -225,10 +235,11 @@ function ModePicker({
   initialSubjectId: string;
   readingSubjectIds: string[];
   busy: boolean;
-  onStart: (subjectIds: string[], mode: SessionMode, options?: { contentIds?: string[] }) => void;
+  onStart: (subjectIds: string[], mode: SessionMode, options?: StartOptions) => void;
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set([initialSubjectId]));
   const [mode, setMode] = useState<SessionMode>("ready");
+  const [focus, setFocus] = useState<SessionFocus>("learn");
   // Issue #6 ("not all exams are cumulative"): study only chosen files.
   const [onlySomeFiles, setOnlySomeFiles] = useState(false);
   const [pickedFiles, setPickedFiles] = useState<Set<string>>(new Set());
@@ -261,13 +272,14 @@ function ModePicker({
   const canStart = !busy && selected.size > 0 && (!onlySomeFiles || chosenFiles.length > 0);
 
   function startSession() {
+    const focusOption = focus === "exam" ? { focus } : {};
     if (!onlySomeFiles) {
-      onStart([...selected], mode);
+      onStart([...selected], mode, focusOption);
       return;
     }
     // Only subjects with a picked file: the others would add nothing.
     const subjectIds = [...new Set(chosenFiles.map((c) => c.subjectId))];
-    onStart(subjectIds, mode, { contentIds: chosenFiles.map((c) => c.id) });
+    onStart(subjectIds, mode, { contentIds: chosenFiles.map((c) => c.id), ...focusOption });
   }
 
   function toggle(id: string) {
@@ -308,6 +320,17 @@ function ModePicker({
         <label>
           <input type="radio" name="study-mode" checked={mode === "live"} onChange={() => setMode("live")} disabled={busy} />
           Live — Athena asks and grades in real time (uses more of your Claude usage)
+        </label>
+      </fieldset>
+      <fieldset className="study-picker-mode">
+        <legend>Where you are</legend>
+        <label>
+          <input type="radio" name="study-focus" checked={focus === "learn"} onChange={() => setFocus("learn")} disabled={busy} />
+          Still learning it — new topics start with an intro question
+        </label>
+        <label>
+          <input type="radio" name="study-focus" checked={focus === "exam"} onChange={() => setFocus("exam")} disabled={busy} />
+          Already learned it — exam prep, no intro questions
         </label>
       </fieldset>
       <fieldset className="study-picker-mode">
