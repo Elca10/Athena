@@ -1,5 +1,6 @@
 import express from "express";
 import { getSchedule, setAvailability, applyBlockAction, moveBlocks, BlockChangedError, BLOCK_ACTIONS } from "../schedule.js";
+import { scheduleToIcs } from "../scheduleFeed.js";
 
 // Mounted at /api/schedule: the Calendar's suggested schedule (schedule.js)
 // and the user's decisions about it. Every response that changes
@@ -9,6 +10,12 @@ export function makeScheduleRouter(appDataDir) {
 
   router.get("/", async (_req, res) => {
     res.json(await getSchedule(appDataDir));
+  });
+
+  // The same plan for calendar apps on this computer (scheduleFeed.js).
+  router.get("/feed.ics", async (_req, res) => {
+    res.set("Content-Type", "text/calendar; charset=utf-8");
+    res.send(scheduleToIcs(await getSchedule(appDataDir)));
   });
 
   router.put("/availability", async (req, res) => {

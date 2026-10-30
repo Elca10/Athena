@@ -16,6 +16,7 @@ import {
 import { dayHeading, formatDay, WEEKDAY_NAMES, WEEKDAY_ORDER, WEEKDAY_SHORT } from "./calendarDates";
 import { AppearanceMenu } from "../theme/AppearanceMenu";
 import { CanvasImport } from "./CanvasImport";
+import { CalendarSubscribe } from "./CalendarSubscribe";
 import { DeadlinesSection } from "./DeadlinesSection";
 import { CalendarWeek, groupBySubject } from "./CalendarWeek";
 
@@ -220,6 +221,8 @@ export function CalendarView({ onBack }: { onBack: () => void }) {
           <CalendarDeadlines onChanged={load} onDirtyChange={setDeadlineDirty} />
 
           <CanvasImport onImported={load} />
+
+          <CalendarSubscribe />
 
           {message && (
             <div className={message.ok ? "dashboard-notice" : "dashboard-notice dashboard-notice-error"} role={message.ok ? "status" : "alert"}>

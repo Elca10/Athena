@@ -44,8 +44,6 @@ button. The calendar design itself (missed days, Google Calendar vs. ICS /
 Canvas feed, editing the schedule) was already deferred past v1 and stays
 an open owner decision (v1 section 12).
 
-- Stand-in for v1.0: the Calendar button is hidden; subject cards omit
-  "next deadline".
 - Calendar decisions (owner, 2026-10-19):
   - Missed days fix themselves: the schedule is recomputed from the
     scheduler's current state, nothing to catch up on.
@@ -67,10 +65,10 @@ an open owner decision (v1 section 12).
     picks the subject. The URL is a secret: stored in the data dir only,
     redacted from bug reports and logs. It's the only network call Athena
     makes outside the user's Claude account and GitHub.
-  - Deferred past v0.8.0: an ICS feed of planned study blocks for
-    calendar apps (localhost-only, so Apple Calendar on the same Mac can
-    subscribe but Google Calendar can't). No Google Calendar API (OAuth
-    credentials can't live in a public repo).
+  - An ICS feed of planned study blocks for calendar apps (localhost-only,
+    so Apple Calendar on the same Mac can subscribe but Google Calendar
+    can't). No Google Calendar API (OAuth credentials can't live in a
+    public repo).
 - **Built (v0.8.0), hand-entered deadlines + the Calendar.** Deadlines
   (`deadlines.js`, `deadlines.json`): subject, title, local `YYYY-MM-DD`
   date, optional topics (none = the whole subject), and a "study for
@@ -81,8 +79,7 @@ an open owner decision (v1 section 12).
   by block id (`<originDate>:<topicId>`); any override still on today or
   later claims its topic so nothing computed replaces it, and overrides
   are applied last. Real sessions mark today's blocks done. Study adds
-  today's pulled-forward and user-placed topics. Still to do: the ICS
-  feed of study blocks (deferred).
+  today's pulled-forward and user-placed topics.
 - **Built (v0.8.0), Canvas calendar-feed import.** `canvasFeed.js`: the
   user pastes the feed link once (Calendar → Import deadlines from
   Canvas); it must be an https `/feeds/calendars/*.ics` link (webcal://
@@ -97,6 +94,18 @@ an open owner decision (v1 section 12).
   fresh fetch, not the browser. An added event whose title or date later
   changes in Canvas is only flagged, with an Update button; nothing is
   rewritten on its own.
+- **Built, the study-plan feed.** `scheduleFeed.js`: `GET
+  /api/schedule/feed.ics` turns the same `getSchedule` result into an
+  iCalendar file, one all-day event per day that has topics (planned
+  ones counted in the title, done ones marked in the description, deleted
+  ones left out), with a fixed per-day UID so a refresh updates that day
+  in place. Nothing stored, no model calls. It sits behind the same
+  loopback Host check as the rest of the API, so only apps on the same
+  computer can fetch it and it needs no token of its own. The Calendar's
+  "Show this plan in your calendar app" box gives the `webcal://` link
+  (built from the page's own host and port) with Copy, and says to pick
+  "On My Mac" in Apple Calendar, since an iCloud-stored subscription is
+  fetched by Apple's servers and can't reach it.
 
 ## 3. Make It Stick — remaining rows (v1 section 6)
 
@@ -120,14 +129,12 @@ files, deadlines, big-ideas summary, and past reflections
 (`GET /api/subjects/:id/reflections` already exists, read-only). Cut
 together with section 3's big-ideas row, which needs somewhere to live.
 
-- **Built (v0.5.0), topics/content/reflections only.** Clicking a subject
-  card's name opens `SubjectDetailPanel.tsx`, a focus-trapped modal (same
+- **Built (v0.5.0), topics/content/reflections;** deadlines (v0.8.0,
+  section 2) and big ideas (v0.7.0, section 3) have since joined it.
+  Clicking a subject card's name opens `SubjectDetailPanel.tsx`, a focus-trapped modal (same
   pattern as Add content/Tune Athena/Report a bug): topics with their
   mastery badge, content files (reusing Add content's own Remove action),
   and past reflections, each with its own loading/empty/error state.
-  Deadlines and the big-ideas summary are still not built — no placeholder
-  slot for either yet (section 3's structure-building row and section 2
-  still need to land first).
 
 ## 5. Athena persona doc (v1 section 6, closing paragraph)
 

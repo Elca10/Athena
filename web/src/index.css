@@ -2333,3 +2333,7 @@ select {
   padding: 0.2rem 0.4rem;
   font-size: 0.8rem;
 }
+
+.calendar-subscribe a {
+  color: var(--accent);
+}
