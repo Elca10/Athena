@@ -93,6 +93,29 @@ test("an upload over the size limit gets a plain 413 saying so, not a server err
   }
 });
 
+test("a malformed JSON body gets a 400, and isn't written to the error log", async () => {
+  const { createApp } = await import("../index.js");
+  const { getRecentErrorLines, clearRecentErrors } = await import("../errorLog.js");
+  clearRecentErrors();
+  const { app } = await createApp();
+  const server = app.listen(0);
+  const { port } = server.address();
+  try {
+    for (const body of ['{"secret-ish', '"just a string"']) {
+      const res = await fetch(`http://127.0.0.1:${port}/api/schedule/availability`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+      assert.equal(res.status, 400);
+      assert.equal((await res.json()).error, "That request wasn't valid JSON.");
+    }
+    assert.deepEqual(getRecentErrorLines(), []);
+  } finally {
+    server.close();
+  }
+});
+
 test("GET /api/setup/os reports a real detected OS (windows, mac, or other)", async () => {
   const { createApp } = await import("../index.js");
   const { app } = await createApp();

@@ -136,6 +136,13 @@ export async function createApp() {
       res.status(413).json({ error: `That file is too big. The limit is ${Math.round(MAX_BINARY_CONTENT_BYTES / 1024 / 1024)} MB per file.` });
       return;
     }
+    // A body that isn't valid JSON (or isn't an object or array) is a bad
+    // request, not a server fault. Not recorded: the parser's message can
+    // quote part of the body, and the error log goes into bug reports.
+    if (err.type === "entity.parse.failed") {
+      res.status(400).json({ error: "That request wasn't valid JSON." });
+      return;
+    }
     recordError(`${err.message ?? err}`);
     res.status(500).json({ error: "Something went wrong." });
   });
