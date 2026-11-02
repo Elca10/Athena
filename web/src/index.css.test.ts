@@ -26,3 +26,13 @@ describe("index.css button hover specificity", () => {
     },
   );
 });
+
+describe("index.css narrow-window top bar", () => {
+  // Issue #14's walk: at phone width the top bar (with its stats tiles) is
+  // most of the screen tall; left sticky it covered every session's
+  // Resume/Review/Archive buttons.
+  it("stops the dashboard header being sticky at the 720px breakpoint", () => {
+    const narrow = css.slice(css.indexOf("@media (max-width: 720px)"));
+    expect(narrow).toMatch(/\.dashboard-header\s*\{\s*position:\s*static;/);
+  });
+});

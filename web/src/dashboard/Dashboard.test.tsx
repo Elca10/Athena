@@ -910,6 +910,40 @@ test("Calendar opens the schedule view, and Back to dashboard returns and refres
   await waitFor(() => expect(vi.mocked(api.listSubjects).mock.calls.length).toBeGreaterThan(loadsBefore));
 });
 
+test("a Completed session with answers gets a Review button that opens its questions (issue #14)", async () => {
+  const user = userEvent.setup();
+  vi.mocked(api.listSubjects).mockResolvedValue([]);
+  vi.mocked(api.listSessions).mockResolvedValue([
+    {
+      id: "done-1",
+      subjectIds: [],
+      mode: "ready",
+      status: "completed",
+      endedAt: "2026-01-03T00:00:00.000Z",
+      archived: false,
+      currentQuestion: null,
+      history: [{ type: "explain", prompt: "Why do cells divide?", answerText: "To grow", rating: "good" }],
+    },
+    { id: "done-empty", subjectIds: [], mode: "ready", status: "completed", endedAt: "2026-01-02T00:00:00.000Z", archived: false, currentQuestion: null, history: [] },
+  ]);
+  vi.mocked(api.getSessionStats).mockResolvedValue(EMPTY_STATS);
+  mockEmptyUsage();
+  render(<Dashboard />);
+
+  const completedHeading = await screen.findByRole("heading", { name: "Completed" });
+  const completedColumn = completedHeading.closest(".dashboard-session-column") as HTMLElement;
+  // Only the session that has answers to look back at.
+  expect(within(completedColumn).getAllByRole("button", { name: "Review" })).toHaveLength(1);
+
+  await user.click(within(completedColumn).getByRole("button", { name: "Review" }));
+  const dialog = screen.getByRole("dialog");
+  expect(within(dialog).getByText("Why do cells divide?")).toBeInTheDocument();
+  expect(within(dialog).getByText("To grow")).toBeInTheDocument();
+
+  await user.click(within(dialog).getByRole("button", { name: "Close" }));
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
 test("Archive button switches to the Archive view, listing archived subjects and sessions with Restore actions", async () => {
   const user = userEvent.setup();
   vi.mocked(api.listSubjects).mockImplementation(async ({ includeArchived } = {}) =>

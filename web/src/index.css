@@ -791,11 +791,6 @@ select {
   margin-top: 0.25rem;
 }
 
-/* Archived sessions have no detail line — the Restore button needs its
-   own breathing room under the header row. */
-.session-row > button {
-  margin-top: 0.5rem;
-}
 
 /* Floating overlays (Add content, Report a bug, Tune Athena): a dimmed
    fixed backdrop centering a `.modal` card — the guide's dedicated
@@ -1449,11 +1444,17 @@ select {
   gap: 0.5rem;
 }
 
-/* Narrow windows: one column instead of two cramped ones. */
+/* Narrow windows: one column instead of two cramped ones. The top bar
+   stacks its stats tiles to most of a phone's height there, so it stops
+   being sticky; stuck, it covered every session's buttons. */
 @media (max-width: 720px) {
   .dashboard-body {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .dashboard-header {
+    position: static;
   }
 }
 
@@ -1540,7 +1541,91 @@ select {
 
 .session-row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
+  margin-top: 0.5rem;
+}
+
+/* Issue #14: a finished session's questions, read-only. */
+.session-review {
+  width: 40rem;
+  padding: 1rem 1.25rem;
+}
+
+.session-review-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.session-review-header button {
+  flex-shrink: 0;
+}
+
+.session-review-list {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.session-review-item {
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+.session-review-item-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.session-review-prompt {
+  margin: 0;
+  font-weight: 600;
+  color: var(--text-h);
+  overflow-wrap: anywhere;
+}
+
+.session-review-choices,
+.session-review-rubric {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.session-review-correct {
+  font-weight: 600;
+}
+
+.session-review-tag {
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+.session-review-fields {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.session-review-fields dt {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  margin-top: 0.4rem;
+}
+
+.session-review-fields dd {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.session-review-rubric {
+  margin-top: 0;
 }
 
 .content-panel-item {

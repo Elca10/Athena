@@ -27,6 +27,7 @@ import { SessionStatsTiles, UsageTile } from "./StatsTiles";
 import { readNewContent, type ReadStage } from "./readNewContent";
 import { ReportBugPanel } from "./ReportBugPanel";
 import { StudyFlow } from "./StudyFlow";
+import { SessionReview } from "./SessionReview";
 import { CalendarView } from "./CalendarView";
 import { formatDay, localToday, relativeDay } from "./calendarDates";
 import { UpdateControl } from "../update/UpdateControl";
@@ -87,6 +88,7 @@ export function Dashboard() {
   // Add content's Done), and which stage each is on.
   const [reading, setReading] = useState<Record<string, ReadStage>>({});
   const [showAllCompleted, setShowAllCompleted] = useState(false);
+  const [reviewSession, setReviewSession] = useState<Session | null>(null);
   const readingNow = useRef(new Set<string>());
   const readAgain = useRef(new Set<string>());
 
@@ -322,6 +324,13 @@ export function Dashboard() {
       {noticeBanner}
       {showBugReport && <ReportBugPanel onClose={() => setShowBugReport(false)} />}
       {showTune && <TuneAthenaPanel onClose={() => setShowTune(false)} />}
+      {reviewSession && (
+        <SessionReview
+          session={reviewSession}
+          subjectLabel={reviewSession.subjectIds.map(subjectName).join(", ")}
+          onClose={() => setReviewSession(null)}
+        />
+      )}
       {contentSubjectId && (
         <AddContentPanel
           subjectId={contentSubjectId}
@@ -428,6 +437,7 @@ export function Dashboard() {
                           }
                         : undefined
                     }
+                    onReview={session.status === "completed" && session.history.length > 0 ? () => setReviewSession(session) : undefined}
                     onArchive={
                       session.status === "completed"
                         ? async () => {
@@ -459,6 +469,7 @@ export function Dashboard() {
 function ArchiveView({ onBack }: { onBack: () => void }) {
   const [subjects, setSubjects] = useState<Subject[] | null>(null);
   const [sessions, setSessions] = useState<Session[] | null>(null);
+  const [reviewSession, setReviewSession] = useState<Session | null>(null);
 
   async function refresh() {
     // Fetches every subject/session, not just the archived ones, so a
@@ -478,6 +489,13 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="dashboard">
+      {reviewSession && (
+        <SessionReview
+          session={reviewSession}
+          subjectLabel={reviewSession.subjectIds.map(subjectName).join(", ")}
+          onClose={() => setReviewSession(null)}
+        />
+      )}
       <header className="dashboard-header">
         <div className="dashboard-header-top">
           <h1>Archive</h1>
@@ -528,16 +546,23 @@ function ArchiveView({ onBack }: { onBack: () => void }) {
                 <span className="session-row-subjects">{session.subjectIds.map(subjectName).join(", ")}</span>
                 <span className="session-row-mode">{MODE_LABELS[session.mode] ?? session.mode}</span>
               </div>
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={async () => {
-                  await restoreSession(session.id);
-                  refresh();
-                }}
-              >
-                Restore
-              </button>
+              <div className="session-row-actions">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={async () => {
+                    await restoreSession(session.id);
+                    refresh();
+                  }}
+                >
+                  Restore
+                </button>
+                {session.history.length > 0 && (
+                  <button type="button" onClick={() => setReviewSession(session)}>
+                    Review
+                  </button>
+                )}
+              </div>
             </article>
           ))}
         </section>
@@ -553,12 +578,14 @@ function SessionRow({
   subjectName,
   onResume,
   onEnd,
+  onReview,
   onArchive,
 }: {
   session: Session;
   subjectName: (id: string) => string;
   onResume?: () => void;
   onEnd?: () => void;
+  onReview?: () => void;
   onArchive?: () => void;
 }) {
   const subjectLabel = session.subjectIds.map(subjectName).join(", ");
@@ -607,10 +634,19 @@ function SessionRow({
           )}
         </div>
       )}
-      {onArchive && (
-        <button type="button" onClick={onArchive}>
-          Archive
-        </button>
+      {(onReview || onArchive) && (
+        <div className="session-row-actions">
+          {onReview && (
+            <button type="button" onClick={onReview}>
+              Review
+            </button>
+          )}
+          {onArchive && (
+            <button type="button" onClick={onArchive}>
+              Archive
+            </button>
+          )}
+        </div>
       )}
     </article>
   );

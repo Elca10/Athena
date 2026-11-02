@@ -25,6 +25,7 @@ import {
   type Subject,
 } from "./api";
 import { BigIdeasEditor } from "./BigIdeasEditor";
+import { RATING_OUTCOME, OUTCOME_LABEL } from "./SessionReview";
 import { AppearanceMenu } from "../theme/AppearanceMenu";
 
 // The Study flow (SPEC.md section 4's Study button; section 5's session
@@ -1182,17 +1183,7 @@ const REFLECTION_PROMPTS: { field: keyof ReflectionAnswers; label: string }[] = 
 // them come back blank (reflection.js: that's what Skip is for) — Submit
 // stays disabled until at least one has real content, so the user gets
 // that feedback before the round trip rather than from a server error.
-// What happened this session, before the reflection questions. Every
-// answered entry carries the FSRS rating it produced (Ready's auto-grade or
-// self-grade, Live's model grade), so that's the common score across modes.
-const RATING_OUTCOME: Record<string, "solid" | "shaky" | "missed"> = {
-  easy: "solid",
-  good: "solid",
-  hard: "shaky",
-  again: "missed",
-};
-const OUTCOME_LABEL = { solid: "Got it", shaky: "Shaky", missed: "Missed" } as const;
-
+// What happened this session, before the reflection questions.
 function SessionSummary({ history }: { history: unknown[] }) {
   const entries = history as { prompt?: string; rating?: string }[];
   if (!entries.length) return null;
