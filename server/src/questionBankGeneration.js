@@ -117,14 +117,14 @@ Write a question bank for these topics:
 ${topicsBlock}
 
 For EACH topic above, write exactly ${questionsPerTopic} questions, varied in type and angle (not ${questionsPerTopic} versions of the same question) — pick from: ${QUESTION_TYPES.join(", ")}. For every question, give:
-- "prompt": the question text shown to the user, one or two sentences (for "cloze", include a blank in the text, e.g. "_____").
+- "prompt": the question text shown to the user, one or two sentences (for "cloze", include a blank in the text, e.g. "_____"). It must stand on its own: the user never sees the material, so don't refer to "the slide", "the passage", "the reading" or anything else they can't see, and never put answer options in the prompt text.
 - "difficulty": one of intro, medium, hard.
 - "modelAnswer": the shortest correct, complete answer, usually one to three sentences, written in the voice above (specific, no padding, no inflation) — this is shown to the user verbatim later, as Ready mode's self-grading comparison.
 - "rubric": the key points a correct answer should hit, as a short list — required for every type except multiple_choice/cloze (those are graded automatically from their own answer key below, not a rubric).
 - "misconceptions": common wrong answers or mix-ups for this question, as a short list of short phrases (can be empty if none are notable), also in the voice above.
 - "isGenerationQuestion": true or false (see below; false unless told otherwise for a specific topic).
 ${generationBlock}
-Additionally, for a "multiple_choice" question also give "choices" (2-6 short options) and "correctIndex" (the 0-based index of the right one in "choices"). For a "cloze" question also give "clozeAnswer" (the exact text that fills the blank).
+Additionally, for a "multiple_choice" question also give "choices" (2-6 short options, all different, each a plausible direct answer to that exact prompt, with no "all/none of the above") and "correctIndex" (the 0-based index of the right one in "choices"). For a "cloze" question also give "clozeAnswer" (the exact text that fills the blank).
 
 Finish your reply with exactly one fenced block in this exact form, and nothing after it:
 
@@ -171,6 +171,14 @@ function cappedStringArray(value, { maxCount, maxChars }) {
   return out;
 }
 
+const CLOZE_BLANK_RE = /_{3,}/;
+// Two or more "A)"/"(b)"/"C." style option labels in a prompt.
+const INLINE_OPTION_RE = /(?:^|\s)\(?[A-Fa-f][).]\s/g;
+
+function hasInlineOptions(prompt) {
+  return (prompt.match(INLINE_OPTION_RE) ?? []).length >= 2;
+}
+
 /**
  * Validates and normalizes one raw question from a reply. Returns `null`
  * (reject just this question, not the whole topic/reply) rather than
@@ -208,6 +216,11 @@ function normalizeQuestion(raw) {
   if (raw.type === "multiple_choice") {
     const choices = cappedStringArray(raw.choices, { maxCount: 6, maxChars: MAX_CHOICE_CHARS });
     if (choices.length < 2) return null;
+    // Issue #14: a question whose options didn't match it. Options written
+    // into the prompt text as well as `choices` can disagree with them, and
+    // duplicate options mean the model lost track of the question.
+    if (new Set(choices.map((c) => c.toLowerCase())).size !== choices.length) return null;
+    if (hasInlineOptions(prompt)) return null;
     if (!Number.isInteger(raw.correctIndex) || raw.correctIndex < 0 || raw.correctIndex >= choices.length) return null;
     question.choices = choices;
     question.correctIndex = raw.correctIndex;
@@ -216,6 +229,7 @@ function normalizeQuestion(raw) {
   if (raw.type === "cloze") {
     const clozeAnswer = typeof raw.clozeAnswer === "string" ? raw.clozeAnswer.trim() : "";
     if (!clozeAnswer) return null;
+    if (!CLOZE_BLANK_RE.test(prompt)) return null;
     question.clozeAnswer = clozeAnswer.slice(0, MAX_ANSWER_CHARS);
   }
 

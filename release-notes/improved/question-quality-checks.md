@@ -1,0 +1,1 @@
+New practice questions are checked harder, so you should no longer get a multiple-choice question whose options don't match it, or one that points at slides you can't see. Questions Athena already wrote are unchanged. (#14)

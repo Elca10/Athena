@@ -195,7 +195,7 @@ test("parseBankReply clamps isGenerationQuestion to false for multiple_choice/cl
   assert.equal(parseBankReply(mcReply).topics[0].questions[0].isGenerationQuestion, false);
 
   const clozeReply = bankReply([
-    { topicName: "Biology", questions: [validQuestion({ type: "cloze", rubric: [], clozeAnswer: "x", isGenerationQuestion: true })] },
+    { topicName: "Biology", questions: [validQuestion({ type: "cloze", prompt: "The _____ makes ATP.", rubric: [], clozeAnswer: "x", isGenerationQuestion: true })] },
   ]);
   assert.equal(parseBankReply(clozeReply).topics[0].questions[0].isGenerationQuestion, false);
 });
@@ -232,13 +232,63 @@ test("parseBankReply drops a multiple_choice question with fewer than two choice
 
 test("parseBankReply accepts a cloze question with a clozeAnswer and drops one without", () => {
   const withAnswer = bankReply([
-    { topicName: "Biology", questions: [validQuestion({ type: "cloze", rubric: [], clozeAnswer: "mitochondria" })] },
+    { topicName: "Biology", questions: [validQuestion({ type: "cloze", prompt: "The _____ makes ATP.", rubric: [], clozeAnswer: "mitochondria" })] },
   ]);
   assert.equal(parseBankReply(withAnswer).topics[0].questions.length, 1);
   assert.equal(parseBankReply(withAnswer).topics[0].questions[0].clozeAnswer, "mitochondria");
 
-  const withoutAnswer = bankReply([{ topicName: "Biology", questions: [validQuestion({ type: "cloze", rubric: [] })] }]);
+  const withoutAnswer = bankReply([{ topicName: "Biology", questions: [validQuestion({ type: "cloze", prompt: "The _____ makes ATP.", rubric: [] })] }]);
   assert.equal(parseBankReply(withoutAnswer).topics[0].questions.length, 0);
+});
+
+test("parseBankReply drops a cloze question whose prompt has no blank (issue #14)", () => {
+  const reply = bankReply([
+    { topicName: "Biology", questions: [validQuestion({ type: "cloze", prompt: "What makes ATP?", rubric: [], clozeAnswer: "mitochondria" })] },
+  ]);
+  assert.equal(parseBankReply(reply).topics[0].questions.length, 0);
+});
+
+test("parseBankReply drops a multiple_choice question with duplicate choices (issue #14)", () => {
+  const reply = bankReply([
+    {
+      topicName: "Sorting",
+      questions: [validQuestion({ type: "multiple_choice", rubric: [], choices: ["Quicksort", "quicksort ", "Heapsort"], correctIndex: 0 })],
+    },
+  ]);
+  assert.equal(parseBankReply(reply).topics[0].questions.length, 0);
+});
+
+test("parseBankReply drops a multiple_choice question that lists its own options in the prompt (issue #14)", () => {
+  const inline = bankReply([
+    {
+      topicName: "Sorting",
+      questions: [
+        validQuestion({
+          type: "multiple_choice",
+          prompt: "Which sort is stable? A) Quicksort B) Merge sort C) Heapsort",
+          rubric: [],
+          choices: ["Selection sort", "Shell sort"],
+          correctIndex: 0,
+        }),
+      ],
+    },
+  ]);
+  assert.equal(parseBankReply(inline).topics[0].questions.length, 0);
+
+  const plain = bankReply([
+    {
+      topicName: "Sorting",
+      questions: [validQuestion({ type: "multiple_choice", prompt: "Which uses Vitamin A. as a cofactor?", rubric: [], choices: ["x", "y"], correctIndex: 0 })],
+    },
+  ]);
+  assert.equal(parseBankReply(plain).topics[0].questions.length, 1);
+});
+
+test("buildBankPrompt asks for self-contained prompts and distinct, on-topic choices (issue #14)", () => {
+  const prompt = buildBankPrompt({ subjectName: "CS", topics: [{ name: "Sorting" }], files: [] });
+  assert.match(prompt, /must stand on its own/);
+  assert.match(prompt, /never put answer options in the prompt text/);
+  assert.match(prompt, /all different, each a plausible direct answer to that exact prompt/);
 });
 
 test("parseBankReply drops a question with a blank prompt or model answer", () => {
